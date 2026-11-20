@@ -924,6 +924,86 @@ class WalletService:
         async with _solana_rpc_semaphore():
             return await self._solana_rpc_post_unthrottled(session, payload, context)
 
+    async def _solana_rpc_post_many(
+        self, session: aiohttp.ClientSession, payloads: list[dict], context: str
+    ) -> list[dict]:
+        """Send several JSON-RPC calls as ONE request, preserving input order.
+
+        A balance fetch needs three calls (getBalance + getTokenAccountsByOwner
+        per token program). Sent individually that is three HTTP requests
+        against an endpoint that rate-limits on requests/second, so a single
+        wallet refresh cost three units of a budget that the refresher spends
+        once a minute for every wallet it tracks. JSON-RPC 2.0 batching
+        collapses them into one request and one rate-limit unit.
+
+        Each payload must carry a unique ``id``: a batch response may come
+        back in any order, so results are matched by id, never by position.
+
+        **Fallback.** Batching is in the JSON-RPC 2.0 spec and Solana's RPC
+        implements it, but an endpoint (or a proxy in front of one) may
+        answer a batch with a single object instead of an array. That case
+        degrades to sequential sends rather than failing, so a non-conforming
+        endpoint costs throughput, never correctness.
+        """
+        if not payloads:
+            return []
+        if len(payloads) == 1:
+            return [await self._solana_rpc_post(session, payloads[0], context)]
+
+        ids = [p.get("id") for p in payloads]
+        if len(set(ids)) != len(ids) or any(i is None for i in ids):
+            raise ValueError("batched Solana payloads need unique, non-null ids")
+
+        async with _solana_rpc_semaphore():
+            url = rpc_manager.get_rpc_url("solana")
+            start = time.monotonic()
+            async with session.post(url, json=payloads) as resp:
+                if resp.status == 429:
+                    rpc_manager.report_failure("solana", url, "rate_limited_429")
+                    await self._solana_sleep_for_retry_after(resp)
+                    logger.warning(f"Solana RPC rate limited (429) {context}")
+                    raise ConnectionError("Solana RPC rate limited")
+                if resp.status >= 400:
+                    rpc_manager.report_failure("solana", url, f"http_{resp.status}")
+                    logger.warning(f"Solana RPC HTTP {resp.status} {context}")
+                    raise ConnectionError(f"Solana RPC HTTP {resp.status}")
+                body = await resp.json()
+
+        if not isinstance(body, list):
+            # Endpoint ignored the batch. Pay the extra requests rather than
+            # lose the data; the semaphore still bounds the fan-out.
+            logger.debug("Solana endpoint did not honour JSON-RPC batching; sending serially")
+            return [await self._solana_rpc_post(session, p, context) for p in payloads]
+
+        by_id = {entry.get("id"): entry for entry in body if isinstance(entry, dict)}
+        ordered: list[dict] = []
+        for payload in payloads:
+            entry = by_id.get(payload.get("id"))
+            if entry is None:
+                rpc_manager.report_failure("solana", url, "batch_missing_response")
+                raise ConnectionError(f"Solana RPC batch missing id {payload.get('id')!r}")
+            if "error" in entry:
+                rpc_manager.report_failure("solana", url, f"rpc_error: {str(entry['error'])[:80]}")
+                logger.warning(f"Solana RPC error {context}: {entry['error']}")
+                raise ConnectionError(f"Solana RPC error: {entry['error']}")
+            ordered.append(entry)
+
+        rpc_manager.report_success("solana", url, (time.monotonic() - start) * 1000)
+        return ordered
+
+    @staticmethod
+    async def _solana_sleep_for_retry_after(resp) -> None:
+        """Honour a 429's Retry-After, clamped so a bad header can't stall us."""
+        try:
+            delay = min(
+                float(resp.headers.get("Retry-After", "")),
+                _SOLANA_MAX_RETRY_AFTER_SECONDS,
+            )
+        except (TypeError, ValueError):
+            return
+        if delay > 0:
+            await asyncio.sleep(delay)
+
     async def _solana_rpc_post_unthrottled(
         self, session: aiohttp.ClientSession, payload: dict, context: str
     ) -> dict:
@@ -935,15 +1015,9 @@ class WalletService:
                 rpc_manager.report_failure("solana", url, "rate_limited_429")
                 # Respect the provider's own backoff when it sends one, so a
                 # rate-limited endpoint gets a pause rather than the next
-                # caller's immediate retry. Bounded: a hostile or mistaken
-                # Retry-After must not stall the batch budget.
-                retry_after = resp.headers.get("Retry-After", "")
-                try:
-                    delay = min(float(retry_after), _SOLANA_MAX_RETRY_AFTER_SECONDS)
-                except (TypeError, ValueError):
-                    delay = 0.0
-                if delay > 0:
-                    await asyncio.sleep(delay)
+                # caller's immediate retry. Bounded inside the helper: a
+                # hostile or mistaken Retry-After must not stall the batch.
+                await self._solana_sleep_for_retry_after(resp)
                 logger.warning(f"Solana RPC rate limited (429) {context}")
                 raise ConnectionError("Solana RPC rate limited")
             if resp.status >= 400:
@@ -959,13 +1033,16 @@ class WalletService:
         return result
 
     async def get_solana_all_balances(self, address: str) -> dict[str, float]:
-        """Fetch SOL + every configured SPL token balance in 3 RPC calls.
+        """Fetch SOL + every configured SPL token balance in ONE RPC request.
 
-        Sequential getBalance + one getTokenAccountsByOwner per token program
-        (classic SPL and Token-2022), instead of one per-mint call — the
-        per-mint fan-out was 9+ concurrent requests per wallet and got the
-        whole worker rate-limited. Raises ConnectionError on RPC failure so
-        callers don't cache an empty result as truth.
+        getBalance + one getTokenAccountsByOwner per token program (classic
+        SPL and Token-2022), sent as a single JSON-RPC batch instead of one
+        call per mint. The per-mint fan-out was 9+ concurrent requests per
+        wallet and rate-limited the whole worker; sending the remaining three
+        individually still cost three units of a per-second budget the
+        refresher spends for every wallet it tracks, once a minute. Raises
+        ConnectionError on RPC failure so callers don't cache an empty result
+        as truth.
         """
         from bot.config.tokens import TOKENS
 
@@ -979,27 +1056,33 @@ class WalletService:
         }
 
         balances: dict[str, float] = {}
+
+        # One batched request, not three: see _solana_rpc_post_many. Ids are
+        # unique so responses can be matched regardless of returned order.
+        payloads: list[dict] = [
+            {"jsonrpc": "2.0", "id": "native", "method": "getBalance", "params": [address]}
+        ]
+        payloads += [
+            {
+                "jsonrpc": "2.0",
+                "id": f"accounts:{program_id}",
+                "method": "getTokenAccountsByOwner",
+                "params": [address, {"programId": program_id}, {"encoding": "jsonParsed"}],
+            }
+            for program_id in SOLANA_TOKEN_PROGRAM_IDS
+        ]
+
         async with self._http_session() as session:
-            native = await self._solana_rpc_post(
-                session,
-                {"jsonrpc": "2.0", "id": 1, "method": "getBalance", "params": [address]},
-                f"fetching SOL for {address[:8]}...",
+            responses = await self._solana_rpc_post_many(
+                session, payloads, f"fetching balances for {address[:8]}..."
             )
+
+            native, token_responses = responses[0], responses[1:]
             lamports = (native.get("result") or {}).get("value")
             if isinstance(lamports, int) and lamports > 0:
                 balances["SOL"] = lamports / 1e9
 
-            for program_id in SOLANA_TOKEN_PROGRAM_IDS:
-                result = await self._solana_rpc_post(
-                    session,
-                    {
-                        "jsonrpc": "2.0",
-                        "id": 1,
-                        "method": "getTokenAccountsByOwner",
-                        "params": [address, {"programId": program_id}, {"encoding": "jsonParsed"}],
-                    },
-                    f"fetching token accounts for {address[:8]}...",
-                )
+            for result in token_responses:
                 for account in (result.get("result") or {}).get("value") or []:
                     try:
                         info = account["account"]["data"]["parsed"]["info"]

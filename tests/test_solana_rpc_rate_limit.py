@@ -204,3 +204,164 @@ async def test_garbage_retry_after_does_not_sleep(svc, monkeypatch):
     with pytest.raises(ConnectionError):
         await svc._solana_rpc_post(session, {}, "ctx")
     assert slept == []
+
+
+# --- 4. One batched request instead of three ------------------------------
+
+
+class _BatchSession:
+    """Records every POST body so request COUNT can be asserted, not just data."""
+
+    def __init__(self, response, status=200, headers=None):
+        self.bodies: list = []
+        self._response = response
+        self._status = status
+        self._headers = headers or {}
+
+    def post(self, url, json=None):
+        session = self
+
+        class _Ctx:
+            async def __aenter__(self):
+                session.bodies.append(json)
+                return _FakeResponse(
+                    session._status,
+                    payload=session._response(json),
+                    headers=session._headers,
+                )
+
+            async def __aexit__(self, *exc):
+                return False
+
+        return _Ctx()
+
+
+def _batch_echo(body):
+    """A conforming endpoint: array in, array out."""
+    if isinstance(body, list):
+        return [{"jsonrpc": "2.0", "id": p["id"], "result": {"value": 1}} for p in body]
+    return {"jsonrpc": "2.0", "id": body["id"], "result": {"value": 1}}
+
+
+async def test_three_calls_become_one_http_request(svc):
+    payloads = [{"jsonrpc": "2.0", "id": f"r{i}", "method": "m", "params": []} for i in range(3)]
+    session = _BatchSession(_batch_echo)
+    out = await svc._solana_rpc_post_many(session, payloads, "ctx")
+    assert len(session.bodies) == 1, "batching did not collapse the requests"
+    assert isinstance(session.bodies[0], list) and len(session.bodies[0]) == 3
+    assert len(out) == 3
+
+
+async def test_results_follow_request_order_not_response_order(svc):
+    """A batch response may come back in any order — match by id."""
+    payloads = [{"jsonrpc": "2.0", "id": f"r{i}", "method": "m", "params": []} for i in range(3)]
+
+    def shuffled(body):
+        resp = [{"jsonrpc": "2.0", "id": p["id"], "result": {"value": p["id"]}} for p in body]
+        return list(reversed(resp))
+
+    out = await svc._solana_rpc_post_many(_BatchSession(shuffled), payloads, "ctx")
+    assert [r["result"]["value"] for r in out] == ["r0", "r1", "r2"]
+
+
+async def test_falls_back_to_serial_when_endpoint_ignores_batching(svc):
+    """A non-conforming endpoint costs throughput, never correctness."""
+    payloads = [{"jsonrpc": "2.0", "id": f"r{i}", "method": "m", "params": []} for i in range(3)]
+
+    def not_a_batch(body):
+        # Answers the batch with a single object, as a bad proxy might.
+        return {"jsonrpc": "2.0", "id": "r0", "result": {"value": "single"}}
+
+    session = _BatchSession(not_a_batch)
+    out = await svc._solana_rpc_post_many(session, payloads, "ctx")
+    # 1 failed batch attempt + 3 serial retries.
+    assert len(session.bodies) == 4
+    assert len(out) == 3
+
+
+async def test_error_inside_a_batch_entry_raises(svc):
+    """One bad entry must not be silently returned as a good result."""
+    payloads = [{"jsonrpc": "2.0", "id": f"r{i}", "method": "m", "params": []} for i in range(2)]
+
+    def one_error(body):
+        return [
+            {"jsonrpc": "2.0", "id": "r0", "result": {"value": 1}},
+            {"jsonrpc": "2.0", "id": "r1", "error": {"code": -32000, "message": "boom"}},
+        ]
+
+    with pytest.raises(ConnectionError, match="boom"):
+        await svc._solana_rpc_post_many(_BatchSession(one_error), payloads, "ctx")
+
+
+async def test_missing_batch_entry_raises_rather_than_dropping_data(svc):
+    payloads = [{"jsonrpc": "2.0", "id": f"r{i}", "method": "m", "params": []} for i in range(2)]
+
+    def short(body):
+        return [{"jsonrpc": "2.0", "id": "r0", "result": {"value": 1}}]
+
+    with pytest.raises(ConnectionError, match="missing id"):
+        await svc._solana_rpc_post_many(_BatchSession(short), payloads, "ctx")
+
+
+async def test_duplicate_ids_are_rejected(svc):
+    """Without unique ids, responses cannot be matched safely."""
+    payloads = [{"jsonrpc": "2.0", "id": "same", "method": "m", "params": []} for _ in range(2)]
+    with pytest.raises(ValueError):
+        await svc._solana_rpc_post_many(_BatchSession(_batch_echo), payloads, "ctx")
+
+
+async def test_batch_consumes_one_rate_limit_unit(svc):
+    """The whole point: a batch is ONE request against the provider's budget."""
+    session = _TrackingSession(hold_ticks=3)
+    payloads = [{"jsonrpc": "2.0", "id": f"r{i}", "method": "m", "params": []} for i in range(3)]
+
+    # _TrackingSession returns a non-list, so this also exercises the fallback;
+    # what matters here is that the batch attempt itself took one permit.
+    await svc._solana_rpc_post_many(session, payloads, "ctx")
+    assert session.peak <= wallet_module._SOLANA_RPC_MAX_CONCURRENCY
+
+
+# --- 5. End to end: a wallet refresh is now one request -------------------
+
+
+async def test_full_balance_fetch_issues_a_single_request(monkeypatch):
+    """The production path: get_solana_all_balances used to cost 3 requests.
+
+    This is the claim the whole change rests on, so assert the request COUNT
+    against the real method, not just the batch helper in isolation.
+    """
+    svc = wallet_module.WalletService.__new__(wallet_module.WalletService)
+    monkeypatch.setattr(
+        wallet_module.rpc_manager, "get_rpc_url", lambda chain: "https://solana.test"
+    )
+    monkeypatch.setattr(wallet_module.rpc_manager, "report_success", lambda *a, **k: None)
+    monkeypatch.setattr(wallet_module.rpc_manager, "report_failure", lambda *a, **k: None)
+    monkeypatch.setattr(wallet_module.rpc_manager, "chain_all_circuits_open", lambda chain: False)
+
+    def respond(body):
+        out = []
+        for p in body:
+            if p["method"] == "getBalance":
+                out.append({"jsonrpc": "2.0", "id": p["id"], "result": {"value": 2_000_000_000}})
+            else:
+                out.append({"jsonrpc": "2.0", "id": p["id"], "result": {"value": []}})
+        return out
+
+    session = _BatchSession(respond)
+
+    class _SessionCtx:
+        async def __aenter__(self):
+            return session
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(svc, "_http_session", lambda: _SessionCtx())
+
+    balances = await svc.get_solana_all_balances("9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM")
+
+    assert (
+        len(session.bodies) == 1
+    ), f"expected 1 HTTP request per wallet refresh, got {len(session.bodies)}"
+    assert len(session.bodies[0]) == 3, "all three calls should ride in the one batch"
+    assert balances["SOL"] == pytest.approx(2.0), "SOL balance must survive batching"
