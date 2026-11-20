@@ -234,10 +234,12 @@ numbering and have been corrected.
 
 ## Voice reference
 
-The live hero copy, quoted from `showcase/messages/en.json`:
+The live hero copy, quoted from `home.hero` in `showcase/messages/en.json`.
+The key matters: a stale top-level `hero` block also exists in all four
+locales, and no component reads it.
 
-- "The full-stack trading platform for cross-chain markets."
-- "Send a trade intent. Suwappu ranks every venue, shows the route, and executes only when you approve. Execution, research, and portfolio tracking live in one venue."
+- "Every venue competes before you approve."
+- "Send a trade intent. Suwappu prices it across every venue that can serve the route, shows you the one it picked and why, and moves money only after you authorize it."
 
 Sentence-level rules for this document are in [`docs/WRITING.md`](../WRITING.md).
 
