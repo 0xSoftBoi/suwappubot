@@ -27,6 +27,10 @@ export const swapTransactions = pgTable('swap_transactions', {
 
 	// Transaction details
 	status: varchar('status', { length: 30 }).default('pending'),
+	// tx_hash / bridge_tx_hash / destination_tx_hash hold a MIX of 0x-prefixed and BARE
+	// 64-hex spellings (legacy Python writes used HexBytes.hex(), which drops 0x; existing
+	// rows are not rewritten). Readers MUST match via txHashVariants() (lib/txHash.ts),
+	// never ===/eq(). TRON txids are legitimately bare; Solana sigs are base58.
 	txHash: varchar('tx_hash', { length: 255 }),
 	bridgeTxHash: varchar('bridge_tx_hash', { length: 255 }),
 	destinationTxHash: varchar('destination_tx_hash', { length: 255 }),

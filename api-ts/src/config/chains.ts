@@ -1,4 +1,6 @@
 // Shared chain configuration for RPC endpoints, broadcasting, and explorers
+import { logger } from '../lib/logger'
+import { rpcTxHash } from '../lib/txHash'
 
 const alchemyKey = process.env.ALCHEMY_API_KEY || ''
 
@@ -276,13 +278,25 @@ export async function getTransactionReceipt(chainId: number, txHash: string): Pr
 			body: JSON.stringify({
 				jsonrpc: '2.0',
 				method: 'eth_getTransactionReceipt',
-				params: [txHash],
+				// Strict nodes (e.g. eth.drpc.org) reject a bare hash with a JSON-RPC
+				// error ("hex string without 0x prefix") and no `result`, which used to
+				// read as "still pending" forever. Legacy rows hold bare hashes (see
+				// lib/txHash.ts), so force the 0x form. This call is EVM-only.
+				params: [rpcTxHash(txHash)],
 				id: 1,
 			}),
 			signal: AbortSignal.timeout(10000),
 		})
 
-		const data = (await response.json()) as { result?: { status: string } | null }
+		const data = (await response.json()) as {
+			result?: { status: string } | null
+			error?: { message?: string; code?: number }
+		}
+		if (data.error) {
+			// An RPC error is NOT "pending": surface it instead of silently returning null.
+			logger.warn({ chainId, txHash, rpcError: data.error }, 'eth_getTransactionReceipt RPC error')
+			return null
+		}
 		if (!data.result) return null
 		return { status: data.result.status === '0x1' ? 'completed' : 'failed' }
 	} catch {
