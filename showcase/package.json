@@ -33,12 +33,12 @@
     "dompurify": "^3.4.11",
     "framer-motion": "^12.42.2",
     "js-yaml": "^3.15.2",
-    "next": "^15.5.26",
+    "next": "^15.5.29",
     "next-intl": "^4.13.0",
     "qrcode": "^1.5.4",
     "react": "^19.2.7",
     "react-dom": "^19.2.8",
-    "sharp": "^0.35.4"
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",

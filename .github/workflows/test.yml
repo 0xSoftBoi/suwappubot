@@ -468,6 +468,10 @@ jobs:
       # These packages use bun.lock as their dependency authority. Keep going
       # after one failure so a single CI run reports every affected workspace,
       # then fail the job if any high/critical advisory was found.
+      #
+      # Per-workspace ignores are time-bounded, evidence-backed exceptions; each
+      # one is documented in docs/security/dependency-exceptions.md and must be
+      # removed when its review date passes or the dependency path changes.
       - name: Bun dependency audits (locked workspaces)
         id: bun-audit
         continue-on-error: true
@@ -475,6 +479,16 @@ jobs:
         run: |
           set -uo pipefail
           status=0
+          declare -A IGNORE=(
+            # GHSA-mrhx-c7xc-m3w5: zod 3 pinned by @coinbase/x402 -> @coinbase/cdp-sdk;
+            # only used to mint a CDP auth JWT, never to validate inbound bodies.
+            [api-ts]="--ignore=GHSA-mrhx-c7xc-m3w5"
+            # Browser bundle. GHSA-mrhx-c7xc-m3w5: zod 3 pinned by @coinbase/cdp-sdk and
+            # @reown/appkit-wallet. GHSA-qr28-fpjm-wq7f: decode-uri-component ^0.2 pinned
+            # by @walletconnect/utils -> query-string; the only patched release is
+            # ESM-only and incompatible. Worst case in both is the user's own tab.
+            [terminal]="--ignore=GHSA-mrhx-c7xc-m3w5 --ignore=GHSA-qr28-fpjm-wq7f"
+          )
           for dir in \
             api-ts \
             terminal \
@@ -486,7 +500,7 @@ jobs:
             packages/design-tokens
           do
             echo "::group::bun audit ($dir)"
-            (cd "$dir" && bun audit --audit-level=high) || status=1
+            (cd "$dir" && bun audit --audit-level=high ${IGNORE[$dir]:-}) || status=1
             echo "::endgroup::"
           done
           exit "$status"
