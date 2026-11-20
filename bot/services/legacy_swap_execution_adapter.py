@@ -22,6 +22,7 @@ from bot.models.execution import (
 from bot.models.swap import SwapStatus, SwapTransaction
 from bot.services.execution_lifecycle import ParentState, TERMINAL_STATES
 from bot.services.execution_store import ExecutionStore, ExecutionStoreError, execution_store
+from bot.services.swap_nonce import tx_hash_variants
 
 
 class LegacySwapProjectionError(ExecutionStoreError):
@@ -139,7 +140,16 @@ def _ensure_child(
         child.submitted_at = child.submitted_at or swap.updated_at or datetime.utcnow()
         child.state = "submitted"
         session.flush()
-    elif swap.tx_hash and child.external_tx_hash != swap.tx_hash:
+    elif swap.tx_hash and child.external_tx_hash not in tx_hash_variants(swap.tx_hash):
+        # Compare across spellings, not with `==`. The same hash can be stored
+        # bare (EVM executors persisted `HexBytes.hex()`, which has no `0x`
+        # prefix from hexbytes 1.x on) or `0x`-prefixed (provider APIs, and
+        # everything written since normalization landed in swap_engine's
+        # _update_tx_hash). A plain `!=` reads that purely cosmetic difference
+        # as "the transaction identity changed" and aborts the projection for
+        # a swap that is in fact perfectly consistent -- a false alarm that
+        # gets MORE likely during the transition, since a child row written
+        # before the fix now meets a canonicalized swap.tx_hash.
         raise LegacySwapProjectionError(
             "legacy swap external tx identity changed after canonical child creation: "
             f"{child.external_tx_hash} -> {swap.tx_hash}"
