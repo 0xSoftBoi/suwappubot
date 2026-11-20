@@ -11,6 +11,23 @@ from typing import Optional
 
 from bot.services.turnkey_client import TurnkeyAPIError
 
+
+def _zeroize_str(value: str) -> None:
+    """Best-effort scrub of a secret string after use (defense-in-depth).
+
+    Delegates to wallet.py's implementation, imported lazily so this module
+    (which wallet.py itself imports from inside its signing functions) stays
+    free of an import cycle. Guarded so it can never raise into a signing
+    path: the key must be scrubbed even when signing throws.
+    """
+    try:
+        from bot.services.wallet import _zeroize_str as _impl
+
+        _impl(value)
+    except Exception:  # pragma: no cover - never break signing to scrub
+        pass
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -216,8 +233,14 @@ def _sign_evm_local(wallet_service, wallet, transaction: dict) -> str:
         private_key = "0x" + private_key
 
     logger.info(f"Signing EVM tx locally (fallback) for wallet {wallet.address[:10]}...")
-    signed = Account.sign_transaction(transaction, private_key)
-    return signed.raw_transaction.hex()
+    try:
+        signed = Account.sign_transaction(transaction, private_key)
+        return signed.raw_transaction.hex()
+    finally:
+        # Scrub the decrypted backup key even if signing raises, matching
+        # wallet.py::_sign_evm_local. Without this the plaintext key from a
+        # KMS-encrypted backup outlives the signing call on every fallback.
+        _zeroize_str(private_key)
 
 
 def _sign_typed_data_local(wallet_service, wallet, typed_data: dict) -> str:
@@ -230,10 +253,13 @@ def _sign_typed_data_local(wallet_service, wallet, typed_data: dict) -> str:
         private_key = "0x" + private_key
 
     logger.info(f"Signing typed data locally (fallback) for wallet {wallet.address[:10]}...")
-    account = Account.from_key(private_key)
-    encoded_message = encode_typed_data(full_message=typed_data)
-    signed = account.sign_message(encoded_message)
-    return signed.signature.hex()
+    try:
+        account = Account.from_key(private_key)
+        encoded_message = encode_typed_data(full_message=typed_data)
+        signed = account.sign_message(encoded_message)
+        return signed.signature.hex()
+    finally:
+        _zeroize_str(private_key)
 
 
 def _sign_solana_local(wallet_service, wallet, transaction_bytes: bytes) -> bytes:
@@ -245,13 +271,22 @@ def _sign_solana_local(wallet_service, wallet, transaction_bytes: bytes) -> byte
 
     private_key = _get_backup_private_key(wallet)
 
+    key_buf = None
     try:
-        key_bytes = base58.b58decode(private_key)
-    except Exception:
-        key_bytes = bytes(json.loads(private_key))
+        try:
+            key_buf = bytearray(base58.b58decode(private_key))
+        except Exception:
+            key_buf = bytearray(json.loads(private_key))
 
-    logger.info(f"Signing Solana tx locally (fallback) for wallet {wallet.address[:10]}...")
-    keypair = Keypair.from_bytes(key_bytes)
-    tx = VersionedTransaction.from_bytes(transaction_bytes)
-    tx.sign([keypair])
-    return bytes(tx)
+        logger.info(f"Signing Solana tx locally (fallback) for wallet {wallet.address[:10]}...")
+        keypair = Keypair.from_bytes(bytes(key_buf))
+        tx = VersionedTransaction.from_bytes(transaction_bytes)
+        tx.sign([keypair])
+        return bytes(tx)
+    finally:
+        # Wipe the decoded key material in place (bytearray is mutable, unlike
+        # the str) and scrub the string form, even if signing raises.
+        if key_buf is not None:
+            for i in range(len(key_buf)):
+                key_buf[i] = 0
+        _zeroize_str(private_key)

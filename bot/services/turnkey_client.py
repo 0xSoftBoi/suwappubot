@@ -501,7 +501,21 @@ class TurnkeyClient:
         )
 
         sign_result = result.get("signTransactionResult", {})
-        return sign_result.get("signedTransaction", "")
+        signed = sign_result.get("signedTransaction")
+        if not signed:
+            # Fail loudly instead of returning "". An empty string flows into
+            # bytes.fromhex("") == b"" and then into send_raw_transaction(b""),
+            # which fails closed but as an opaque node error at the broadcast
+            # call — the worst place to discover that signing never happened,
+            # since callers treat a broadcast failure as ambiguous and must
+            # then assume a transaction may be in flight when none exists.
+            # Reaches ~40 call sites, so it is raised here once.
+            raise TurnkeyActivityError(
+                None,
+                "Turnkey returned no signedTransaction (missing or still-async "
+                "activity result) — transaction was NOT signed",
+            )
+        return signed
 
     async def sign_raw_payload(
         self,
