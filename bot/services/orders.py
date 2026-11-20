@@ -66,6 +66,32 @@ def _dca_order_key(order) -> str:
     return f"dca:{order.id}:{_created_stamp(order)}:{order.executions_completed}"
 
 
+def _unresolved_attempt(session, prefix: str):
+    """Any attempt for this order that must not be followed by a new broadcast.
+
+    Matches on the key PREFIX, so it also catches rows written under the old
+    hour-bucketed format. Without this, the first tick after deploying the new
+    key format would look up a key that matches nothing, find no history, and
+    broadcast on top of an in-flight or unverified legacy attempt — exactly the
+    double send this whole change exists to prevent, in the one window where
+    the guard is blind.
+
+    Retryable rows are excluded on the same test the engine's guard uses:
+    FAILED or CANCELLED with no hash means nothing was broadcast.
+    """
+    return (
+        session.query(SwapTransaction)
+        .filter(
+            SwapTransaction.idempotency_key.like(f"{prefix}%"),
+            ~(
+                SwapTransaction.status.in_([SwapStatus.FAILED.value, SwapStatus.CANCELLED.value])
+                & SwapTransaction.tx_hash.is_(None)
+            ),
+        )
+        .first()
+    )
+
+
 class OrderService:
     """Service for managing limit orders and DCA."""
 
@@ -439,14 +465,10 @@ class OrderService:
             if not order:
                 return False
 
-            blocking = (
-                session.query(SwapTransaction)
-                .filter(
-                    SwapTransaction.idempotency_key == _dca_order_key(order),
-                    SwapTransaction.status == SwapStatus.UNKNOWN.value,
-                )
-                .first()
-            )
+            blocking = _unresolved_attempt(session, f"dca:{order.id}:")
+            if blocking is not None and blocking.status != SwapStatus.UNKNOWN.value:
+                # In-flight rather than unverified: let it finish on its own.
+                blocking = None
             if blocking:
                 logger.error(
                     "Refusing to resume DCA order %d: swap %s is UNKNOWN (may have "
@@ -693,6 +715,23 @@ class OrderService:
             # does not.
             idempotency_key = _limit_order_key(order)
 
+            with get_session() as session:
+                stale = _unresolved_attempt(session, f"lo:{order.id}:")
+                if stale is not None and stale.idempotency_key != idempotency_key:
+                    logger.error(
+                        "Limit order %d not executed: an earlier attempt (swap %s, key %s, "
+                        "status %s) is unresolved under a different key format. Refusing to "
+                        "broadcast on top of it.",
+                        order.id,
+                        stale.id,
+                        stale.idempotency_key,
+                        stale.status,
+                    )
+                    db_order = session.query(LimitOrder).filter(LimitOrder.id == order.id).first()
+                    if db_order:
+                        db_order.status = OrderStatus.FAILED.value
+                    return
+
             swap_tx = await self._swap_engine.execute_swap(
                 quote=quote,
                 wallet_id=order.wallet_id,
@@ -786,6 +825,23 @@ class OrderService:
             # failed execution retries under the same key and the guard decides
             # from the swap's status.
             idempotency_key = _dca_order_key(order)
+
+            with get_session() as session:
+                stale = _unresolved_attempt(session, f"dca:{order.id}:")
+                if stale is not None and stale.idempotency_key != idempotency_key:
+                    logger.error(
+                        "DCA order %d paused: an earlier attempt (swap %s, key %s, status %s) "
+                        "is unresolved under a different key format. Refusing to broadcast on "
+                        "top of it.",
+                        order.id,
+                        stale.id,
+                        stale.idempotency_key,
+                        stale.status,
+                    )
+                    db_order = session.query(DCAOrder).filter(DCAOrder.id == order.id).first()
+                    if db_order:
+                        db_order.status = DCAStatus.PAUSED.value
+                    return
 
             swap_tx = await self._swap_engine.execute_swap(
                 quote=quote,

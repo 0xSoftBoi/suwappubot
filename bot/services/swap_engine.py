@@ -4348,6 +4348,51 @@ class SwapEngine:
                             None if savings_already_recorded else quote.runner_up_provider
                         ),
                     )
+                    # Reclaim rather than insert when a retryable attempt
+                    # already holds this key.
+                    #
+                    # The key is now stable across retries, so a second attempt
+                    # collides with the first row on UNIQUE(idempotency_key).
+                    # Inserting would raise, and the guard above has already
+                    # established this row is safe to retry (FAILED or
+                    # CANCELLED with no tx_hash, so nothing was broadcast), so
+                    # raising would mean a genuinely failed order could never
+                    # retry at all. The rotating key used to hide this by
+                    # producing a fresh key each time.
+                    #
+                    # One row per key, reused across attempts, is also the
+                    # correct idempotency semantics: the key identifies the
+                    # attempt, not the row.
+                    if idempotency_key:
+                        prior = (
+                            session.query(SwapTransaction)
+                            .filter(SwapTransaction.idempotency_key == idempotency_key)
+                            .with_for_update(nowait=False)
+                            .first()
+                            if session.bind.dialect.name != "sqlite"
+                            else session.query(SwapTransaction)
+                            .filter(SwapTransaction.idempotency_key == idempotency_key)
+                            .first()
+                        )
+                        if prior is not None:
+                            # Re-apply the retryability test while holding the
+                            # row, so a concurrent broadcast cannot be clobbered.
+                            if not (
+                                prior.status
+                                in (
+                                    SwapStatus.FAILED.value,
+                                    SwapStatus.CANCELLED.value,
+                                )
+                                and prior.tx_hash is None
+                            ):
+                                return prior.id
+                            prior.status = SwapStatus.EXECUTING.value
+                            prior.error_message = None
+                            prior.error_category = None
+                            prior.route_provider = quote.provider
+                            session.flush()
+                            quote._savings_recorded = True
+                            return prior.id
                     session.add(swap_tx)
                     session.flush()
                     quote._savings_recorded = True

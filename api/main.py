@@ -214,41 +214,51 @@ async def lifespan(app: FastAPI):
         try:
             cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
             with get_session() as session:
-                orphaned = (
-                    session.query(SwapTransaction)
+                # Conditional UPDATE, not a read-modify-write. Selecting the
+                # rows and then mutating the loaded objects would compare a
+                # stale in-session tx_hash: the process that owns a swap (or
+                # another replica) can persist its hash and move it to
+                # SUBMITTED between the select and the commit, and overwriting
+                # that would strand a row whose hash was perfectly pollable.
+                # Pushing the predicate into the UPDATE lets the database
+                # decide, so a row that acquired a hash is simply not matched.
+                orphan_ids = [
+                    row.id
+                    for row in session.query(SwapTransaction.id)
                     .filter(
                         SwapTransaction.status == SwapStatus.EXECUTING.value,
                         SwapTransaction.tx_hash.is_(None),
                         SwapTransaction.created_at < cutoff,
                     )
                     .all()
-                )
-                if orphaned:
-                    orphan_ids = []
-                    for row in orphaned:
-                        # Re-check under the same session before writing. This
-                        # is a read-modify-write: between the SELECT above and
-                        # the commit below, the process that owns this swap
-                        # (or another replica) can persist tx_hash and move the
-                        # row to SUBMITTED. Overwriting that would strand a row
-                        # that has a perfectly pollable hash, because the
-                        # poller treats UNKNOWN as settled.
-                        if row.tx_hash:
-                            continue
-                        row.status = SwapStatus.UNKNOWN.value
-                        row.error_message = (
-                            "Reconciled at startup: EXECUTING with no tx_hash. The broadcast "
-                            "may have succeeded; outcome unverified. Not retried to avoid a "
-                            "duplicate send."
+                ]
+                if orphan_ids:
+                    updated = (
+                        session.query(SwapTransaction)
+                        .filter(
+                            SwapTransaction.id.in_(orphan_ids),
+                            SwapTransaction.status == SwapStatus.EXECUTING.value,
+                            SwapTransaction.tx_hash.is_(None),
                         )
-                        orphan_ids.append(row.id)
+                        .update(
+                            {
+                                SwapTransaction.status: SwapStatus.UNKNOWN.value,
+                                SwapTransaction.error_message: (
+                                    "Reconciled at startup: EXECUTING with no tx_hash. The "
+                                    "broadcast may have succeeded; outcome unverified. Not "
+                                    "retried to avoid a duplicate send."
+                                ),
+                            },
+                            synchronize_session=False,
+                        )
+                    )
                     session.commit()
-                    if orphan_ids:
+                    if updated:
                         logger.error(
                             "Reconciled %d orphaned EXECUTING transactions to UNKNOWN "
                             "(may have broadcast, outcome unverified, retry blocked) — "
                             "needs on-chain verification: swap ids %s",
-                            len(orphan_ids),
+                            updated,
                             orphan_ids,
                         )
         except Exception as e:

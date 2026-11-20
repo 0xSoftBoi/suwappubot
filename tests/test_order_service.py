@@ -1,6 +1,6 @@
 import asyncio
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -112,10 +112,15 @@ def test_limit_order_executes_through_swap_engine(sqlite_db):
     # engine's idempotency lookup misses and the guard that decides whether a
     # retry may broadcast never runs. The created_at stamp makes the key unique
     # to this order for all time, since SQLite reuses rowids after a DELETE.
-    # See _limit_order_key in bot/services/orders.py.
+    # Pin UTC here too: created_at is naive, so a bare .timestamp() would read
+    # it in the test machine's local zone and disagree with production.
     with get_session() as session:
         created = (
-            session.query(LimitOrder).filter(LimitOrder.id == 1).first().created_at.timestamp()
+            session.query(LimitOrder)
+            .filter(LimitOrder.id == 1)
+            .first()
+            .created_at.replace(tzinfo=timezone.utc)
+            .timestamp()
         )
     assert captured["execute_kwargs"]["idempotency_key"] == f"lo:1:{int(created)}"
     assert captured["execute_kwargs"]["automated"] is True
