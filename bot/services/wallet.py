@@ -2252,6 +2252,17 @@ def serialize_unsigned_evm_tx(transaction: dict) -> str:
 
     chainId is required: defaulting it (previously to 1) would sign a valid
     Ethereum-mainnet transaction that anyone could replay there.
+
+    Raises:
+        InvalidTransactionError: chainId is missing or zero (any tx type), or
+            `gas` is missing/None on the legacy branch. eth_account rejects a
+            missing `gas` outright, so defaulting it here would sign — only on
+            the Turnkey path — a transaction no local-key wallet could produce.
+            21000 is the floor for a bare native transfer and guarantees
+            out-of-gas on anything with calldata, after broadcast, where no
+            retry is safe. Typed (EIP-1559/2930) transactions already reject a
+            missing gas, but out of eth_account as a bare TypeError from the
+            encoding below, which is outside the wrapping try.
     """
     import rlp
     from eth_account._utils.legacy_transactions import (
@@ -2271,8 +2282,20 @@ def serialize_unsigned_evm_tx(transaction: dict) -> str:
         tx.pop("type", None)  # eth_account rejects an explicit legacy type 0
     is_typed = "maxFeePerGas" in tx or _tx_type(tx) is not None
     if not is_typed:
-        # Preserve the historical defaults for optional legacy fields (None too).
-        for key, default in (("nonce", 0), ("gas", 21000), ("value", 0), ("data", "0x")):
+        # MONEY-PATH: gas is required, never defaulted. 21000 is only the floor
+        # for a bare native transfer, so defaulting it signs a guaranteed
+        # out-of-gas transaction for any call with calldata — and only for
+        # Turnkey wallets, since eth_account rejects a missing gas before
+        # broadcast. The user would pay the full 21000 for a transaction that
+        # moves nothing, and it fails after broadcast where no retry is safe.
+        if tx.get("gas") is None:
+            raise InvalidTransactionError(
+                "Refusing to sign legacy EVM transaction without an explicit gas limit"
+            )
+        # value/data keep their defaults: 0 and "0x" are the genuine no-op
+        # values and eth_account defaults them identically, so they are not
+        # asymmetric between the Turnkey and local signing paths.
+        for key, default in (("nonce", 0), ("value", 0), ("data", "0x")):
             if tx.get(key) is None:
                 tx[key] = default
         if tx.get("gasPrice") is None:
