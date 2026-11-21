@@ -169,6 +169,8 @@
       "networkFee": "Network fee",
       "priceImpact": "Price impact",
       "quoteExpires": "Quote expires",
+      "quoteType": "Quote type",
+      "indicative": "Indicative, not executable",
       "expired": "expired",
       "seconds": "{seconds}s",
       "freshQuote": "Get a fresh quote",

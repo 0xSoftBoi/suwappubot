@@ -169,6 +169,8 @@
       "networkFee": "Frais réseau",
       "priceImpact": "Impact sur le prix",
       "quoteExpires": "Expiration",
+      "quoteType": "Type de cotation",
+      "indicative": "Indicative, non exécutable",
       "expired": "expirée",
       "seconds": "{seconds}s",
       "freshQuote": "Obtenir une nouvelle cotation",

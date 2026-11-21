@@ -169,6 +169,8 @@
       "networkFee": "网络费用",
       "priceImpact": "价格影响",
       "quoteExpires": "报价有效期",
+      "quoteType": "报价类型",
+      "indicative": "仅供参考，不可执行",
       "expired": "已过期",
       "seconds": "{seconds} 秒",
       "freshQuote": "获取新报价",

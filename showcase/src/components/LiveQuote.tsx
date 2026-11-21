@@ -27,7 +27,9 @@ type Quote = {
   gasUsd?: string | null;
   route?: string | null;
   dex?: string | null;
-  expiresIn: number;
+  /** Absent on indicative previews: they are not executable and have no validity window. */
+  expiresIn?: number;
+  indicative?: boolean;
   fetchedAt?: number;
 };
 
@@ -64,7 +66,7 @@ export default function LiveQuote({ variant = 'dark' }: { variant?: 'dark' | 'wa
       const ageSeconds = Math.max(0, Math.floor((Date.now() - fetchedAt) / 1000));
       const remaining = Math.max(0, (nextQuote.expiresIn ?? 60) - ageSeconds);
       setQuote(nextQuote);
-      setLeft(nextQuote.stale ? 0 : remaining);
+      setLeft(nextQuote.stale || nextQuote.indicative ? 0 : remaining);
       setState('idle');
     } catch {
       if (controller.signal.aborted) return;
@@ -87,7 +89,7 @@ export default function LiveQuote({ variant = 'dark' }: { variant?: 'dark' | 'wa
     return () => clearTimeout(timer);
   }, [left, quote, state]);
 
-  const expired = Boolean(state === 'idle' && quote && !quote.stale && left <= 0);
+  const expired = Boolean(state === 'idle' && quote && !quote.stale && !quote.indicative && left <= 0);
   const statusKind =
     state === 'loading'
       ? 'loading'
@@ -117,7 +119,7 @@ export default function LiveQuote({ variant = 'dark' }: { variant?: 'dark' | 'wa
         <span className={`lq__title lq__title--${statusKind}`} aria-live="polite">
           {statusLabel}
         </span>
-        <span className="lq__src">api.suwappu.bot/v1/agent/quote</span>
+        <span className="lq__src">{quote?.indicative ? '/public/swap/preview' : 'api.suwappu.bot/v1/agent/quote'}</span>
       </div>
 
       <div className="lq__pairs" role="group" aria-label={t('presetLabel')}>
@@ -176,9 +178,9 @@ export default function LiveQuote({ variant = 'dark' }: { variant?: 'dark' | 'wa
             <div><dt>{t('networkFee')}</dt><dd>{quote.gasUsd || '—'}</dd></div>
             <div><dt>{t('priceImpact')}</dt><dd>{quote.priceImpact || '—'}</dd></div>
             <div>
-              <dt>{t('quoteExpires')}</dt>
-              <dd className={!quote.stale && left <= 10 ? 'lq__warn' : undefined}>
-                {quote.stale ? '—' : expired ? t('expired') : t('seconds', { seconds: left })}
+              <dt>{quote.indicative ? t('quoteType') : t('quoteExpires')}</dt>
+              <dd className={!quote.stale && !quote.indicative && left <= 10 ? 'lq__warn' : undefined}>
+                {quote.indicative ? t('indicative') : quote.stale ? '—' : expired ? t('expired') : t('seconds', { seconds: left })}
               </dd>
             </div>
           </dl>

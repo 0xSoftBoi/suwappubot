@@ -169,6 +169,8 @@
       "networkFee": "Comisión de red",
       "priceImpact": "Impacto en precio",
       "quoteExpires": "La cotización vence",
+      "quoteType": "Tipo de cotización",
+      "indicative": "Indicativa, no ejecutable",
       "expired": "vencida",
       "seconds": "{seconds}s",
       "freshQuote": "Obtener nueva cotización",
