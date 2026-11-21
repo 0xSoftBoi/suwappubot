@@ -1,7 +1,7 @@
 import { Turnkey } from '@turnkey/sdk-server'
 import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
-import { broadcastRawTx, getRpcUrls, isStarknet, rpcFetch } from '../config/chains'
+import { broadcastRawTx, broadcastRawTxTolerant, getRpcUrls, isStarknet, rpcFetch } from '../config/chains'
 import { EnvService } from '../config/EnvService'
 import { logger } from '../lib/logger'
 import { DatabaseError, mapErrorToResponse, NotFoundError, ValidationError } from '../errors'
@@ -569,15 +569,17 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 			logger.info('[SwapRoute] Transaction signed successfully')
 
 			let txHash: string | null = null
+			let broadcastAmbiguous = false
 
 			if (rpcUrlForChain) {
 				const broadcastResult = yield* Effect.tryPromise({
 					try: async () => {
-						return (await broadcastRawTx(rpcUrlForChain, signedTransaction)).hash
+						return await broadcastRawTxTolerant(rpcUrlForChain, signedTransaction)
 					},
 					catch: (e) => new Error(`Failed to broadcast transaction: ${e}`),
 				})
-				txHash = broadcastResult
+				txHash = broadcastResult.hash
+				broadcastAmbiguous = broadcastResult.ambiguous
 				logger.info('[SwapRoute] Transaction broadcast, txHash: %s', txHash)
 			} else {
 				logger.warn(
@@ -603,7 +605,7 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 				swapId: swapRecord.id,
 				status: newStatus,
 				txHash: txHash || undefined,
-				message: txHash ? 'Transaction submitted.' : 'Transaction signed. Submit to chain to complete swap.',
+				message: txHash ? (broadcastAmbiguous ? 'Transaction submitted; network confirmation is pending. Check swap status — do not resubmit.' : 'Transaction submitted.') : 'Transaction signed. Submit to chain to complete swap.',
 				chain: {
 					chainId: txRequest.chainId,
 					rpcNeeded: !txHash,

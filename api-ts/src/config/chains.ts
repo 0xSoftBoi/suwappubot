@@ -87,8 +87,10 @@ export const RPC_ENDPOINT_LISTS: Record<string, string[]> = {
 	flare: endpoints('FLARE_RPC_URL', ['https://flare-api.flare.network/ext/C/rpc', 'https://flare.drpc.org']),
 	// Added alongside aurora/blast/ink in bot/config/chains.py (parallel change)
 	aurora: endpoints('AURORA_RPC_URL', ['https://mainnet.aurora.dev', 'https://aurora.drpc.org']),
-	// rpc.blast.io could not be reached from the probe container and no public
-	// alternative answered — set BLAST_RPC_URL (comma-separated) to add more.
+	// rpc.blast.io is Blast's official RPC. It was unreachable only from the
+	// sandbox/proxy we probed from (not a confirmed outage) and no public
+	// alternative answered, so it stays as the sole default. Set BLAST_RPC_URL
+	// (comma-separated) to add or replace endpoints.
 	blast: endpoints('BLAST_RPC_URL', ['https://rpc.blast.io']),
 	ink: endpoints('INK_RPC_URL', ['https://rpc-gel.inkonchain.com', 'https://ink.drpc.org', 'https://rpc-qnd.inkonchain.com']),
 }
@@ -152,7 +154,12 @@ export async function rpcFetch(
 			if (!last) logger.warn(`[rpc] ${safeHost(url)} failed (${terse(e)}), failing over`)
 		}
 	}
-	throw new Error(`All ${urls.length} RPC endpoint(s) failed: ${terse(lastErr)}`)
+	// Preserve the last cause (and its name for Timeout/Abort) so callers can classify it.
+	const failure = new Error(`All ${urls.length} RPC endpoint(s) failed: ${terse(lastErr)}`, { cause: lastErr })
+	if (lastErr instanceof Error && (lastErr.name === 'TimeoutError' || lastErr.name === 'AbortError')) {
+		failure.name = lastErr.name
+	}
+	throw failure
 }
 
 /** Ordered RPC URL list for an EVM chain id (empty if unknown). */
@@ -400,7 +407,7 @@ export async function broadcastRawTx(
 				if (NONCE_CONFLICT_RE.test(message) && attempts > 1) {
 					const found = await findTxUrl(urls, localHash)
 					if (found) return { hash: localHash, url: found }
-					throw new Error(`RPC broadcast error: ${message} (code ${code})`)
+					throw Object.assign(new Error(`RPC broadcast error: ${message} (code ${code})`), { final: true })
 				}
 				if (FAILOVER_RPC_CODES.has(code)) throw new Error(`rpc error ${code}: ${message}`)
 				// Request-level rejection (revert, funds, nonce on first attempt): don't retry
@@ -424,7 +431,29 @@ export async function broadcastRawTx(
 		const found = await findTxUrl(urls, localHash)
 		if (found) return { hash: localHash, url: found }
 	}
-	throw lastErr
+	// `ambiguous`: an attempt may have landed even though we are reporting failure.
+	throw Object.assign(lastErr, { ambiguous: uncertain })
+}
+
+/**
+ * broadcastRawTx that never turns an ambiguous outcome into a hard failure: if
+ * the tx may have landed (timeouts etc.) it returns the deterministic
+ * keccak256(signedTx) with `ambiguous: true` so the caller can persist it and
+ * let the receipt poller reconcile. Definitive rejections still throw.
+ */
+export async function broadcastRawTxTolerant(
+	urls: string[],
+	signedTx: string,
+): Promise<{ hash: string; url?: string; ambiguous: boolean }> {
+	try {
+		return { ...(await broadcastRawTx(urls, signedTx)), ambiguous: false }
+	} catch (e) {
+		if ((e as { ambiguous?: boolean } | null)?.ambiguous) {
+			logger.error(`[rpc] broadcast outcome uncertain across ${urls.length} endpoint(s); recording local tx hash for reconciliation`)
+			return { hash: keccak256(signedTx as Hex), ambiguous: true }
+		}
+		throw e
+	}
 }
 
 async function findTxUrl(urls: string[], hash: string): Promise<string | null> {

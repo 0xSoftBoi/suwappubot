@@ -51,6 +51,7 @@ export interface SimulationReport {
 }
 
 const RPC_TIMEOUT_MS = 8_000
+const EVM_CHECKS_DEADLINE_MS = 20_000
 
 const NATIVE_EVM_ADDRESSES = new Set([
 	'0x0000000000000000000000000000000000000000',
@@ -95,7 +96,11 @@ interface RpcResult<T> {
  * a check's `detail`, since that flows straight into the API response.
  */
 function classifyRpcError(e: unknown): string {
-	if (e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError')) {
+	const cause = e instanceof Error ? e.cause : undefined
+	if (
+		(e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError')) ||
+		(cause instanceof Error && (cause.name === 'TimeoutError' || cause.name === 'AbortError'))
+	) {
 		return 'RPC timeout'
 	}
 	if (e instanceof Error) {
@@ -231,17 +236,36 @@ export async function runEvmChecks(input: EvmCheckInput): Promise<SimulationChec
 		]
 	}
 
-	// --- balance_sufficient ---
-	checks.push(await checkEvmBalanceSufficient(rpcUrl, input, isNative))
-
-	// --- allowance_sufficient ---
-	checks.push(await checkEvmAllowanceSufficient(rpcUrl, input, isNative))
-
-	// --- gas_affordable ---
-	checks.push(await checkEvmGasAffordable(rpcUrl, input, isNative))
-
-	// --- eth_call_revert_check ---
-	checks.push(await checkEvmEthCallRevert(rpcUrl, input))
+	// Independent reads run in parallel under an overall deadline so a degraded
+	// endpoint list (N x 8s per call) can't hang the request.
+	const timedOut = (name: string, unverified: boolean): SimulationCheck => ({
+		name,
+		status: 'warn',
+		unverified,
+		detail: 'unverified: simulation timed out',
+	})
+	const withDeadline = <T>(p: Promise<T>, fallbackValue: T): Promise<T> =>
+		new Promise<T>((resolve) => {
+			const t = setTimeout(() => resolve(fallbackValue), EVM_CHECKS_DEADLINE_MS)
+			p.then(
+				(v) => {
+					clearTimeout(t)
+					resolve(v)
+				},
+				() => {
+					clearTimeout(t)
+					resolve(fallbackValue)
+				},
+			)
+		})
+	checks.push(
+		...(await Promise.all([
+			withDeadline(checkEvmBalanceSufficient(rpcUrl, input, isNative), timedOut('balance_sufficient', true)),
+			withDeadline(checkEvmAllowanceSufficient(rpcUrl, input, isNative), timedOut('allowance_sufficient', false)),
+			withDeadline(checkEvmGasAffordable(rpcUrl, input, isNative), timedOut('gas_affordable', true)),
+			withDeadline(checkEvmEthCallRevert(rpcUrl, input), timedOut('eth_call_revert_check', false)),
+		])),
+	)
 
 	return checks
 }

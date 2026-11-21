@@ -8,7 +8,7 @@ import { DEFAULT_SLIPPAGE } from '../config/constants'
 import { logger } from '../lib/logger'
 import { DrizzleService, requireDb, wallets } from '../db'
 import { mapErrorToResponse, NotFoundError, UnauthorizedError, ValidationError } from '../errors'
-import { broadcastRawTx, getRpcUrls } from '../config/chains'
+import { broadcastRawTxTolerant, getRpcUrls } from '../config/chains'
 import { withSigningFallback } from '../services/FallbackSigningService'
 import { type AuthUser, flexAuth } from '../middleware/flexAuth'
 import { ipRateLimit } from '../middleware/ipRateLimit'
@@ -30,10 +30,6 @@ import {
 
 const publicSwapRoutes = new Hono()
 
-// Chain ID to RPC endpoint mapping (shared with swap.ts)
-const CHAIN_RPC_ENDPOINTS: Record<number, string[]> = Object.fromEntries(
-	[1, 10, 56, 137, 8453, 42161, 43114, 59144, 324].map((id) => [id, getRpcUrls(id)]),
-)
 
 // In-memory quote cache as fallback when Redis is not available
 // Receiver used to price unauthenticated previews. Never signs anything.
@@ -820,17 +816,19 @@ publicSwapRoutes.post('/execute', flexAuth(), async (c) => {
 
 			const signedTransaction = signResult.signedTransaction
 
-			const rpcUrl = CHAIN_RPC_ENDPOINTS[txRequest.chainId]
+			const rpcUrls = getRpcUrls(txRequest.chainId)
 			let txHash: string | null = null
+			let broadcastAmbiguous = false
 
-			if (rpcUrl) {
+			if (rpcUrls.length > 0) {
 				const broadcastResult = yield* Effect.tryPromise({
 					try: async () => {
-						return (await broadcastRawTx(rpcUrl, signedTransaction)).hash
+						return await broadcastRawTxTolerant(rpcUrls, signedTransaction)
 					},
 					catch: (e) => new Error(`Failed to broadcast transaction: ${e}`),
 				})
-				txHash = broadcastResult
+				txHash = broadcastResult.hash
+				broadcastAmbiguous = broadcastResult.ambiguous
 				logger.info('[PublicSwap] Transaction broadcast, txHash: %s', txHash)
 			}
 
@@ -848,7 +846,9 @@ publicSwapRoutes.post('/execute', flexAuth(), async (c) => {
 				txHash,
 				signedTransaction: txHash ? undefined : signedTransaction,
 				message: txHash
-					? 'Transaction submitted to the network.'
+					? broadcastAmbiguous
+						? 'Transaction submitted; network confirmation is pending. Check swap status — do not resubmit.'
+						: 'Transaction submitted to the network.'
 					: 'Transaction signed but no RPC available for broadcast.',
 				swap: {
 					fromChain: quote.fromChain,
