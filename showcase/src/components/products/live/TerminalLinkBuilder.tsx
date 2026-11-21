@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { callApi, type CallResult } from './api';
 import { useLiveSlug } from './ApiKeyProvider';
+import { isAmount } from './keyStore';
 import { CopyBtn, ErrorBox } from './ui';
 import { TERMINAL_URL } from '@/lib/links';
 import { track } from '@/lib/analytics';
@@ -29,7 +30,7 @@ export default function TerminalLinkBuilder() {
   useEffect(() => { void load(); }, [load]);
 
   const tok = token.trim().toUpperCase();
-  const amtOk = /^\d*\.?\d+$/.test(amount.trim()) && Number(amount) > 0;
+  const amtOk = isAmount(amount);
   const valid = /^[A-Z0-9._-]{1,20}$/.test(tok) && amtOk;
   const qs = new URLSearchParams({ chain, token: tok, side, amount: amount.trim(), ref: 'site' });
   const href = `${TERMINAL_URL}/alert-swap?${qs.toString()}`;

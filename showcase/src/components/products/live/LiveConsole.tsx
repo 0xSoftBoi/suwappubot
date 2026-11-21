@@ -5,7 +5,7 @@ import { Field, FieldControl, FieldLabel } from '@ui-sdk/react/field';
 import { Tabs, TabsList, TabsPanel, TabsTab } from '@ui-sdk/react/tabs';
 import { track } from '@/lib/analytics';
 import { callApi, type CallResult } from './api';
-import { getStoredKey, useApiKey } from './keyStore';
+import { getStoredKey, isAmount, useApiKey } from './keyStore';
 import { useLiveSlug } from './ApiKeyProvider';
 import KeyBar from './KeyBar';
 import { CopyBtn, ErrorBox, Json, ResultMeta } from './ui';
@@ -73,7 +73,7 @@ export default function LiveConsole({ compact = false }: { compact?: boolean }) 
 
   function buildBody(): Record<string, unknown> | null {
     if (!from.trim() || !to.trim()) { setFormErr('Enter a from token and a to token.'); return null; }
-    if (!/^\d*\.?\d+$/.test(amount.trim()) || Number(amount) <= 0) { setFormErr('Amount must be a positive number in human units, e.g. 10.'); return null; }
+    if (!isAmount(amount)) { setFormErr('Amount must be a positive number in human units, e.g. 10.'); return null; }
     if (wallet.trim() && !ADDR.test(wallet.trim())) { setFormErr('Wallet address must be a 0x… EVM address (42 characters).'); return null; }
     setFormErr(null);
     const crossChain = toChain && toChain !== chain;

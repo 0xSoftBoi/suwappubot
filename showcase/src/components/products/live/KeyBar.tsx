@@ -13,7 +13,7 @@ const rand = () => Array.from(crypto.getRandomValues(new Uint8Array(5)), (b) => 
 
 /**
  * Key controls shared by every widget: create in one click (public register
- * endpoint), or paste an existing one. Stored only in this browser.
+ * endpoint), or paste an existing one. Stored encrypted, only in this browser.
  */
 export default function KeyBar({ compact = false }: { compact?: boolean }) {
   const slug = useLiveSlug();
@@ -70,7 +70,7 @@ export default function KeyBar({ compact = false }: { compact?: boolean }) {
           </label>
           <button type="button" className="lv-btn lv-btn--danger" onClick={() => { setReveal(false); k.forget(); }}>Forget key</button>
         </div>
-        <p className="lv-note">Stored only in this browser. It is sent only to api.suwappu.bot, as an Authorization header.</p>
+        <p className="lv-note">Stored encrypted, only in this browser. It is sent only to api.suwappu.bot, as an Authorization header.</p>
       </div>
     );
   }
@@ -80,7 +80,7 @@ export default function KeyBar({ compact = false }: { compact?: boolean }) {
       <div className="lv-key__empty">
         <div>
           <strong>Use your own key</strong>
-          <p className="lv-note">Every run below is a real call that spends your credits. 100 free credits, no card. Stored only in this browser.</p>
+          <p className="lv-note">Every run below is a real call that spends your credits. 100 free credits, no card. Stored encrypted, only in this browser.</p>
         </div>
         <button type="button" className="lv-btn lv-btn--primary" onClick={create} disabled={busy}>{busy ? 'Creating…' : 'Create a free key'}</button>
       </div>
