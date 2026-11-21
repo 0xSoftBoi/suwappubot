@@ -27,6 +27,7 @@ import logging
 import re
 import time
 from datetime import datetime
+from urllib.parse import urlsplit
 from decimal import Decimal
 from typing import Dict, List, Optional, Tuple
 
@@ -164,6 +165,38 @@ HISTORY_SAMPLE_BLOCKS = 20
 
 class _NoHistory(Exception):
     """An endpoint returned no token activity at all for an old range: pruned."""
+
+
+_URL_IN_TEXT = re.compile(r"https?://[^\s'\"<>]+", re.IGNORECASE)
+# urllib3 names the failing request by its relative target, with no host:
+# "Max retries exceeded with url: /v2/<key> (Caused by ...)".
+_RELATIVE_URL = re.compile(r"(\burl:\s*)/[^\s'\"<>]*", re.IGNORECASE)
+# A key passed as a query parameter, wherever it appears in the text.
+_KEY_PARAM = re.compile(
+    r"([?&;](?:api[-_]?key|apikey|key|token|access[-_]?token|auth)=)[^&\s'\"<>]+", re.IGNORECASE
+)
+
+
+def _scrub(err) -> str:
+    """An error's text with every URL cut to scheme://host/***.
+
+    requests and web3 put the full endpoint URL in their exception text
+    ("400 Client Error: Bad Request for url: https://..."), and keyed providers
+    carry the key in the path (Alchemy's /v2/<key>) or the query string. The RPC
+    manager redacts its own log lines; these are the watcher's.
+    """
+
+    def _cut(m: "re.Match[str]") -> str:
+        try:
+            parts = urlsplit(m.group(0))
+            tail = "/***" if parts.path.strip("/") or parts.query else ""
+            return f"{parts.scheme}://{parts.netloc}{tail}"
+        except Exception:
+            return "<url>"
+
+    text = _URL_IN_TEXT.sub(_cut, str(err))
+    text = _RELATIVE_URL.sub(r"\1/***", text)
+    return _KEY_PARAM.sub(r"\1***", text)
 
 
 def _check_history(client, params: dict) -> None:
@@ -542,7 +575,9 @@ class DepositWatcher:
                 # Only raised while span > MIN_BLOCK_RANGE (see allow_range_shrink).
                 span = max(MIN_BLOCK_RANGE, span // 2)
                 self._span[chain] = span
-                logger.info("get_logs range on %s halved to %d blocks: %s", chain, span, exc)
+                logger.info(
+                    "get_logs range on %s halved to %d blocks: %s", chain, span, _scrub(exc)
+                )
             except _Lagging as exc:
                 # The primary failed and the best fallback has confirmed only
                 # part of the range. Read just that part; to_block strictly
@@ -556,12 +591,16 @@ class DepositWatcher:
                         safe_head,
                     )
                     continue
-                logger.warning("get_logs failed on %s %s-%s: %s", chain, from_block, to_block, exc)
+                logger.warning(
+                    "get_logs failed on %s %s-%s: %s", chain, from_block, to_block, _scrub(exc)
+                )
                 return 0
             except Exception as exc:
                 # Do NOT advance the cursor past a range we failed to read —
                 # that is how a deposit goes missing permanently.
-                logger.warning("get_logs failed on %s %s-%s: %s", chain, from_block, to_block, exc)
+                logger.warning(
+                    "get_logs failed on %s %s-%s: %s", chain, from_block, to_block, _scrub(exc)
+                )
                 return 0
 
         credited = 0
@@ -703,7 +742,7 @@ class DepositWatcher:
             except Exception as exc:
                 attempts += 1
                 if allow_range_shrink and _RANGE_LIMIT_ERROR.search(str(exc)):
-                    raise _RangeLimited(str(exc)[:160]) from exc
+                    raise _RangeLimited(_scrub(exc)[:160]) from exc
                 last_exc = exc
                 if url is not None:
                     cooldown[(chain, url)] = time.monotonic() + LOGS_ENDPOINT_COOLDOWN
@@ -831,7 +870,11 @@ class DepositWatcher:
             except Exception as exc:
                 # Same rule as the live scan: never move past an unread range.
                 logger.warning(
-                    "Deposit backfill read failed on %s %s-%s: %s", chain, from_block, to_block, exc
+                    "Deposit backfill read failed on %s %s-%s: %s",
+                    chain,
+                    from_block,
+                    to_block,
+                    _scrub(exc),
                 )
                 break
             # A failed credit raises out of here before the progress write, so
@@ -862,7 +905,7 @@ class DepositWatcher:
                 try:
                     result = await self.backfill_chain(chain, pending[chain])
                 except Exception as exc:
-                    logger.error("Deposit backfill failed for %s: %s", chain, exc)
+                    logger.error("Deposit backfill failed for %s: %s", chain, _scrub(exc))
                     resume_at[chain] = time.monotonic() + BACKFILL_FAILURE_PAUSE
                     continue
                 if result is None:
@@ -879,7 +922,7 @@ class DepositWatcher:
                 try:
                     await self.scan_chain(chain)
                 except Exception as exc:  # one bad chain must not stop the rest
-                    logger.error("Deposit scan failed for %s: %s", chain, exc)
+                    logger.error("Deposit scan failed for %s: %s", chain, _scrub(exc))
             await asyncio.sleep(self.poll_seconds)
 
     async def start(self) -> None:
