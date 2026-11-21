@@ -8,12 +8,12 @@
   --adm-surface:       rgba(255, 255, 255, 0.04);
   --adm-surface-hover: rgba(255, 255, 255, 0.07);
   --adm-border:        rgba(255, 255, 255, 0.09);
-  --adm-border-accent: rgba(14, 165, 233, 0.38);
-  --adm-ink:           #e2ecf4;
-  --adm-muted:         #7ea4bb;
-  --adm-faint:         #3a5368;
-  --adm-accent:        #38bdf8;
-  --adm-accent-deep:   #0284c7;
+  --adm-border-accent: rgba(246, 169, 60, 0.4);
+  --adm-ink:           #f3eee5;
+  --adm-muted:         #a3b1bf;
+  --adm-faint:         #6b7c8c;
+  --adm-accent:        #f6a93c;
+  --adm-accent-deep:   #c9731d;
   --adm-green:         #22c55e;
   --adm-red:           #ef4444;
   --adm-yellow:        #f59e0b;
@@ -43,7 +43,7 @@
   display: flex;
   flex-direction: column;
   padding: 24px 16px;
-  background: rgba(11, 22, 36, 0.92);
+  background: rgba(10, 20, 32, 0.94);
   border-right: 1px solid var(--adm-border);
   backdrop-filter: blur(20px);
   z-index: 10;
@@ -108,7 +108,7 @@
 
 .adm-nav__item--active {
   color: var(--adm-accent);
-  background: rgba(56, 189, 248, 0.08);
+  background: rgba(246, 169, 60, 0.08);
 }
 
 .adm-nav__icon {
@@ -179,11 +179,11 @@
   padding: 36px 32px;
   border-radius: var(--adm-radius);
   background:
-    radial-gradient(circle at 0% 0%, rgba(56, 189, 248, 0.12), transparent 40%),
+    radial-gradient(circle at 0% 0%, rgba(246, 169, 60, 0.12), transparent 40%),
     rgba(255, 255, 255, 0.04);
   border: 1px solid var(--adm-border-accent);
   box-shadow:
-    0 0 0 1px rgba(56, 189, 248, 0.06),
+    0 0 0 1px rgba(246, 169, 60, 0.06),
     0 24px 48px rgba(0, 0, 0, 0.48);
 }
 
@@ -241,7 +241,7 @@
 
 .adm-auth__input:focus {
   border-color: var(--adm-accent);
-  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.14);
+  box-shadow: 0 0 0 3px rgba(246, 169, 60, 0.14);
 }
 
 .adm-auth__error {
@@ -260,7 +260,7 @@
   font-size: 0.88rem;
   font-weight: 700;
   color: #fff;
-  background: linear-gradient(180deg, #38bdf8 0%, #0284c7 100%);
+  background: linear-gradient(180deg, #f6a93c 0%, #c9731d 100%);
   box-shadow: 0 8px 20px rgba(2, 132, 199, 0.32);
   transition: opacity 0.15s, box-shadow 0.15s;
 }
@@ -327,7 +327,7 @@
 
 .adm-stat:hover {
   border-color: var(--adm-border-accent);
-  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.06), 0 16px 32px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 0 0 1px rgba(246, 169, 60, 0.06), 0 16px 32px rgba(0, 0, 0, 0.3);
 }
 
 /* gradient top edge accent */
@@ -338,7 +338,7 @@
   left: 16px;
   right: 16px;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(56, 189, 248, 0.4), transparent);
+  background: linear-gradient(90deg, transparent, rgba(246, 169, 60, 0.4), transparent);
 }
 
 .adm-stat__label {
@@ -426,7 +426,7 @@
 }
 
 .adm-table tbody tr:hover {
-  background: rgba(56, 189, 248, 0.06);
+  background: rgba(246, 169, 60, 0.06);
 }
 
 .adm-table tbody tr.adm-row--failed {
@@ -593,9 +593,9 @@
 
 .adm-filter-btn:hover,
 .adm-filter-btn--active {
-  background: rgba(56, 189, 248, 0.1);
+  background: rgba(246, 169, 60, 0.1);
   color: var(--adm-accent);
-  border-color: rgba(56, 189, 248, 0.36);
+  border-color: rgba(246, 169, 60, 0.36);
 }
 
 /* ── Loading / empty ─────────────────────────────────────────────── */
@@ -694,7 +694,7 @@
   padding: 18px 18px 14px;
   border-radius: var(--adm-radius);
   background:
-    radial-gradient(circle at 100% 0%, rgba(56, 189, 248, 0.05), transparent 50%),
+    radial-gradient(circle at 100% 0%, rgba(246, 169, 60, 0.05), transparent 50%),
     rgba(255, 255, 255, 0.03);
   border: 1px solid var(--adm-border);
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.035) inset;
@@ -809,9 +809,9 @@
 }
 
 .adm-export-btn:hover:not(:disabled) {
-  background: rgba(56, 189, 248, 0.1);
+  background: rgba(246, 169, 60, 0.1);
   color: var(--adm-accent);
-  border-color: rgba(56, 189, 248, 0.36);
+  border-color: rgba(246, 169, 60, 0.36);
 }
 
 .adm-export-btn:disabled {
@@ -893,3 +893,64 @@
   .adm-topbar { flex-wrap: wrap; gap: 8px; }
   .adm-topbar__key-badge { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 }
+
+/* ── v3 polish layer (presentation only) ───────────────────────────── */
+.adm-shell { background: radial-gradient(1100px 520px at 70% -120px, rgba(246, 169, 60, 0.09), transparent 70%), var(--adm-bg); }
+.adm-sidebar { background: linear-gradient(180deg, rgba(14, 26, 42, 0.96), rgba(9, 16, 26, 0.96)); }
+.adm-nav__item--active { box-shadow: inset 2px 0 0 var(--adm-accent); }
+.adm-topbar { position: sticky; top: 0; z-index: 5; margin: -32px -36px 28px; padding: 14px 36px; background: rgba(11, 17, 26, 0.82); backdrop-filter: blur(14px); border-bottom: 1px solid var(--adm-border); }
+.adm-topbar__title { font-size: 1.05rem; font-weight: 650; letter-spacing: 0.01em; }
+.adm-topbar__key-badge { color: #9fc0d4; }
+.adm-signout-btn { color: var(--adm-muted); }
+.adm-sidebar__footer { color: var(--adm-muted); }
+.adm-section__title { font-family: var(--type-display-font, inherit); font-weight: 500; letter-spacing: -0.01em; }
+
+.adm-stat, .adm-chart-card, .adm-table-wrap { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 12px 30px -18px rgba(0, 0, 0, 0.6); border-radius: 14px; }
+.adm-stat__value { font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.adm-table-wrap { max-height: 600px; overflow: auto; }
+.adm-table th { position: sticky; top: 0; z-index: 1; background: #101a28; }
+.adm-table tbody tr { transition: background 0.12s; }
+.adm-table tbody tr:hover { background: rgba(255, 255, 255, 0.04); }
+.adm-table td { font-variant-numeric: tabular-nums; }
+
+.adm-loading { position: relative; overflow: hidden; margin: 8px 0 20px; padding: 36px; border: 1px solid var(--adm-border); border-radius: 14px; color: var(--adm-muted); background: linear-gradient(90deg, rgba(255,255,255,0.02) 20%, rgba(255,255,255,0.06) 50%, rgba(255,255,255,0.02) 80%) 0 0 / 220% 100%; animation: adm-shimmer 1.8s linear infinite; }
+@keyframes adm-shimmer { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+.adm-empty { color: var(--adm-muted); border: 1px dashed rgba(255, 255, 255, 0.12); border-radius: 12px; margin: 12px; }
+.adm-error { color: #fecaca; border-radius: 12px; line-height: 1.5; }
+@media (prefers-reduced-motion: reduce) { .adm-loading { animation: none; } }
+
+/* Sign-in gate */
+.adm-auth { background: radial-gradient(800px 480px at 50% 0%, rgba(246, 169, 60, 0.14), transparent 70%), radial-gradient(600px 400px at 85% 100%, rgba(245, 158, 11, 0.06), transparent 70%), var(--adm-bg); overflow: hidden; }
+.adm-auth__card { max-width: 400px; padding: 40px 34px 30px; border-radius: 18px; border-color: rgba(255, 255, 255, 0.12); background: linear-gradient(180deg, rgba(255,255,255,0.07), rgba(255,255,255,0.025)); backdrop-filter: blur(16px); box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), 0 30px 70px -20px rgba(0,0,0,0.7); }
+.adm-auth__logo { box-shadow: 0 8px 24px -6px rgba(246, 169, 60, 0.55); }
+.adm-auth__title { font-family: var(--type-display-font, inherit); font-weight: 500; font-size: 1.75rem; letter-spacing: -0.015em; }
+.adm-auth__sub { font-size: 0.95rem; line-height: 1.5; }
+.adm-auth__btn { min-height: 46px; }
+.adm-auth__toggle { margin-top: 14px; color: var(--adm-muted); }
+.adm-auth__input { min-height: 44px; }
+.adm-stat { background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.022)); }
+.adm-chart-card { background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02)); }
+@media (max-width: 700px) {
+  .adm-topbar { margin: -16px -14px 18px; padding: 12px 14px; }
+  .adm-auth__card { padding: 32px 22px 24px; }
+}
+
+/* ---- fix pass C: one calm state per section, brand chrome ---- */
+img.adm-sidebar__brand-dot, img.adm-auth__logo { background: none; border-radius: 0; box-shadow: none; object-fit: contain; }
+.adm-state { display: flex; align-items: center; gap: 16px; margin: 12px; padding: 20px 22px; border-radius: 14px; border: 1px solid var(--adm-border);
+  background: linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.022)); box-shadow: inset 0 1px 0 rgba(255,255,255,0.06); }
+.adm-state__mark { flex: none; width: 34px; height: 34px; border-radius: 50%; border: 1.5px dashed rgba(246,169,60,0.7); background: radial-gradient(circle, rgba(246,169,60,0.28) 0 22%, transparent 24%); }
+.adm-state__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.adm-state__body strong { color: var(--adm-ink); font-weight: 650; }
+.adm-state__body > span { color: var(--adm-muted); font-size: 0.875rem; }
+.adm-state__detail { margin-top: 6px; font-size: 0.75rem; color: var(--adm-muted); }
+.adm-state__detail summary { cursor: pointer; width: max-content; }
+.adm-state__detail code { display: block; margin-top: 4px; font-family: var(--font-mono, ui-monospace, monospace); overflow-wrap: anywhere; }
+.adm-state__retry { flex: none; min-height: 38px; padding: 0 16px; border-radius: 9px; border: 1px solid rgba(246,169,60,0.5); background: rgba(246,169,60,0.12); color: var(--adm-ink); font: inherit; font-weight: 600; cursor: pointer; }
+.adm-state__retry:hover { background: rgba(246,169,60,0.22); }
+.adm-state__retry:focus-visible { outline: 2px solid var(--adm-accent); outline-offset: 2px; }
+@media (max-width: 560px) { .adm-state { flex-wrap: wrap; } .adm-state__retry { width: 100%; } }
+.adm-sk { display: grid; gap: 12px; padding: 22px; }
+.adm-sk__row { display: block; height: 14px; border-radius: 7px; background: linear-gradient(90deg, rgba(255,255,255,0.04) 20%, rgba(255,255,255,0.1) 50%, rgba(255,255,255,0.04) 80%) 0 0 / 220% 100%; animation: adm-shimmer 1.8s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .adm-sk__row { animation: none; } }
+@media (max-width: 760px) { #overview > div:last-child { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

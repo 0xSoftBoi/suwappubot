@@ -99,7 +99,9 @@ _RANGE_LIMIT_ERROR = re.compile(
     r"range (?:is )?too (?:large|wide|big)|"
     r"exceed(?:s|ed)? (?:the )?(?:max(?:imum)? )?(?:allowed )?(?:block )?range|"
     r"more than \d+ (?:results|logs|blocks)|query returned more|"
-    r"too many (?:logs|results|blocks)",
+    r"too many (?:logs|results|blocks)|"
+    # Free-tier caps, as worded by Alchemy, dRPC and 1RPC respectively.
+    r"up to (?:a )?\d+ block range|ranges? over \d+ blocks|limited to [\d\s-]+ blocks? range",
     re.IGNORECASE,
 )
 
@@ -139,6 +141,63 @@ class _Lagging(Exception):
 # before the watcher existed are an ops question (see the runbook), not
 # something to silently sweep up on first boot.
 COLD_START_LOOKBACK = 500
+
+
+# Backfill (DEPOSIT_BACKFILL="bsc:<block>,polygon:<block>"): re-read an old block
+# range the live scan never covered, from <block> up to the live cursor. It runs
+# in its own task so live crediting is never delayed, keeps its progress in
+# deposit_scan_cursors under "backfill:<chain>" so it resumes across restarts,
+# and credits through the same idempotent path, so overlap with the live scan
+# or a re-run can never credit twice. Windows read per step, and the pause
+# between steps, keep it to a couple of requests a second on public RPCs.
+BACKFILL_WINDOWS_PER_STEP = 10
+BACKFILL_STEP_PAUSE = 5
+# After a failed credit, wait this long before retrying that chain, so a poison
+# deposit gets the same ~10 minutes of attempts it would get in the live scan.
+BACKFILL_FAILURE_PAUSE = 60
+# History check: public nodes often prune old logs and answer an old range with
+# [] instead of an error, which would read as "no deposits" and be skipped for
+# good. Before trusting an old window, the same node must return Transfer logs
+# of the allowlisted tokens (busy stablecoins) in a small sample of it.
+HISTORY_SAMPLE_BLOCKS = 20
+
+
+class _NoHistory(Exception):
+    """An endpoint returned no token activity at all for an old range: pruned."""
+
+
+def _check_history(client, params: dict) -> None:
+    """Raise _NoHistory unless `client` returns token Transfer logs at the very
+    start of the range. Nodes prune from the oldest block forward, so logs at the
+    start prove everything after it is retained, while logs in the middle or at
+    the end prove nothing about a pruned start. The allowlisted tokens are busy
+    stablecoins on every chain this backfills, so their first blocks are never
+    quiet; if one ever were, the window is retried rather than trusted."""
+    lo, hi = int(params["fromBlock"]), int(params["toBlock"])
+    sample = {
+        "fromBlock": lo,
+        "toBlock": min(hi, lo + HISTORY_SAMPLE_BLOCKS - 1),
+        "address": params["address"],
+        "topics": [TRANSFER_TOPIC0],
+    }
+    if not client.eth.get_logs(sample):
+        raise _NoHistory(f"no token Transfer logs at blocks {lo}-{sample['toBlock']}: pruned?")
+
+
+def _parse_backfill(spec: str) -> Dict[str, int]:
+    """Parse "chain:block,chain:block"; unknown chains and bad blocks are ignored."""
+    out: Dict[str, int] = {}
+    for part in (spec or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        chain, _, block = part.partition(":")
+        chain = chain.strip().lower()
+        if chain in CONFIRMATIONS and block.strip().isdigit():
+            out[chain] = int(block.strip())
+        else:
+            logger.warning("Ignoring DEPOSIT_BACKFILL entry %r", part)
+    return out
 
 
 # SQLSTATE classes that mean the database cannot take writes right now, not that
@@ -191,6 +250,8 @@ class DepositWatcher:
         # for log queries. Local on purpose; see RPCManager.web3_for_url.
         self._logs_cooldown: Dict[Tuple[str, str], float] = {}
         self._credit_failures: Dict[str, int] = {}
+        self._backfill_cooldown: Dict[Tuple[str, str], float] = {}
+        self._backfill_span: Dict[str, int] = {}
 
     # --- cursor -----------------------------------------------------------
 
@@ -528,6 +589,8 @@ class DepositWatcher:
         addresses: List[str],
         *,
         allow_range_shrink: bool,
+        history_check: bool = False,
+        cooldowns: Optional[Dict[Tuple[str, str], float]] = None,
     ) -> list:
         """Every matching log in [from_block, to_block], or raise.
 
@@ -548,7 +611,15 @@ class DepositWatcher:
             }
             out.extend(
                 await self._get_logs_with_failover(
-                    chain, primary, primary_url, params, allow_range_shrink
+                    chain,
+                    primary,
+                    primary_url,
+                    params,
+                    allow_range_shrink,
+                    # Every chunk: a later chunk can fail over to another node,
+                    # and that node's history has to be proven too.
+                    history_check=history_check,
+                    cooldowns=cooldowns,
                 )
             )
         return out
@@ -560,6 +631,9 @@ class DepositWatcher:
         primary_url: Optional[str],
         params: dict,
         allow_range_shrink: bool,
+        *,
+        history_check: bool = False,
+        cooldowns: Optional[Dict[Tuple[str, str], float]] = None,
     ) -> list:
         """eth_getLogs, falling over to other endpoints when one rejects it.
 
@@ -571,12 +645,15 @@ class DepositWatcher:
         """
         from bot.services.rpc_manager import rpc_manager
 
+        # The backfill passes its own dict, so its failures on old ranges never
+        # cool endpoints down for the live scan.
+        cooldown = self._logs_cooldown if cooldowns is None else cooldowns
         now = time.monotonic()
         candidates: List[Tuple[Optional[str], bool]] = []
-        if primary_url is None or self._logs_cooldown.get((chain, primary_url), 0.0) <= now:
+        if primary_url is None or cooldown.get((chain, primary_url), 0.0) <= now:
             candidates.append((primary_url, True))
         for url in rpc_manager.get_healthy_urls(chain):
-            if url != primary_url and self._logs_cooldown.get((chain, url), 0.0) <= now:
+            if url != primary_url and cooldown.get((chain, url), 0.0) <= now:
                 candidates.append((url, False))
         if not candidates:
             # Every endpoint is cooling down; fall back to the primary rather
@@ -611,6 +688,8 @@ class DepositWatcher:
                             f"({confirmations} confirmations)",
                             head - confirmations,
                         )
+                if history_check:
+                    _check_history(c, params)
                 return c.eth.get_logs(params)
 
             try:
@@ -627,7 +706,7 @@ class DepositWatcher:
                     raise _RangeLimited(str(exc)[:160]) from exc
                 last_exc = exc
                 if url is not None:
-                    self._logs_cooldown[(chain, url)] = time.monotonic() + LOGS_ENDPOINT_COOLDOWN
+                    cooldown[(chain, url)] = time.monotonic() + LOGS_ENDPOINT_COOLDOWN
         # If a fallback could vouch for part of the range, say so: the caller
         # re-reads the confirmed part instead of losing the whole pass. A
         # fallback a block or two behind the primary would otherwise never be
@@ -682,6 +761,114 @@ class DepositWatcher:
             to_address=to_address,
         )
 
+    # --- backfill ---------------------------------------------------------
+
+    async def backfill_chain(
+        self, chain: str, start_block: int, windows: int = BACKFILL_WINDOWS_PER_STEP
+    ) -> Optional[int]:
+        """Read up to `windows` old ranges on one chain. Returns deposits credited,
+        or None once the backfill has reached the live cursor (nothing left)."""
+        from bot.services.hot_wallet import hot_wallet_service
+        from bot.services.rpc_manager import rpc_manager
+
+        live = self._get_cursor(chain)
+        if live is None:
+            return 0  # the live scan has not anchored yet; there is no gap to fill
+        # The start block is part of the key: lowering DEPOSIT_BACKFILL later to
+        # cover more history starts a fresh backfill instead of being ignored.
+        key = f"backfill:{chain}:{start_block}"
+        progress = self._get_cursor(key)
+        if progress is None:
+            progress = max(0, start_block - 1)
+            self._set_cursor(key, progress)
+            logger.info("Deposit backfill for %s starting at block %s", chain, start_block)
+        if progress >= live:
+            return None
+
+        watched = hot_wallet_service.list_user_deposit_wallets("evm")
+        tokens = self._token_map(chain)
+        if not watched or not tokens:
+            return 0
+        by_address = {addr.lower(): uid for uid, addr in watched}
+        addresses = list(by_address.keys())
+        token_addresses = [Web3.to_checksum_address(a) for a in tokens]
+        web3 = rpc_manager.get_web3(chain)
+        primary_url = rpc_manager.current_url(chain)
+        # The live cursor was confirmed on whichever node the live scan used.
+        # The primary here may be a different one (after a restart or a health
+        # flip), and _get_logs_with_failover trusts the primary's head without a
+        # check, so cap the range by this node's own confirmed head as well.
+        head = await asyncio.to_thread(lambda: web3.eth.block_number)
+        live = min(live, head - CONFIRMATIONS.get(chain, 12))
+        if progress >= live:
+            return 0
+
+        # Its own span, remembered between steps: halving it must not shrink the
+        # live scan's, and re-learning a provider's cap every step wastes calls.
+        span = self._backfill_span.get(chain, MAX_BLOCK_RANGE)
+        credited = 0
+        done = 0
+        while done < windows and progress < live:
+            from_block = progress + 1
+            to_block = min(live, progress + span)
+            try:
+                logs = await self._fetch_range(
+                    chain,
+                    web3,
+                    primary_url,
+                    from_block,
+                    to_block,
+                    token_addresses,
+                    addresses,
+                    allow_range_shrink=span > MIN_BLOCK_RANGE,
+                    history_check=True,
+                    cooldowns=self._backfill_cooldown,
+                )
+            except _RangeLimited:
+                span = max(MIN_BLOCK_RANGE, span // 2)
+                self._backfill_span[chain] = span
+                continue
+            except Exception as exc:
+                # Same rule as the live scan: never move past an unread range.
+                logger.warning(
+                    "Deposit backfill read failed on %s %s-%s: %s", chain, from_block, to_block, exc
+                )
+                break
+            # A failed credit raises out of here before the progress write, so
+            # the window is retried on the next step.
+            for log in logs:
+                credited += 1 if self._handle_log(log, chain, tokens, by_address) else 0
+            progress = to_block
+            self._set_cursor(key, progress)
+            done += 1
+        if progress >= live:
+            logger.info(
+                "Deposit backfill for %s complete through block %s (%s credited this step)",
+                chain,
+                progress,
+                credited,
+            )
+        return credited
+
+    async def _backfill_loop(self, plan: Dict[str, int]) -> None:
+        pending = dict(plan)
+        resume_at: Dict[str, float] = {}
+        while self._running and pending:
+            for chain in list(pending):
+                if not self._running:
+                    break
+                if resume_at.get(chain, 0.0) > time.monotonic():
+                    continue
+                try:
+                    result = await self.backfill_chain(chain, pending[chain])
+                except Exception as exc:
+                    logger.error("Deposit backfill failed for %s: %s", chain, exc)
+                    resume_at[chain] = time.monotonic() + BACKFILL_FAILURE_PAUSE
+                    continue
+                if result is None:
+                    pending.pop(chain, None)
+            await asyncio.sleep(BACKFILL_STEP_PAUSE)
+
     # --- lifecycle --------------------------------------------------------
 
     async def _loop(self) -> None:
@@ -701,9 +888,27 @@ class DepositWatcher:
         self._running = True
         self._task = asyncio.create_task(self._loop())
         logger.info("✓ Deposit watcher started (%s chains)", len(CONFIRMATIONS))
+        try:
+            from bot.config.settings import settings
+
+            plan = _parse_backfill(getattr(settings, "deposit_backfill", ""))
+        except Exception as exc:
+            logger.warning("Could not read DEPOSIT_BACKFILL: %s", exc)
+            plan = {}
+        if plan:
+            self._backfill_task = asyncio.create_task(self._backfill_loop(plan))
+            logger.info("Deposit backfill enabled: %s", plan)
 
     async def stop(self) -> None:
         self._running = False
+        backfill = getattr(self, "_backfill_task", None)
+        if backfill:
+            backfill.cancel()
+            try:
+                await backfill
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._backfill_task = None
         if self._task:
             self._task.cancel()
             try:

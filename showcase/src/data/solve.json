@@ -1,0 +1,2955 @@
+{
+  "hub": {
+    "h1": "Problems Suwappu solves, with the exact steps",
+    "intro": "Find the task you are stuck on, read the direct answer, and run the real command or snippet. Every page states what the product does not do.",
+    "groups": [
+      {
+        "audience": "trader",
+        "heading": "For traders",
+        "description": "Move tokens across chains, set alerts and orders, and understand fees, slippage and stuck swaps."
+      },
+      {
+        "audience": "developer",
+        "heading": "For developers and AI agents",
+        "description": "Quote, simulate and execute swaps through REST, MCP, A2A and the SDKs, with copy-paste calls."
+      },
+      {
+        "audience": "desk",
+        "heading": "For desks and teams",
+        "description": "Spending limits, approvals, audit trails and kill switches for agents that touch real funds."
+      }
+    ]
+  },
+  "start": {
+    "slug": "start",
+    "h1": "Get a Suwappu API key in one call",
+    "answer": "Send one unauthenticated POST to /v1/agent/register with a name. The response contains your suwappu_sk_ API key, shown once. There is no form and no card. Your first call can be a quote on Base.",
+    "register": {
+      "method": "POST",
+      "url": "https://api.suwappu.bot/v1/agent/register",
+      "auth": "none",
+      "body": {
+        "name": "3-50 chars, letters, digits, _ and -; must be unique",
+        "description": "optional, up to 500 chars",
+        "callback_url": "optional public HTTPS URL for webhooks"
+      },
+      "bash": "curl -X POST https://api.suwappu.bot/v1/agent/register \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"name\": \"my-agent\", \"description\": \"Quote bot\"}'",
+      "ts": "const res = await fetch(\"https://api.suwappu.bot/v1/agent/register\", {\n  method: \"POST\",\n  headers: { \"Content-Type\": \"application/json\" },\n  body: JSON.stringify({ name: \"my-agent\", description: \"Quote bot\" }),\n});\nconst { agent } = await res.json();\n// agent.api_key is shown once. Store it now.\nconsole.log(agent.api_key); // suwappu_sk_...",
+      "python": "import requests\n\nres = requests.post(\n    \"https://api.suwappu.bot/v1/agent/register\",\n    json={\"name\": \"my-agent\", \"description\": \"Quote bot\"},\n)\nagent = res.json()[\"agent\"]\n# agent[\"api_key\"] is shown once. Store it now.\nprint(agent[\"api_key\"])  # suwappu_sk_...",
+      "responseShape": {
+        "success": true,
+        "agent": {
+          "id": "uuid",
+          "name": "my-agent",
+          "api_key": "suwappu_sk_...",
+          "created_at": "ISO timestamp"
+        },
+        "important": "SAVE YOUR API KEY! It cannot be retrieved later.",
+        "credits": {
+          "starting_balance": 100,
+          "note": "starter credits text"
+        }
+      },
+      "keyNotes": [
+        "The key starts with suwappu_sk_ and goes in Authorization: Bearer <key>.",
+        "It is shown once; Suwappu keeps only a hash (docs: registration page). If you lose it, register a new agent or rotate with POST /v1/agent/keys/rotate while you still hold a valid key.",
+        "Registration is limited to 5 requests per minute per IP."
+      ]
+    },
+    "nextCall": {
+      "label": "Make your first quote (no funds move)",
+      "lang": "bash",
+      "code": "curl -X POST https://api.suwappu.bot/v1/agent/quote \\\n  -H \"Authorization: Bearer $SUWAPPU_API_KEY\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"from_token\": \"ETH\", \"to_token\": \"USDC\", \"amount\": \"0.1\", \"chain\": \"base\"}'",
+      "note": "A quote returns quote_id, amount_out, amount_out_min, route and expires_in_seconds (60). GET /v1/agent/chains is public and free."
+    },
+    "cost": {
+      "summary": "Registering is free. New agents are on the free tier: 30 requests per minute. Registration grants 100 starter credits (1 credit is about $0.001) unless the IP guard withholds them (max 3 grants per IP per day). Per-call metering is a server setting, so read your live balance and cost weights from GET /v1/agent/billing. When metering applies: quote 1 credit, simulate 1, swap or execute 5. Paid tiers: Pro $9.99 (500 req/min), Premium $29.99 (2,000), Enterprise $99.99 (10,000), per 30 days, prepaid in crypto.",
+      "sources": [
+        "api-ts/src/services/AgentService.ts:27 STARTER_CREDITS, :36 MAX_STARTER_GRANTS_PER_IP_PER_DAY",
+        "api-ts/src/config/constants.ts:85-87",
+        "api-ts/src/middleware/rateLimit.ts:10-14",
+        "showcase docs billing/pricing"
+      ]
+    },
+    "objections": [
+      {
+        "q": "Will this move or spend any money?",
+        "a": "No. Registration creates an agent record and a key. Quotes and simulations move nothing. Execution needs a managed wallet you create and fund yourself, or you sign transactions with your own wallet."
+      },
+      {
+        "q": "Who holds my key, and what if it leaks?",
+        "a": "You hold it. Suwappu stores a hash. Rotate with POST /v1/agent/keys/rotate: the old key stops working immediately and the new one is shown once."
+      },
+      {
+        "q": "Is there a card, email or human signup?",
+        "a": "No. Registration is a public endpoint. Dashboard API keys exist behind a Telegram or Google sign-in on the Terminal, but the one-call path needs neither."
+      },
+      {
+        "q": "What happens when I hit a limit?",
+        "a": "Free tier is 30 requests per minute; over that you get HTTP 429 with a Retry-After header. If metering is on and credits run out you get HTTP 402 with an x402 challenge instead of a silent failure."
+      }
+    ],
+    "cta": {
+      "label": "Register an agent",
+      "href": "#register"
+    },
+    "secondaryCta": {
+      "label": "Read the quick start",
+      "href": "/docs/quick-start/overview"
+    },
+    "proof": [
+      {
+        "label": "OpenAPI 3.1 spec",
+        "href": "https://api.suwappu.bot/v1/agent/openapi"
+      },
+      {
+        "label": "Registration reference",
+        "href": "/docs/api-reference/registration"
+      },
+      {
+        "label": "Rate limits",
+        "href": "/docs/authentication/rate-limits"
+      },
+      {
+        "label": "Service status",
+        "href": "/status"
+      }
+    ],
+    "limits": [
+      "No human developer sign-up form exists; this call is the sign-up.",
+      "Starter credits are not guaranteed: they can be withheld per IP.",
+      "WhatsApp is not live."
+    ]
+  },
+  "pages": [
+    {
+      "slug": "let-ai-agent-swap-tokens",
+      "audience": "developer",
+      "asker": "both",
+      "intent": "commercial",
+      "title": "How to let an AI agent swap tokens safely",
+      "metaDescription": "Register an agent, quote, simulate, then execute from a managed wallet or sign yourself. REST, MCP and SDK paths, with a dry run before any funds move.",
+      "h1": "How do I let an AI agent swap tokens without handing it my keys?",
+      "answer": "Register an agent with one POST, get a quote, dry-run it with /swap/simulate, then either execute from a Suwappu managed wallet or take an unsigned transaction and sign it yourself. Nothing moves until you choose the execute path.",
+      "problem": "You want the agent to act, but you do not want a prompt-injected loop draining a wallet. Most swap APIs hand you calldata and leave the guardrails to you.",
+      "steps": [
+        {
+          "title": "Register the agent",
+          "detail": "POST /v1/agent/register with a name. Save the suwappu_sk_ key; it is shown once."
+        },
+        {
+          "title": "Quote",
+          "detail": "POST /v1/agent/quote with the wallet_address that will sign. It returns quote_id, amount_out_min and route. A quote is valid for 60 seconds and is bound to that wallet."
+        },
+        {
+          "title": "Simulate",
+          "detail": "POST /v1/agent/swap/simulate with the quote_id and the same wallet_address. Execute only if would_execute is true."
+        },
+        {
+          "title": "Choose authority",
+          "detail": "POST /v1/agent/swap returns an unsigned transaction you sign. POST /v1/agent/swap/execute signs from the agent's managed wallet."
+        },
+        {
+          "title": "Track it",
+          "detail": "GET /v1/agent/swap/status/:id, or set a callback_url for signed webhooks."
+        }
+      ],
+      "snippet": {
+        "lang": "bash",
+        "label": "Quote then simulate (no funds move)",
+        "code": "# 1. quote\ncurl -s -X POST https://api.suwappu.bot/v1/agent/quote \\\n  -H \"Authorization: Bearer $SUWAPPU_API_KEY\" -H \"Content-Type: application/json\" \\\n  -d '{\"from_token\":\"ETH\",\"to_token\":\"USDC\",\"amount\":\"0.1\",\"chain\":\"base\",\"wallet_address\":\"0xYourWallet\"}'\n\n# 2. dry run the returned quote_id with the same wallet\ncurl -s -X POST https://api.suwappu.bot/v1/agent/swap/simulate \\\n  -H \"Authorization: Bearer $SUWAPPU_API_KEY\" -H \"Content-Type: application/json\" \\\n  -d '{\"quote_id\":\"QUOTE_ID_FROM_STEP_1\",\"wallet_address\":\"0xYourWallet\"}'"
+      },
+      "product": {
+        "name": "Agent API",
+        "href": "/agents"
+      },
+      "cta": {
+        "label": "Get an API key",
+        "href": "/start"
+      },
+      "secondaryCta": {
+        "label": "Read the quick start",
+        "href": "/docs/quick-start/overview"
+      },
+      "proof": [
+        {
+          "label": "OpenAPI 3.1 spec",
+          "href": "https://api.suwappu.bot/v1/agent/openapi"
+        },
+        {
+          "label": "Your first swap",
+          "href": "/docs/quick-start/first-swap"
+        },
+        {
+          "label": "Swap execute",
+          "href": "/docs/api-reference/swap-execute"
+        },
+        {
+          "label": "Changelog",
+          "href": "/changelog"
+        }
+      ],
+      "limits": [
+        "Managed-wallet execution is only as safe as the caps on it. Spend policies are enforced for org API keys; see the desk pages.",
+        "MCP execute_swap only prepares an unsigned transaction. It never signs or broadcasts.",
+        "Starknet swaps are not handled by the Agent API.",
+        "Suwappu does not guarantee a fill price; amount_out_min is the floor you set through slippage."
+      ],
+      "faq": [
+        {
+          "q": "Does Suwappu hold the agent's private key?",
+          "a": "Only on the managed-wallet path, where the key lives with Turnkey and is used to sign server-side. On the self-custody path you receive an unsigned transaction and Suwappu never sees your key."
+        },
+        {
+          "q": "What does it cost to try?",
+          "a": "Registration is free. Quotes and simulations move no funds and cost 1 credit each when metering is on."
+        },
+        {
+          "q": "Can the agent trade without me approving?",
+          "a": "Only if no approval policy applies. Org policies can require approval above a USD threshold; see approval-workflow-onchain-trades."
+        },
+        {
+          "q": "What if a swap call times out?",
+          "a": "Send an Idempotency-Key header, reconcile status first, and retry with the same key."
+        }
+      ],
+      "related": [
+        "idempotent-agent-swaps",
+        "simulate-swap-before-signing",
+        "spending-limits-ai-agent-wallet",
+        "mcp-server-for-crypto-swaps"
+      ],
+      "keywords": [
+        "let AI agent swap tokens",
+        "agent crypto swap API",
+        "autonomous agent token swap",
+        "LLM agent DEX trading",
+        "how can my agent trade crypto"
+      ]
+    },
+    {
+      "slug": "mcp-server-for-crypto-swaps",
+      "audience": "developer",
+      "asker": "both",
+      "intent": "transactional",
+      "title": "MCP server for crypto swaps and quotes",
+      "metaDescription": "Suwappu hosts a remote MCP server at api.suwappu.bot/mcp with 23 tools by default: quotes, prices, simulation. execute_swap only prepares a tx.",
+      "h1": "Is there an MCP server my agent can use for crypto swaps?",
+      "answer": "Yes. Point any MCP client at https://api.suwappu.bot/mcp with a Bearer key. It advertises 23 tools by default: quotes, prices, portfolio, simulation, swap status, plus read-only perps, prediction and lending data. execute_swap prepares an unsigned transaction only.",
+      "problem": "Your agent can reason about a trade but has no tool to price it. Wiring a bespoke swap tool per client is repeated work, and a tool that can silently sign is a risk.",
+      "steps": [
+        {
+          "title": "Get a key",
+          "detail": "POST /v1/agent/register, or use the /start page."
+        },
+        {
+          "title": "Add the server",
+          "detail": "Claude Code: claude mcp add --transport http suwappu https://api.suwappu.bot/mcp --header \"Authorization: Bearer suwappu_sk_YOUR_KEY\". Cursor, Claude Desktop, Codex and OpenCode configs are in the docs."
+        },
+        {
+          "title": "List the tools",
+          "detail": "Call tools/list at runtime rather than hard-coding names."
+        },
+        {
+          "title": "Quote and simulate",
+          "detail": "Use get_quote, then simulate_swap. Both cost 1 credit when metering is on."
+        },
+        {
+          "title": "Treat execute_swap as prepare",
+          "detail": "It returns an unsigned self-custody transaction. Your wallet signs and broadcasts."
+        }
+      ],
+      "snippet": {
+        "lang": "bash",
+        "label": "List the advertised MCP tools",
+        "code": "curl -s -X POST https://api.suwappu.bot/mcp \\\n  -H \"Authorization: Bearer $SUWAPPU_API_KEY\" \\\n  -H \"Content-Type: application/json\" \\\n  -H \"Accept: application/json, text/event-stream\" \\\n  -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}'"
+      },
+      "product": {
+        "name": "MCP setup docs",
+        "href": "/docs/quick-start/mcp-clients"
+      },
+      "cta": {
+        "label": "Get an API key",
+        "href": "/start"
+      },
+      "secondaryCta": {
+        "label": "MCP tool reference",
+        "href": "/docs/protocols/mcp"
+      },
+      "proof": [
+        {
+          "label": "MCP client setup",
+          "href": "/docs/quick-start/mcp-clients"
+        },
+        {
+          "label": "MCP protocol",
+          "href": "/docs/protocols/mcp"
+        },
+        {
+          "label": "OpenAPI 3.1 spec",
+          "href": "https://api.suwappu.bot/v1/agent/openapi"
+        },
+        {
+          "label": "@suwappu/mcp-server source",
+          "href": "https://github.com/0xSoftBoi/suwappubot/tree/main/packages/mcp-server"
+        }
+      ],
+      "limits": [
+        "The registry holds 24 tools; browse_mpp_directory is hidden unless enabled, so clients see 23.",
+        "execute_swap does not sign or broadcast, despite its name.",
+        "Perps, prediction and lending tools are research or quote tools; none open positions or lend.",
+        "Some clients time out at 60 seconds; cross-chain quotes can need a longer tool timeout."
+      ],
+      "faq": [
+        {
+          "q": "How many tools does it expose?",
+          "a": "23 are advertised by default. The code registers 24, with one hidden by default. Call tools/list for the live set."
+        },
+        {
+          "q": "Is there anything to install?",
+          "a": "No. The server is hosted. @suwappu/mcp-server exists as a package, but the docs path is the remote URL."
+        },
+        {
+          "q": "Which tools are free?",
+          "a": "list_chains, list_tokens, get_tempo_tokens, near_resolve_asset and near_convert_amount cost 0 credits. Most others cost 1; execute_swap costs 5."
+        },
+        {
+          "q": "Does the MCP server need a key?",
+          "a": "Discovery and a few zero-cost tools are public. Authenticated actions use the Bearer key."
+        }
+      ],
+      "related": [
+        "give-claude-crypto-wallet-safely",
+        "a2a-crypto-trading-agent",
+        "let-ai-agent-swap-tokens",
+        "x402-pay-per-call-api"
+      ],
+      "keywords": [
+        "MCP server crypto swap",
+        "MCP DEX tools",
+        "Claude MCP swap tokens",
+        "remote MCP server for DeFi",
+        "model context protocol trading tools"
+      ]
+    },
+    {
+      "slug": "cross-chain-swap-api",
+      "audience": "developer",
+      "asker": "both",
+      "intent": "commercial",
+      "title": "Cross-chain swap API: one quote endpoint",
+      "metaDescription": "One POST /v1/agent/quote prices same-chain and cross-chain swaps on 18 Agent API chains. Returns route, min output and a 60-second quote_id.",
+      "h1": "Which API quotes a cross-chain swap in one call?",
+      "answer": "POST /v1/agent/quote with from_chain and to_chain. It returns the route, expected output, minimum output after slippage, estimated gas and a quote_id valid for 60 seconds. The Agent API covers 18 chains; the wider platform lists 45.",
+      "problem": "Cross-chain means stitching a bridge, a DEX and gas estimates across vendors, then guessing what the user actually receives.",
+      "steps": [
+        {
+          "title": "List chains",
+          "detail": "GET /v1/agent/chains is public. Do not hard-code chain keys."
+        },
+        {
+          "title": "Quote",
+          "detail": "Pass from_token, to_token, amount, from_chain, to_chain. Add wallet_address to receive executable transaction data."
+        },
+        {
+          "title": "Read the numbers",
+          "detail": "Check amount_out_min, price_impact, estimated_gas_usd, bridge_fee_usd and estimated_time_seconds."
+        },
+        {
+          "title": "Simulate",
+          "detail": "POST /swap/simulate with the quote_id before you sign."
+        },
+        {
+          "title": "Execute or sign",
+          "detail": "Managed wallet via /swap/execute, or sign the unsigned tx from /swap."
+        }
+      ],
+      "snippet": {
+        "lang": "bash",
+        "label": "Cross-chain quote: USDC on Arbitrum to ETH on Base",
+        "code": "curl -s -X POST https://api.suwappu.bot/v1/agent/quote \\\n  -H \"Authorization: Bearer $SUWAPPU_API_KEY\" -H \"Content-Type: application/json\" \\\n  -d '{\"from_token\":\"USDC\",\"to_token\":\"ETH\",\"amount\":\"100\",\"from_chain\":\"arbitrum\",\"to_chain\":\"base\"}'"
+      },
+      "product": {
+        "name": "Agent API",
+        "href": "/agents"
+      },
+      "cta": {
+        "label": "Get an API key",
+        "href": "/start"
+      },
+      "secondaryCta": {
+        "label": "Cross-chain swap guide",
+        "href": "/docs/guides/cross-chain-swaps"
+      },
+      "proof": [
+        {
+          "label": "Quote reference",
+          "href": "/docs/api-reference/quote"
+        },
+        {
+          "label": "Chains",
+          "href": "/docs/api-reference/chains"
+        },
+        {
+          "label": "OpenAPI 3.1 spec",
+          "href": "https://api.suwappu.bot/v1/agent/openapi"
+        },
+        {
+          "label": "Service status",
+          "href": "/status"
+        }
+      ],
+      "limits": [
+        "Route availability depends on the pair, size and chain; a quote can fail.",
+        "EVM to Solana needs an explicit destination address (to_wallet_address).",
+        "Starknet is handled by the bot backend, not this API.",
+        "Suwappu does not claim the best price on every route; compare the live quote."
+      ],
+      "faq": [
+        {
+          "q": "Which chains?",
+          "a": "GET /v1/agent/chains is authoritative. The Agent API serves 18; the platform covers 45 non-testnet chains."
+        },
+        {
+          "q": "Which providers route it?",
+          "a": "21 routing venues across the platform, including Li.Fi and Jupiter, gated by chain. The quote names the route used."
+        },
+        {
+          "q": "How long does it take?",
+          "a": "The quote includes estimated_time_seconds. Bridges vary."
+        },
+        {
+          "q": "What if the quote expires?",
+          "a": "Quotes last 60 seconds. Request a new one."
+        }
+      ],
+      "related": [
+        "free-swap-quote-api",
+        "simulate-swap-before-signing",
+        "routing-transparency-best-execution",
+        "swap-usdc-base-to-solana"
+      ],
+      "keywords": [
+        "cross-chain swap API",
+        "bridge and swap API",
+        "multi-chain DEX aggregator API",
+        "cross-chain quote endpoint",
+        "agent bridge tokens"
+      ]
+    },
+    {
+      "slug": "simulate-swap-before-signing",
+      "audience": "developer",
+      "asker": "both",
+      "intent": "informational",
+      "title": "Simulate a swap before signing it",
+      "metaDescription": "POST /v1/agent/swap/simulate dry-runs a quote: balance, allowance, gas, eth_call revert and slippage checks. No signing, no broadcast, no swap record.",
+      "h1": "How do I simulate a swap before signing it?",
+      "answer": "POST /v1/agent/swap/simulate with a quote_id and your wallet_address. It runs balance, allowance, gas, eth_call revert and slippage checks, creates no swap record, and returns would_execute. It costs 1 credit when metering is on.",
+      "problem": "A swap can revert, lack allowance or gas, or carry a price impact far above what you expected. You only find out after paying for it.",
+      "steps": [
+        {
+          "title": "Quote",
+          "detail": "POST /quote and keep the quote_id."
+        },
+        {
+          "title": "Simulate",
+          "detail": "POST /swap/simulate with quote_id and wallet_address."
+        },
+        {
+          "title": "Read the checks",
+          "detail": "route_available, balance_sufficient, allowance_sufficient, gas_affordable, eth_call_revert_check, slippage_sane."
+        },
+        {
+          "title": "Gate on it",
+          "detail": "Proceed only if would_execute is true and warnings is empty."
+        },
+        {
+          "title": "Re-quote if needed",
+          "detail": "Simulating does not extend the 60-second quote life."
+        }
+      ],
+      "snippet": {
+        "lang": "ts",
+        "label": "Gate execution on would_execute (SDK)",
+        "code": "import { Suwappu } from \"@suwappu/sdk\";\nconst client = new Suwappu({ apiKey: process.env.SUWAPPU_API_KEY });\n\nconst quote = await client.getQuote({\n  from: \"USDC\", to: \"ETH\", chain: \"base\", amount: \"100\",\n  walletAddress: \"0xYourWallet\",\n});\nconst sim = await client.simulateSwap({\n  quoteId: quote.id, walletAddress: \"0xYourWallet\",\n});\nif (!sim.wouldExecute) throw new Error(sim.warnings.join(\"; \"));"
+      },
+      "product": {
+        "name": "Swap simulate endpoint",
+        "href": "/docs/api-reference/simulate"
+      },
+      "cta": {
+        "label": "Get an API key",
+        "href": "/start"
+      },
+      "secondaryCta": {
+        "label": "Read the simulate reference",
+        "href": "/docs/api-reference/simulate"
+      },
+      "proof": [
+        {
+          "label": "Simulate reference",
+          "href": "/docs/api-reference/simulate"
+        },
+        {
+          "label": "OpenAPI 3.1 spec",
+          "href": "https://api.suwappu.bot/v1/agent/openapi"
+        },
+        {
+          "label": "SDK examples",
+          "href": "/docs/quick-start/sdk-examples"
+        },
+        {
+          "label": "Source on GitHub",
+          "href": "https://github.com/0xSoftBoi/suwappubot"
+        }
+      ],
+      "limits": [
+        "Simulation is a pre-flight check, not a guarantee the on-chain result will match.",
+        "Balance, gas and revert checks need wallet_address.",
+        "Checks that cannot run degrade to warn and do not block.",
+        "Solana has no eth_call revert check."
+      ],
+      "faq": [
+        {
+          "q": "Does it sign or broadcast?",
+          "a": "No. The docs state no swap rows are created, nothing is signed and nothing is broadcast."
+        },
+        {
+          "q": "Is it the same as a quote?",
+          "a": "No. A quote prices the route. A simulation also checks your wallet's balance, allowance, gas and revert behaviour."
+        },
+        {
+          "q": "Which SDK field carries the quote id?",
+          "a": "REST returns quote_id. The SDK README shows quote.id in TypeScript and quote.quote_id in Python and some TypeScript examples. Check your installed version's types."
+        },
+        {
+          "q": "Does it work over MCP?",
+          "a": "Yes, as the simulate_swap tool, same logic and cost."
+        }
+      ],
+      "related": [
+        "let-ai-agent-swap-tokens",
+        "idempotent-agent-swaps",
+        "spending-limits-ai-agent-wallet",
+        "typescript-python-sdk-dex-swaps"
+      ],
+      "keywords": [
+        "simulate swap API",
+        "dry run crypto swap",
+        "preview swap before sign",
+        "swap pre-flight check",
+        "eth_call revert check swap"
+      ]
+    },
+    {
+      "slug": "x402-pay-per-call-api",
+      "audience": "developer",
+      "asker": "both",
+      "intent": "informational",
+      "title": "x402 pay-per-call crypto API for agents",
+      "metaDescription": "A free-tier agent out of credits gets HTTP 402 with an x402 challenge. Pay USDC on Base and top up, or buy a tier. 1 credit is about $0.001.",
+      "h1": "How do agents pay per call for a swap API with x402?",
+      "answer": "When a free-tier agent runs out of credits, Suwappu answers HTTP 402 with an x402 challenge: USDC on Base, an amount and a payTo address. Pay, then POST the txHash to /v1/agent/billing/topup. 1 credit is about $0.001; a quote costs 1.",
+      "problem": "An agent that hits a paywall mid-task has nowhere to go. A human has to find a card form that the agent cannot fill.",
+      "steps": [
+        {
+          "title": "Call a metered endpoint",
+          "detail": "For example POST /quote. If credits are short you get 402."
+        },
+        {
+          "title": "Read the challenge",
+          "detail": "accepts[0] has network, asset, maxAmountRequired and payTo; cost_credits shows the price."
+        },
+        {
+          "title": "Pay",
+          "detail": "Send USDC on Base to payTo. Any amount is accepted for top-up."
+        },
+        {
+          "title": "Credit it",
+          "detail": "POST /v1/agent/billing/topup with {txHash, chain, amount}. It is idempotent on txHash."
+        },
+        {
+          "title": "Retry",
+          "detail": "Retry the original call. Or settle a single call with an X-PAYMENT header if the facilitator is enabled."
+        }
+      ],
+      "snippet": {
+        "lang": "bash",
+        "label": "Credit a payment, then check your balance",
+        "code": "curl -s -X POST https://api.suwappu.bot/v1/agent/billing/topup \\\n  -H \"Authorization: Bearer $SUWAPPU_API_KEY\" -H \"Content-Type: application/json\" \\\n  -d '{\"txHash\":\"0xYOUR_PAYMENT_TX\",\"chain\":\"base\",\"amount\":5}'\n\ncurl -s https://api.suwappu.bot/v1/agent/billing \\\n  -H \"Authorization: Bearer $SUWAPPU_API_KEY\""
+      },
+      "product": {
+        "name": "Agentic payments docs",
+        "href": "/docs/billing/agentic-payments"
+      },
+      "cta": {
+        "label": "Get an API key",
+        "href": "/start"
+      },
+      "secondaryCta": {
+        "label": "See pricing",
+        "href": "/pricing#agent-api"
+      },
+      "proof": [
+        {
+          "label": "Agentic payments (x402)",
+          "href": "/docs/billing/agentic-payments"
+        },
+        {
+          "label": "Pricing reference",
+          "href": "/docs/billing/pricing"
+        },
+        {
+          "label": "OpenAPI 3.1 spec",
+          "href": "https://api.suwappu.bot/v1/agent/openapi"
+        },
+        {
+          "label": "Changelog",
+          "href": "/changelog"
+        }
+      ],
+      "limits": [
+        "x402 applies to the free tier only; Pro, Premium and Enterprise bypass metering.",
+        "Per-call settlement needs the facilitator enabled on the deployment; otherwise use top-up.",
+        "Per-call metering is a server setting; read GET /v1/agent/billing for live weights.",
+        "Credits are USD-denominated at about $0.001; $5 buys about 5,000."
+      ],
+      "faq": [
+        {
+          "q": "How much is a call?",
+          "a": "Quote, simulate, portfolio and prices cost 1 credit; swap, execute and swap/execute cost 5. tokens and chains are free. Read live weights from GET /billing."
+        },
+        {
+          "q": "Can I skip per-call billing?",
+          "a": "Yes. Pro $9.99, Premium $29.99 or Enterprise $99.99 for a prepaid 30-day window; metering is bypassed."
+        },
+        {
+          "q": "Does a duplicate top-up double credit?",
+          "a": "No. It is idempotent on chain and txHash."
+        },
+        {
+          "q": "Which chain and asset?",
+          "a": "The challenge names USDC on Base."
+        }
+      ],
+      "related": [
+        "free-swap-quote-api",
+        "let-ai-agent-swap-tokens",
+        "mcp-server-for-crypto-swaps",
+        "give-claude-crypto-wallet-safely"
+      ],
+      "keywords": [
+        "x402 pay per call API",
+        "HTTP 402 payment required agent",
+        "how do AI agents pay for APIs with USDC",
+        "x402 crypto API",
+        "agent micropayments USDC"
+      ]
+    },
+    {
+      "slug": "free-swap-quote-api",
+      "audience": "developer",
+      "asker": "both",
+      "intent": "transactional",
+      "title": "Free swap quote API without a signup",
+      "metaDescription": "Register in one call and quote swaps on 18 chains. Free tier is 30 requests per minute. Quotes move no funds. Starter credits cover first calls.",
+      "h1": "Is there a swap quote API I can call without signing up?",
+      "answer": "Yes. POST /v1/agent/register returns a key with no form or card. The free tier allows 30 requests per minute, and registration grants 100 starter credits where eligible. GET /chains and GET /tokens are free. Quotes cost 1 credit when metering is on.",
+      "problem": "You want to see real routes and prices before deciding to build. Most providers want an email, a dashboard and a plan first.",
+      "steps": [
+        {
+          "title": "Register",
+          "detail": "POST /v1/agent/register {\"name\":\"my-agent\"}."
+        },
+        {
+          "title": "List tokens",
+          "detail": "GET /v1/agent/tokens?chain=base is free."
+        },
+        {
+          "title": "Quote",
+          "detail": "POST /v1/agent/quote with chain base, ETH to USDC."
+        },
+        {
+          "title": "Read the headers",
+          "detail": "X-RateLimit-Remaining shows your budget; Retry-After on 429."
+        },
+        {
+          "title": "Decide",
+          "detail": "Compare the routed output with your current source."
+        }
+      ],
+      "snippet": {
+        "lang": "bash",
+        "label": "Register and quote in two calls",
+        "code": "KEY=$(curl -s -X POST https://api.suwappu.bot/v1/agent/register \\\n  -H \"Content-Type: application/json\" -d '{\"name\":\"quote-test-1\"}' \\\n  | python3 -c \"import sys,json;print(json.load(sys.stdin)['agent']['api_key'])\")\n\ncurl -s -X POST https://api.suwappu.bot/v1/agent/quote \\\n  -H \"Authorization: Bearer $KEY\" -H \"Content-Type: application/json\" \\\n  -d '{\"from_token\":\"ETH\",\"to_token\":\"USDC\",\"amount\":\"0.1\",\"chain\":\"base\"}'"
+      },
+      "product": {
+        "name": "Get an API key",
+        "href": "/start"
+      },
+      "cta": {
+        "label": "Get an API key",
+        "href": "/start"
+      },
+      "secondaryCta": {
+        "label": "See Agent API pricing",
+        "href": "/pricing#agent-api"
+      },
+      "proof": [
+        {
+          "label": "Quote reference",
+          "href": "/docs/api-reference/quote"
+        },
+        {
+          "label": "Rate limits",
+          "href": "/docs/authentication/rate-limits"
+        },
+        {
+          "label": "OpenAPI 3.1 spec",
+          "href": "https://api.suwappu.bot/v1/agent/openapi"
+        },
+        {
+          "label": "Service status",
+          "href": "/status"
+        }
+      ],
+      "limits": [
+        "Registration is limited to 5 per minute per IP; starter credits can be withheld.",
+        "Names are unique, 3 to 50 characters.",
+        "Quotes expire in 60 seconds and are indicative until executed.",
+        "Executing a swap carries a platform fee; see the live quote."
+      ],
+      "faq": [
+        {
+          "q": "Is it really free?",
+          "a": "Registering and the free tier cost nothing. If metering is on, calls draw down credits; then you top up or subscribe."
+        },
+        {
+          "q": "Do I need a card or email?",
+          "a": "No. Registration is a public POST."
+        },
+        {
+          "q": "What is the rate limit?",
+          "a": "30 requests per minute on the free tier, 100 agent, 500 Pro, 2,000 Premium, 10,000 Enterprise."
+        },
+        {
+          "q": "Which chains can I quote?",
+          "a": "Whatever GET /v1/agent/chains returns; 18 at last count."
+        }
+      ],
+      "related": [
+        "cross-chain-swap-api",
+        "x402-pay-per-call-api",
+        "typescript-python-sdk-dex-swaps",
+        "let-ai-agent-swap-tokens"
+      ],
+      "keywords": [
+        "free swap quote API",
+        "DEX quote API no signup",
+        "token price quote endpoint",
+        "crypto swap API free tier",
+        "get swap quote curl"
+      ]
+    },
+    {
+      "slug": "typescript-python-sdk-dex-swaps",
+      "audience": "developer",
+      "asker": "both",
+      "intent": "transactional",
+      "title": "TypeScript and Python SDK for DEX swaps",
+      "metaDescription": "@suwappu/sdk (TypeScript 0.6.0) and suwappu (Python 0.3.0) wrap quotes, simulation, managed execution and self-custody prepare.",
+      "h1": "Is there a TypeScript or Python SDK for DEX swaps?",
+      "answer": "Yes. @suwappu/sdk (source 0.6.0) for TypeScript and suwappu (source 0.3.0, async) for Python wrap quote, simulate, prepare-swap and managed execution. Registry versions can lag the repository, so check the installed version or fall back to REST.",
+      "problem": "Hand-rolling REST clients means retyping field names and retry rules. You also want the self-custody and managed paths clearly separated.",
+      "steps": [
+        {
+          "title": "Install",
+          "detail": "bun add @suwappu/sdk, or pip install from the repo subdirectory for Python."
+        },
+        {
+          "title": "Quote",
+          "detail": "getQuote({from,to,chain,amount}) or get_quote(\"USDC\",\"ETH\",100.0,\"base\")."
+        },
+        {
+          "title": "Simulate",
+          "detail": "simulateSwap before any commit."
+        },
+        {
+          "title": "Pick a path",
+          "detail": "prepareSwap returns an unsigned tx. executeManagedSwap signs server-side."
+        },
+        {
+          "title": "Use an idempotency key",
+          "detail": "Pass idempotencyKey on managed execution."
+        }
+      ],
+      "snippet": {
+        "lang": "python",
+        "label": "Python: discover chains and quote",
+        "code": "import asyncio\nfrom suwappu import create_client\n\nasync def main():\n    async with create_client(api_key=\"suwappu_sk_...\") as client:\n        print(await client.list_chains())\n        quote = await client.get_quote(\"USDC\", \"ETH\", 100.0, \"base\")\n        print(quote.amount_out)\n\nasyncio.run(main())"
+      },
+      "product": {
+        "name": "SDK examples",
+        "href": "/docs/quick-start/sdk-examples"
+      },
+      "cta": {
+        "label": "Get an API key",
+        "href": "/start"
+      },
+      "secondaryCta": {
+        "label": "SDK examples",
+        "href": "/docs/quick-start/sdk-examples"
+      },
+      "proof": [
+        {
+          "label": "SDK examples",
+          "href": "/docs/quick-start/sdk-examples"
+        },
+        {
+          "label": "Source on GitHub",
+          "href": "https://github.com/0xSoftBoi/suwappubot"
+        },
+        {
+          "label": "OpenAPI 3.1 spec",
+          "href": "https://api.suwappu.bot/v1/agent/openapi"
+        },
+        {
+          "label": "Changelog",
+          "href": "/changelog"
+        }
+      ],
+      "limits": [
+        "The Python SDK installs from the GitHub subdirectory per its README; PyPI may lag.",
+        "The SDK registry versions can trail the repo.",
+        "Perps and lending SDK calls are read or quote only; no execution.",
+        "Self-custody means you sign; the SDK never signs for you."
+      ],
+      "faq": [
+        {
+          "q": "Which version is current?",
+          "a": "The repo describes TypeScript 0.6.0 and Python 0.3.0. Run npm view @suwappu/sdk version before relying on new methods."
+        },
+        {
+          "q": "Does the SDK sign?",
+          "a": "executeManagedSwap asks Suwappu to sign with your managed wallet. prepareSwap returns an unsigned tx."
+        },
+        {
+          "q": "Is Python async?",
+          "a": "Yes; use create_client in an async context."
+        },
+        {
+          "q": "Is there a CLI?",
+          "a": "The TypeScript package ships a suwappu binary with -o json output."
+        }
+      ],
+      "related": [
+        "let-ai-agent-swap-tokens",
+        "simulate-swap-before-signing",
+        "idempotent-agent-swaps",
+        "free-swap-quote-api"
+      ],
+      "keywords": [
+        "TypeScript SDK DEX swap",
+        "Python SDK crypto swap",
+        "suwappu sdk",
+        "DEX aggregator npm package",
+        "async python swap client"
+      ]
+    },
+    {
+      "slug": "give-claude-crypto-wallet-safely",
+      "audience": "developer",
+      "asker": "both",
+      "intent": "informational",
+      "title": "Give Claude a crypto wallet safely",
+      "metaDescription": "Connect Claude to Suwappu over MCP for quotes, prices and portfolio reads. execute_swap only prepares an unsigned tx; your wallet signs.",
+      "h1": "How do I give Claude access to crypto without giving it my keys?",
+      "answer": "Connect Claude to https://api.suwappu.bot/mcp. Read tools return quotes, prices and portfolio data. execute_swap only prepares an unsigned transaction, so Claude proposes a trade and your own wallet signs it. A managed wallet exists, but only through the REST path.",
+      "problem": "You want Claude to price a swap or watch a portfolio. You do not want a model with a signing key and a long conversation.",
+      "steps": [
+        {
+          "title": "Register",
+          "detail": "POST /v1/agent/register for a key."
+        },
+        {
+          "title": "Connect",
+          "detail": "claude mcp add --transport http suwappu https://api.suwappu.bot/mcp --header \"Authorization: Bearer suwappu_sk_YOUR_KEY\"."
+        },
+        {
+          "title": "Verify",
+          "detail": "Run /mcp inside Claude Code; suwappu should list its tools."
+        },
+        {
+          "title": "Ask for a read",
+          "detail": "What is ETH on Base worth in USDC for 0.5 ETH?"
+        },
+        {
+          "title": "Keep signing yours",
+          "detail": "Review the prepared transaction, then sign it in your own wallet."
+        }
+      ],
+      "snippet": {
+        "lang": "json",
+        "label": "Project .mcp.json for Claude Code",
+        "code": "{\n  \"mcpServers\": {\n    \"suwappu\": {\n      \"type\": \"http\",\n      \"url\": \"https://api.suwappu.bot/mcp\",\n      \"headers\": { \"Authorization\": \"Bearer suwappu_sk_YOUR_KEY\" }\n    }\n  }\n}"
+      },
+      "product": {
+        "name": "MCP client setup",
+        "href": "/docs/quick-start/mcp-clients"
+      },
+      "cta": {
+        "label": "Get an API key",
+        "href": "/start"
+      },
+      "secondaryCta": {
+        "label": "MCP client setup",
+        "href": "/docs/quick-start/mcp-clients"
+      },
+      "proof": [
+        {
+          "label": "MCP client setup",
+          "href": "/docs/quick-start/mcp-clients"
+        },
+        {
+          "label": "Managed wallets",
+          "href": "/docs/guides/managed-wallets"
+        },
+        {
+          "label": "Security overview",
+          "href": "/security"
+        },
+        {
+          "label": "OpenAPI 3.1 spec",
+          "href": "https://api.suwappu.bot/v1/agent/openapi"
+        }
+      ],
+      "limits": [
+        "The model can still propose a bad trade; prepared transactions need your review.",
+        "Do not commit the key into a shared .mcp.json.",
+        "The browser Agent Desk (WebMCP) is separate and keyless."
+      ],
+      "faq": [
+        {
+          "q": "Can Claude spend my funds?",
+          "a": "Not through MCP. execute_swap never signs or broadcasts."
+        },
+        {
+          "q": "What can Claude read?",
+          "a": "Quotes, prices, tokens, chains, portfolio, swap status and history, plus perps, prediction and lending data."
+        },
+        {
+          "q": "Where should the key live?",
+          "a": "In your client's secret store or environment. Rotate with POST /keys/rotate if exposed."
+        },
+        {
+          "q": "Which clients work?",
+          "a": "Claude Code, Claude Desktop, Cursor, Codex and OpenCode have documented configs."
+        }
+      ],
+      "related": [
+        "mcp-server-for-crypto-swaps",
+        "a2a-crypto-trading-agent",
+        "let-ai-agent-swap-tokens",
+        "spending-limits-ai-agent-wallet"
+      ],
+      "keywords": [
+        "give Claude crypto wallet",
+        "ChatGPT crypto wallet safely",
+        "LLM wallet access",
+        "Claude Code MCP crypto",
+        "AI agent holds no keys"
+      ]
+    },
+    {
+      "slug": "a2a-crypto-trading-agent",
+      "audience": "developer",
+      "asker": "agent",
+      "intent": "informational",
+      "title": "A2A agent for crypto quotes and prices",
+      "metaDescription": "Suwappu speaks A2A at POST /a2a with an agent card at /.well-known/agent-card.json. It quotes, prices and lists tokens; it does not execute trades.",
+      "h1": "Can my agent get crypto quotes from another agent over A2A?",
+      "answer": "Yes. POST https://api.suwappu.bot/a2a with a Bearer key and a message/send JSON-RPC call such as 'swap 0.5 ETH to USDC on base'. You get a quote task back. A2A is quote, price and discovery only. It does not execute trades.",
+      "problem": "Your orchestrator speaks A2A and you do not want a custom REST adapter. You also need to know up front that this path cannot trade.",
+      "steps": [
+        {
+          "title": "Read the card",
+          "detail": "GET https://api.suwappu.bot/.well-known/agent-card.json (agent.json also served)."
+        },
+        {
+          "title": "Register",
+          "detail": "POST /v1/agent/register. A2A requires a Bearer key."
+        },
+        {
+          "title": "Send a message",
+          "detail": "message/send with a text part."
+        },
+        {
+          "title": "Parse artifacts",
+          "detail": "A text summary plus a data part with quote_id, amount_out and expires_in_seconds."
+        },
+        {
+          "title": "Execute elsewhere",
+          "detail": "Use REST /swap or /swap/execute to act on the quote."
+        }
+      ],
+      "snippet": {
+        "lang": "bash",
+        "label": "A2A message/send",
+        "code": "curl -s -X POST https://api.suwappu.bot/a2a \\\n  -H \"Authorization: Bearer $SUWAPPU_API_KEY\" -H \"Content-Type: application/json\" \\\n  -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"message/send\",\"params\":{\"message\":{\"role\":\"user\",\"parts\":[{\"type\":\"text\",\"text\":\"swap 0.5 ETH to USDC on base\"}]}}}'"
+      },
+      "product": {
+        "name": "A2A protocol docs",
+        "href": "/docs/protocols/a2a"
+      },
+      "cta": {
+        "label": "Get an API key",
+        "href": "/start"
+      },
+      "secondaryCta": {
+        "label": "Read the A2A docs",
+        "href": "/docs/protocols/a2a"
+      },
+      "proof": [
+        {
+          "label": "A2A protocol",
+          "href": "/docs/protocols/a2a"
+        },
+        {
+          "label": "Agent card",
+          "href": "/docs/protocols/agent-card"
+        },
+        {
+          "label": "Agent card JSON",
+          "href": "https://api.suwappu.bot/.well-known/agent-card.json"
+        },
+        {
+          "label": "OpenAPI 3.1 spec",
+          "href": "https://api.suwappu.bot/v1/agent/openapi"
+        }
+      ],
+      "limits": [
+        "A2A does not execute trades.",
+        "Tasks are held in memory and expire after one hour.",
+        "Every A2A response is HTTP 200; errors are in the JSON-RPC error object.",
+        "Natural-language parsing covers swap, quote, price and balance commands, not arbitrary instructions."
+      ],
+      "faq": [
+        {
+          "q": "Can an A2A call move money?",
+          "a": "No. It is quote, price and discovery only."
+        },
+        {
+          "q": "Where is the agent card?",
+          "a": "/.well-known/agent-card.json, with /.well-known/agent.json also served."
+        },
+        {
+          "q": "Do I need a key?",
+          "a": "Yes, a Bearer key from /v1/agent/register."
+        },
+        {
+          "q": "What methods exist?",
+          "a": "message/send, tasks/get and tasks/cancel."
+        }
+      ],
+      "related": [
+        "mcp-server-for-crypto-swaps",
+        "let-ai-agent-swap-tokens",
+        "free-swap-quote-api",
+        "cross-chain-swap-api"
+      ],
+      "keywords": [
+        "A2A crypto agent",
+        "agent to agent protocol swap quote",
+        "agent card crypto API",
+        "JSON-RPC message/send quote",
+        "multi-agent DeFi quotes"
+      ]
+    },
+    {
+      "slug": "agent-swap-status-webhooks",
+      "audience": "developer",
+      "asker": "both",
+      "intent": "informational",
+      "title": "Get swap status webhooks for an agent",
+      "metaDescription": "Set callback_url on your agent and Suwappu POSTs HMAC-signed events. Verify X-Suwappu-Signature with the SHA-256 of your key, or poll /swap/status/:id.",
+      "h1": "How do I get notified when an agent's swap completes?",
+      "answer": "Set a public HTTPS callback_url with PATCH /v1/agent/me. Suwappu POSTs signed events with an X-Suwappu-Signature header: HMAC-SHA256 of the raw body keyed by the SHA-256 of your API key. Test with POST /v1/agent/webhooks/test, or poll swap/status.",
+      "problem": "Polling burns your rate limit and a webhook you do not verify is an open door for forged events.",
+      "steps": [
+        {
+          "title": "Set the URL",
+          "detail": "PATCH /v1/agent/me {\"callback_url\":\"https://...\"}. Private and metadata IPs are rejected."
+        },
+        {
+          "title": "Test it",
+          "detail": "POST /v1/agent/webhooks/test. Your endpoint must answer within 10 seconds."
+        },
+        {
+          "title": "Verify",
+          "detail": "Recompute the HMAC over the raw body and compare in constant time."
+        },
+        {
+          "title": "Reconcile",
+          "detail": "GET /v1/agent/swap/status/:id is the source of truth."
+        },
+        {
+          "title": "Inspect",
+          "detail": "GET /v1/agent/webhooks lists deliveries."
+        }
+      ],
+      "snippet": {
+        "lang": "ts",
+        "label": "Verify a delivery (Node)",
+        "code": "import crypto from \"crypto\";\n\nexport function verify(rawBody: string, signature: string, apiKey: string): boolean {\n  const key = crypto.createHash(\"sha256\").update(apiKey).digest();\n  const expected = crypto.createHmac(\"sha256\", key).update(rawBody).digest(\"hex\");\n  return crypto.timingSafeEqual(Buffer.from(signature, \"hex\"), Buffer.from(expected, \"hex\"));\n}"
+      },
+      "product": {
+        "name": "Webhook docs",
+        "href": "/docs/api-reference/webhooks"
+      },
+      "cta": {
+        "label": "Get an API key",
+        "href": "/start"
+      },
+      "secondaryCta": {
+        "label": "Webhook setup guide",
+        "href": "/docs/guides/webhook-setup"
+      },
+      "proof": [
+        {
+          "label": "Webhooks",
+          "href": "/docs/api-reference/webhooks"
+        },
+        {
+          "label": "Swap status",
+          "href": "/docs/api-reference/swap-status"
+        },
+        {
+          "label": "OpenAPI 3.1 spec",
+          "href": "https://api.suwappu.bot/v1/agent/openapi"
+        },
+        {
+          "label": "Changelog",
+          "href": "/changelog"
+        }
+      ],
+      "limits": [
+        "Webhooks must be public HTTPS.",
+        "Treat a webhook as a hint; reconcile with swap status.",
+        "Hex lengths must match before timingSafeEqual or it throws; check length first.",
+        "Only managed swaps have swap records."
+      ],
+      "faq": [
+        {
+          "q": "What headers arrive?",
+          "a": "X-Suwappu-Event, X-Suwappu-Delivery, X-Suwappu-Timestamp, X-Suwappu-Signature."
+        },
+        {
+          "q": "What is the signing key?",
+          "a": "The SHA-256 hash of your suwappu_sk_ key."
+        },
+        {
+          "q": "What if I rotate the key?",
+          "a": "The signing key changes with it."
+        },
+        {
+          "q": "Is there a delivery log?",
+          "a": "Yes, GET /v1/agent/webhooks."
+        }
+      ],
+      "related": [
+        "idempotent-agent-swaps",
+        "let-ai-agent-swap-tokens",
+        "simulate-swap-before-signing",
+        "typescript-python-sdk-dex-swaps"
+      ],
+      "keywords": [
+        "swap webhook",
+        "agent callback_url signature",
+        "HMAC webhook verification crypto",
+        "swap status polling",
+        "notify when swap completes"
+      ]
+    },
+    {
+      "slug": "idempotent-agent-swaps",
+      "audience": "developer",
+      "asker": "both",
+      "intent": "informational",
+      "title": "Avoid double swaps when an agent retries",
+      "metaDescription": "Send an Idempotency-Key on /swap/execute. After a timeout or 5xx, reconcile status, then retry with the same key. Never mint a new key blindly.",
+      "h1": "How do I stop an agent from swapping twice after a timeout?",
+      "answer": "Send one persisted Idempotency-Key per intended trade on POST /v1/agent/swap/execute. After a timeout, network error or 5xx, check GET /swap/status or /swaps first, then retry with the same key. A fresh key is a new trade.",
+      "problem": "A request times out. The agent retries. If the first one landed on-chain, you just bought twice.",
+      "steps": [
+        {
+          "title": "Mint the key first",
+          "detail": "Persist one key per economic intent, 1 to 64 chars of A-Z a-z 0-9 _ . : -."
+        },
+        {
+          "title": "Send it",
+          "detail": "Add the Idempotency-Key header on /swap/execute."
+        },
+        {
+          "title": "On failure, reconcile",
+          "detail": "GET /v1/agent/swaps or /swap/status/:id."
+        },
+        {
+          "title": "Retry with the same key",
+          "detail": "A requote may be needed; the key still represents the same trade."
+        },
+        {
+          "title": "Do not reuse",
+          "detail": "Use a new key only for a genuinely new trade."
+        }
+      ],
+      "snippet": {
+        "lang": "bash",
+        "label": "Execute with an idempotency key",
+        "code": "curl -s -X POST https://api.suwappu.bot/v1/agent/swap/execute \\\n  -H \"Authorization: Bearer $SUWAPPU_API_KEY\" -H \"Content-Type: application/json\" \\\n  -H \"Idempotency-Key: rebalance-2026-11-21-001\" \\\n  -d '{\"quote_id\":\"QUOTE_ID\"}'"
+      },
+      "product": {
+        "name": "Swap execute docs",
+        "href": "/docs/api-reference/swap-execute"
+      },
+      "cta": {
+        "label": "Get an API key",
+        "href": "/start"
+      },
+      "secondaryCta": {
+        "label": "Read swap execute",
+        "href": "/docs/api-reference/swap-execute"
+      },
+      "proof": [
+        {
+          "label": "Swap execute",
+          "href": "/docs/api-reference/swap-execute"
+        },
+        {
+          "label": "Swap history",
+          "href": "/docs/api-reference/swap-history"
+        },
+        {
+          "label": "OpenAPI 3.1 spec",
+          "href": "https://api.suwappu.bot/v1/agent/openapi"
+        },
+        {
+          "label": "Changelog",
+          "href": "/changelog"
+        }
+      ],
+      "limits": [
+        "Requires a managed wallet; the self-custody path has no server swap record.",
+        "An on-chain outcome can be unknown after a 5xx; status is the arbiter.",
+        "The key is bound to the trade's economic terms.",
+        "Idempotency does not cap size; see spending-limits-ai-agent-wallet."
+      ],
+      "faq": [
+        {
+          "q": "Is a key required?",
+          "a": "Recommended for automation. Without one Suwappu derives a key from the agent and quote_id."
+        },
+        {
+          "q": "Why not just retry?",
+          "a": "A timed-out request may have broadcast. Reconcile first."
+        },
+        {
+          "q": "Do approvals interact?",
+          "a": "Re-submission after approval uses approval_id."
+        },
+        {
+          "q": "Which SDK option?",
+          "a": "idempotencyKey on executeManagedSwap."
+        }
+      ],
+      "related": [
+        "let-ai-agent-swap-tokens",
+        "agent-swap-status-webhooks",
+        "simulate-swap-before-signing",
+        "approval-workflow-onchain-trades"
+      ],
+      "keywords": [
+        "idempotency key swap",
+        "duplicate swap retry agent",
+        "safe retry crypto API",
+        "exactly once swap execution",
+        "agent timeout double trade"
+      ]
+    },
+    {
+      "slug": "swap-usdc-base-to-solana",
+      "audience": "trader",
+      "asker": "human",
+      "intent": "transactional",
+      "title": "Swap USDC from Base to Solana",
+      "metaDescription": "Use the Suwappu Terminal or Telegram bot. Compare the quoted minimum output, fee and time, check the Solana address, then confirm. Not financial advice.",
+      "h1": "How do I swap USDC on Base to a token on Solana?",
+      "answer": "Open the Suwappu Terminal, choose USDC on Base as the source and your Solana token as the destination, and compare the quoted minimum output, fee and time before confirming. In Telegram, /s takes the same inputs. Check the Solana address first.",
+      "problem": "The fear is sending funds to the wrong address on a chain with a different address format. You also do not know what lands on the other side.",
+      "steps": [
+        {
+          "title": "Open a surface",
+          "detail": "terminal.suwappu.bot, or the bot at t.me/suwappu_bot."
+        },
+        {
+          "title": "Pick the pair",
+          "detail": "USDC on Base to your target token on Solana."
+        },
+        {
+          "title": "Read the quote",
+          "detail": "Look at the minimum received after slippage, fee, gas and the time estimate."
+        },
+        {
+          "title": "Check the destination",
+          "detail": "It must be a Solana address you control. EVM and Solana addresses differ."
+        },
+        {
+          "title": "Confirm and track",
+          "detail": "Use /hx in the bot for history, or the Terminal's activity view."
+        }
+      ],
+      "snippet": null,
+      "product": {
+        "name": "Suwappu Terminal",
+        "href": "https://terminal.suwappu.bot"
+      },
+      "cta": {
+        "label": "Open the Terminal",
+        "href": "https://terminal.suwappu.bot"
+      },
+      "secondaryCta": {
+        "label": "Open the bot in Telegram",
+        "href": "https://t.me/suwappu_bot"
+      },
+      "proof": [
+        {
+          "label": "Cross-chain guide",
+          "href": "/docs/guides/cross-chain-swaps"
+        },
+        {
+          "label": "Fee schedule",
+          "href": "/pricing"
+        },
+        {
+          "label": "Service status",
+          "href": "/status"
+        },
+        {
+          "label": "Security overview",
+          "href": "/security"
+        }
+      ],
+      "limits": [
+        "Cross-chain swaps can take minutes and can fail; a quote is not a guarantee.",
+        "Price can move before confirmation; the minimum received is your floor.",
+        "Suwappu does not promise the best price on every route.",
+        "Not financial advice."
+      ],
+      "faq": [
+        {
+          "q": "Does it use a bridge?",
+          "a": "Routes can include bridges such as Wormhole, chosen per pair; the quote shows the route."
+        },
+        {
+          "q": "What does it cost?",
+          "a": "The platform swap fee by tier is 1.0% Free, 0.5% Pro, 0.3% Premium, 0.1% Enterprise, plus network gas."
+        },
+        {
+          "q": "Do I need SOL for gas?",
+          "a": "Solana needs SOL for fees; check your destination balance."
+        },
+        {
+          "q": "What if it gets stuck?",
+          "a": "See why-is-my-cross-chain-swap-stuck."
+        }
+      ],
+      "related": [
+        "why-is-my-cross-chain-swap-stuck",
+        "cross-chain-swap-without-a-bridge",
+        "how-much-slippage-cross-chain-swap",
+        "swap-fee-tiers-break-even"
+      ],
+      "keywords": [
+        "swap USDC Base to Solana",
+        "bridge USDC Base to Solana",
+        "cross-chain swap Base Solana",
+        "move USDC to Solana",
+        "Base to SOL swap Telegram"
+      ]
+    },
+    {
+      "slug": "cross-chain-swap-without-a-bridge",
+      "audience": "trader",
+      "asker": "human",
+      "intent": "informational",
+      "title": "Cross-chain swap without a bridge",
+      "metaDescription": "A cross-chain swap is one order routed through bridge and swap legs. You get one quote, one minimum output and one time estimate, not two UIs.",
+      "h1": "Can I swap across chains without using a bridge separately?",
+      "answer": "Yes. A cross-chain swap routes through bridges and DEXes for you as one order. You choose source token, source chain, destination token and destination chain; the quote shows the route and minimum output. The bridge still exists, you just do not drive it by hand.",
+      "problem": "Bridge first, then swap, means two UIs, two fees and a gap in the middle where funds sit in a token you did not want.",
+      "steps": [
+        {
+          "title": "Choose both ends",
+          "detail": "Source token and chain, destination token and chain."
+        },
+        {
+          "title": "Get one quote",
+          "detail": "The router picks the legs; the quote names the route."
+        },
+        {
+          "title": "Compare the minimum",
+          "detail": "Minimum received after slippage is the number to trust."
+        },
+        {
+          "title": "Confirm once",
+          "detail": "One approval flow instead of two."
+        },
+        {
+          "title": "Track",
+          "detail": "Cross-chain legs finish at different times."
+        }
+      ],
+      "snippet": {
+        "lang": "telegram",
+        "label": "Cross-chain in the bot",
+        "code": "/s 50 USDC polygon ETH ethereum"
+      },
+      "product": {
+        "name": "Suwappu Terminal",
+        "href": "https://terminal.suwappu.bot"
+      },
+      "cta": {
+        "label": "Open the Terminal",
+        "href": "https://terminal.suwappu.bot"
+      },
+      "secondaryCta": {
+        "label": "Open the bot in Telegram",
+        "href": "https://t.me/suwappu_bot"
+      },
+      "proof": [
+        {
+          "label": "Cross-chain swap guide",
+          "href": "/docs/guides/cross-chain-swaps"
+        },
+        {
+          "label": "Architecture",
+          "href": "/architecture"
+        },
+        {
+          "label": "Service status",
+          "href": "/status"
+        },
+        {
+          "label": "Changelog",
+          "href": "/changelog"
+        }
+      ],
+      "limits": [
+        "A bridge leg still exists; it can be slower than a same-chain swap.",
+        "Not every chain pair is routable.",
+        "Fees include gas on the source chain.",
+        "Suwappu does not claim the cheapest route."
+      ],
+      "faq": [
+        {
+          "q": "Is it one transaction?",
+          "a": "One order from you; the route may involve several on-chain steps."
+        },
+        {
+          "q": "How many chains?",
+          "a": "45 on the platform; the Agent API serves 18."
+        },
+        {
+          "q": "Which venues?",
+          "a": "21 routing venues across the platform, gated by chain."
+        },
+        {
+          "q": "Can it fail?",
+          "a": "Yes. See why-is-my-cross-chain-swap-stuck."
+        }
+      ],
+      "related": [
+        "swap-usdc-base-to-solana",
+        "why-is-my-cross-chain-swap-stuck",
+        "how-much-slippage-cross-chain-swap",
+        "telegram-trading-bot-cross-chain"
+      ],
+      "keywords": [
+        "cross-chain swap no bridge",
+        "swap tokens across chains one step",
+        "bridge and swap in one",
+        "bridge vs cross-chain swap",
+        "multi-chain swap one order"
+      ]
+    },
+    {
+      "slug": "telegram-trading-bot-cross-chain",
+      "audience": "trader",
+      "asker": "human",
+      "intent": "commercial",
+      "title": "A Telegram trading bot that works cross-chain",
+      "metaDescription": "The Suwappu bot at t.me/suwappu_bot swaps across 45 chains with /s, plus /a price alerts and /p portfolio. Limit orders, DCA and sniping need Pro.",
+      "h1": "Is there a Telegram trading bot that swaps across chains?",
+      "answer": "Yes. Open t.me/suwappu_bot. /s 100 USDC ETH swaps; /s 50 USDC polygon ETH ethereum swaps across chains; /p shows your portfolio and /a sets alerts. Limit orders (/o), DCA (/dca) and /snipe require the Pro tier.",
+      "problem": "Most bots live on one chain. You end up with three bots, three wallets and three sets of settings.",
+      "steps": [
+        {
+          "title": "Open the bot",
+          "detail": "t.me/suwappu_bot, then /start."
+        },
+        {
+          "title": "Swap",
+          "detail": "/s 100 USDC ETH, or add chains: /s 50 USDC polygon ETH ethereum."
+        },
+        {
+          "title": "Check holdings",
+          "detail": "/p for portfolio, /b for balance."
+        },
+        {
+          "title": "Set an alert",
+          "detail": "/a and follow the prompts."
+        },
+        {
+          "title": "Upgrade if needed",
+          "detail": "/sub for Pro at $9.99 per 30 days."
+        }
+      ],
+      "snippet": {
+        "lang": "telegram",
+        "label": "Core commands",
+        "code": "/s 100 USDC ETH\n/s 50 USDC polygon ETH ethereum\n/p\n/a\n/hx"
+      },
+      "product": {
+        "name": "Suwappu Telegram bot",
+        "href": "https://t.me/suwappu_bot"
+      },
+      "cta": {
+        "label": "Open the bot in Telegram",
+        "href": "https://t.me/suwappu_bot"
+      },
+      "secondaryCta": {
+        "label": "See plans",
+        "href": "/pricing"
+      },
+      "proof": [
+        {
+          "label": "Products",
+          "href": "/products"
+        },
+        {
+          "label": "Security overview",
+          "href": "/security"
+        },
+        {
+          "label": "Service status",
+          "href": "/status"
+        },
+        {
+          "label": "Changelog",
+          "href": "/changelog"
+        }
+      ],
+      "limits": [
+        "WhatsApp is not live.",
+        "Limit orders, DCA, trailing stops and snipe need Pro.",
+        "Swap fees apply by tier: 1.0% Free to 0.1% Enterprise.",
+        "Not every command works on every chain."
+      ],
+      "faq": [
+        {
+          "q": "Is it free?",
+          "a": "Free tier swaps carry a 1.0% fee. No subscription is required."
+        },
+        {
+          "q": "What needs Pro?",
+          "a": "/o, /dca, /trailing, /snipe and following traders."
+        },
+        {
+          "q": "Is there a web version?",
+          "a": "Yes, terminal.suwappu.bot."
+        },
+        {
+          "q": "Can I use it with an AI agent?",
+          "a": "See the developer pages; agents use the API."
+        }
+      ],
+      "related": [
+        "swap-usdc-base-to-solana",
+        "price-alerts-telegram",
+        "limit-orders-dca-telegram",
+        "is-a-telegram-trading-bot-safe"
+      ],
+      "keywords": [
+        "Telegram trading bot",
+        "cross-chain Telegram bot",
+        "swap tokens in Telegram",
+        "multi-chain crypto bot",
+        "Telegram DEX bot"
+      ]
+    },
+    {
+      "slug": "price-alerts-telegram",
+      "audience": "trader",
+      "asker": "human",
+      "intent": "transactional",
+      "title": "Set crypto price alerts in Telegram",
+      "metaDescription": "Use /a in the Suwappu bot to create a price alert for a token. Alerts do not require a paid tier. They notify you; they do not trade.",
+      "h1": "How do I set a crypto price alert in Telegram?",
+      "answer": "Open t.me/suwappu_bot and send /a. Follow the prompts to choose a token such as ETH, BTC or SOL and a target price. The bot messages you when it hits. Alerts do not need a paid tier and do not place trades.",
+      "problem": "You step away and miss a level, or you sit watching a chart.",
+      "steps": [
+        {
+          "title": "Open the bot",
+          "detail": "t.me/suwappu_bot, then /start if you are new."
+        },
+        {
+          "title": "Send /a",
+          "detail": "Create an alert and pick a token (ETH, BTC, SOL, USDC and others)."
+        },
+        {
+          "title": "Set the level",
+          "detail": "Enter the target price."
+        },
+        {
+          "title": "Wait for the message",
+          "detail": "The bot notifies you."
+        },
+        {
+          "title": "Act",
+          "detail": "Swap with /s, or set a limit order with /o on Pro."
+        }
+      ],
+      "snippet": {
+        "lang": "telegram",
+        "label": "Alerts",
+        "code": "/a\n/o"
+      },
+      "product": {
+        "name": "Suwappu Telegram bot",
+        "href": "https://t.me/suwappu_bot"
+      },
+      "cta": {
+        "label": "Open the bot in Telegram",
+        "href": "https://t.me/suwappu_bot"
+      },
+      "secondaryCta": {
+        "label": "Compare plans",
+        "href": "/pricing"
+      },
+      "proof": [
+        {
+          "label": "Products",
+          "href": "/products"
+        },
+        {
+          "label": "Service status",
+          "href": "/status"
+        },
+        {
+          "label": "Changelog",
+          "href": "/changelog"
+        },
+        {
+          "label": "Security overview",
+          "href": "/security"
+        }
+      ],
+      "limits": [
+        "An alert does not execute a trade.",
+        "Alert timing depends on price polling, not a guarantee of instant delivery.",
+        "Limit orders (/o) need Pro.",
+        "Prices are reference prices, not a promise of fill."
+      ],
+      "faq": [
+        {
+          "q": "Is it free?",
+          "a": "Alerts have no tier gate in the bot code."
+        },
+        {
+          "q": "Which tokens?",
+          "a": "The prompt lists examples such as ETH, BTC, SOL and USDC."
+        },
+        {
+          "q": "Can I cancel?",
+          "a": "Yes; the alert flow has a /cancel."
+        },
+        {
+          "q": "Alert vs limit order?",
+          "a": "An alert messages you. A limit order executes; that needs Pro."
+        }
+      ],
+      "related": [
+        "limit-orders-dca-telegram",
+        "telegram-trading-bot-cross-chain",
+        "how-much-slippage-cross-chain-swap",
+        "swap-fee-tiers-break-even"
+      ],
+      "keywords": [
+        "crypto price alert Telegram",
+        "Telegram price alert bot",
+        "token price notification",
+        "alert when ETH hits price",
+        "set alert crypto bot"
+      ]
+    },
+    {
+      "slug": "limit-orders-dca-telegram",
+      "audience": "trader",
+      "asker": "human",
+      "intent": "transactional",
+      "title": "Limit orders and DCA in Telegram",
+      "metaDescription": "Pro unlocks limit orders (/o), recurring buys (/dca) and trailing stops (/trailing) in the bot. Pro is $9.99 per 30 days and cuts the swap fee to 0.5%.",
+      "h1": "How do I set a limit order or recurring buy in Telegram?",
+      "answer": "Subscribe to Pro, then use /o for limit orders, /dca for a fixed-amount recurring buy and /trailing for trailing stops in t.me/suwappu_bot. Pro is $9.99 per 30 days and lowers the swap fee from 1.0% to 0.5%.",
+      "problem": "You do not want to watch a price or buy by hand every week.",
+      "steps": [
+        {
+          "title": "Open the bot",
+          "detail": "t.me/suwappu_bot."
+        },
+        {
+          "title": "Upgrade",
+          "detail": "/sub shows Pro at $9.99 for a 30-day prepaid window, paid in crypto."
+        },
+        {
+          "title": "Limit order",
+          "detail": "/o, then follow the flow."
+        },
+        {
+          "title": "Recurring buy",
+          "detail": "/dca, amount per execution and the token."
+        },
+        {
+          "title": "Review",
+          "detail": "/o and /dca list your active orders."
+        }
+      ],
+      "snippet": {
+        "lang": "telegram",
+        "label": "Order commands (Pro)",
+        "code": "/sub\n/o\n/dca\n/trailing"
+      },
+      "product": {
+        "name": "Suwappu Telegram bot",
+        "href": "https://t.me/suwappu_bot"
+      },
+      "cta": {
+        "label": "Open the bot in Telegram",
+        "href": "https://t.me/suwappu_bot"
+      },
+      "secondaryCta": {
+        "label": "See plan pricing",
+        "href": "/pricing"
+      },
+      "proof": [
+        {
+          "label": "Limit orders guide",
+          "href": "/docs/guides/limit-orders-dca"
+        },
+        {
+          "label": "Security overview",
+          "href": "/security"
+        },
+        {
+          "label": "Service status",
+          "href": "/status"
+        },
+        {
+          "label": "Changelog",
+          "href": "/changelog"
+        }
+      ],
+      "limits": [
+        "Limit orders and DCA need the Pro tier or above.",
+        "A trigger price is not a guaranteed fill; slippage and gas apply.",
+        "Pro is a prepaid 30-day window, not auto-renewing by default."
+      ],
+      "faq": [
+        {
+          "q": "Is DCA free?",
+          "a": "No. The /dca handler requires Pro."
+        },
+        {
+          "q": "How is Pro paid?",
+          "a": "In crypto, prepaid for 30 days."
+        },
+        {
+          "q": "What does a DCA order do?",
+          "a": "It buys a fixed amount per execution on a schedule."
+        },
+        {
+          "q": "Can orders fail?",
+          "a": "Yes: slippage, gas, liquidity. Check /o for status."
+        }
+      ],
+      "related": [
+        "price-alerts-telegram",
+        "snipe-new-solana-launches-telegram",
+        "swap-fee-tiers-break-even",
+        "telegram-trading-bot-cross-chain"
+      ],
+      "keywords": [
+        "Telegram limit order bot",
+        "DCA bot Telegram",
+        "recurring crypto buy",
+        "trailing stop Telegram",
+        "set limit order crypto Telegram"
+      ]
+    },
+    {
+      "slug": "snipe-new-solana-launches-telegram",
+      "audience": "trader",
+      "asker": "human",
+      "intent": "transactional",
+      "title": "Snipe new Solana token launches in Telegram",
+      "metaDescription": "/snipe buys a Solana token by contract and SOL amount. Needs Pro and a Solana wallet. New launches are high risk and often lose most value.",
+      "h1": "How do I snipe a new Solana token launch from Telegram?",
+      "answer": "Subscribe to Pro, make sure you have a default Solana wallet in the bot, then send /snipe <contract> <amount in SOL>, or /snipe for the menu. Sniping brand-new tokens is high risk; many lose most of their value and some cannot be sold.",
+      "problem": "Speed matters on a launch, but so does knowing what you are buying. Rushing a contract address is how people buy honeypots.",
+      "steps": [
+        {
+          "title": "Get Pro",
+          "detail": "/sub, $9.99 per 30 days; /snipe is gated at Pro."
+        },
+        {
+          "title": "Check your Solana wallet",
+          "detail": "/w. /snipe needs a default Solana wallet."
+        },
+        {
+          "title": "Verify the contract",
+          "detail": "Read the token page and holders before you send anything."
+        },
+        {
+          "title": "Send the command",
+          "detail": "/snipe <contract> <amount> with an amount you can lose entirely."
+        },
+        {
+          "title": "Review",
+          "detail": "The snipe menu keeps a history."
+        }
+      ],
+      "snippet": {
+        "lang": "telegram",
+        "label": "Snipe",
+        "code": "/snipe\n/snipe <contract_address>\n/snipe <contract_address> 0.5"
+      },
+      "product": {
+        "name": "Suwappu Telegram bot",
+        "href": "https://t.me/suwappu_bot"
+      },
+      "cta": {
+        "label": "Open the bot in Telegram",
+        "href": "https://t.me/suwappu_bot"
+      },
+      "secondaryCta": {
+        "label": "See Pro pricing",
+        "href": "/pricing"
+      },
+      "proof": [
+        {
+          "label": "Risk disclosure",
+          "href": "/legal/risk"
+        },
+        {
+          "label": "Service status",
+          "href": "/status"
+        },
+        {
+          "label": "Changelog",
+          "href": "/changelog"
+        },
+        {
+          "label": "Security overview",
+          "href": "/security"
+        }
+      ],
+      "limits": [
+        "Suwappu does not vet tokens; a launch can rug or be unsellable.",
+        "Solana only. It needs a default Solana wallet.",
+        "Requires Pro.",
+        "Past results are not a signal; not financial advice."
+      ],
+      "faq": [
+        {
+          "q": "Does it guarantee a fill?",
+          "a": "No. Congestion, slippage and liquidity can prevent or worsen a fill."
+        },
+        {
+          "q": "Which chain?",
+          "a": "Solana. The handler looks up your default Solana wallet."
+        },
+        {
+          "q": "Is it free?",
+          "a": "No. /snipe needs Pro."
+        },
+        {
+          "q": "How much should I use?",
+          "a": "Only an amount you accept losing completely."
+        }
+      ],
+      "related": [
+        "limit-orders-dca-telegram",
+        "is-a-telegram-trading-bot-safe",
+        "how-much-slippage-cross-chain-swap",
+        "telegram-trading-bot-cross-chain"
+      ],
+      "keywords": [
+        "snipe Solana tokens Telegram",
+        "new token launch bot",
+        "pump.fun sniper Telegram",
+        "snipe bot Solana",
+        "buy new Solana launches"
+      ]
+    },
+    {
+      "slug": "is-a-telegram-trading-bot-safe",
+      "audience": "trader",
+      "asker": "human",
+      "intent": "informational",
+      "title": "Is a Telegram trading bot safe?",
+      "metaDescription": "Judge a bot by who holds keys, what caps a mistake and what you can verify. Suwappu has /2fa, open source and a status page; no audit or SOC 2 yet.",
+      "h1": "Is a Telegram trading bot safe to use?",
+      "answer": "It depends on three things: who holds the keys, what limits cap a mistake, and what you can verify yourself. Suwappu offers /2fa, open source code, a status page and a security page. It does not claim a completed audit or SOC 2.",
+      "problem": "A bot asks you to trust it with funds inside a chat app. Impersonator bots and drainers copy popular names.",
+      "steps": [
+        {
+          "title": "Confirm the bot",
+          "detail": "Use t.me/suwappu_bot from suwappu.bot, not a search result."
+        },
+        {
+          "title": "Ask who holds the key",
+          "detail": "Read /security before depositing."
+        },
+        {
+          "title": "Turn on 2FA",
+          "detail": "Send /2fa in the bot."
+        },
+        {
+          "title": "Start small",
+          "detail": "Use an amount you can lose while you learn."
+        },
+        {
+          "title": "Never share seed phrases",
+          "detail": "No Suwappu command needs your seed in a chat."
+        }
+      ],
+      "snippet": {
+        "lang": "telegram",
+        "label": "Account protection",
+        "code": "/2fa\n/limits"
+      },
+      "product": {
+        "name": "Suwappu security overview",
+        "href": "/security"
+      },
+      "cta": {
+        "label": "Read the security overview",
+        "href": "/security"
+      },
+      "secondaryCta": {
+        "label": "Open the bot in Telegram",
+        "href": "https://t.me/suwappu_bot"
+      },
+      "proof": [
+        {
+          "label": "Security overview",
+          "href": "/security"
+        },
+        {
+          "label": "Source on GitHub",
+          "href": "https://github.com/0xSoftBoi/suwappubot"
+        },
+        {
+          "label": "Service status",
+          "href": "/status"
+        },
+        {
+          "label": "Risk disclosure",
+          "href": "/legal/risk"
+        }
+      ],
+      "limits": [
+        "No third-party audit report or SOC 2 is published; SOC 2 is on the roadmap.",
+        "No bot is risk-free; trading carries risk of total loss.",
+        "This page makes no uptime or loss-prevention guarantee.",
+        "Impersonation scams are outside Suwappu's control."
+      ],
+      "faq": [
+        {
+          "q": "Is there an audit?",
+          "a": "Public audit reports are listed as roadmap, not published."
+        },
+        {
+          "q": "Can I verify the code?",
+          "a": "Yes; the repository is public on GitHub."
+        },
+        {
+          "q": "Where do I check service health?",
+          "a": "/status."
+        },
+        {
+          "q": "What is /limits?",
+          "a": "It shows your current limits and wallet policy status."
+        }
+      ],
+      "related": [
+        "telegram-trading-bot-cross-chain",
+        "snipe-new-solana-launches-telegram",
+        "why-is-my-cross-chain-swap-stuck",
+        "swap-fee-tiers-break-even"
+      ],
+      "keywords": [
+        "is Telegram trading bot safe",
+        "Telegram bot scam how to check",
+        "crypto bot safety",
+        "trading bot custody",
+        "is Suwappu safe"
+      ]
+    },
+    {
+      "slug": "why-is-my-cross-chain-swap-stuck",
+      "audience": "trader",
+      "asker": "human",
+      "intent": "informational",
+      "title": "Why is my cross-chain swap stuck?",
+      "metaDescription": "Check the source tx on an explorer, the quote's time estimate, the destination address and /hx. Bridges are often slow, not lost.",
+      "h1": "Why is my cross-chain swap stuck or pending?",
+      "answer": "Most pending swaps are waiting on a bridge leg, not lost. Find the source transaction hash, confirm it succeeded on the explorer, compare elapsed time with the quote's time estimate, and check your destination address. If it is far past the estimate, contact support with the hash.",
+      "problem": "Your funds left one chain and have not shown up on the other. The worst assumption is that they are gone.",
+      "steps": [
+        {
+          "title": "Get the hash",
+          "detail": "/hx in the bot lists recent swaps; the Terminal shows activity."
+        },
+        {
+          "title": "Check the source tx",
+          "detail": "On the chain's explorer confirm it succeeded, not failed."
+        },
+        {
+          "title": "Compare to the estimate",
+          "detail": "Quotes include an estimated time; bridges vary."
+        },
+        {
+          "title": "Check the destination",
+          "detail": "Right chain, right address, and the received token may need adding to your wallet view."
+        },
+        {
+          "title": "Contact support",
+          "detail": "/support in the bot, with the source tx hash."
+        }
+      ],
+      "snippet": {
+        "lang": "telegram",
+        "label": "Find the swap",
+        "code": "/hx\n/support"
+      },
+      "product": {
+        "name": "Suwappu Telegram bot",
+        "href": "https://t.me/suwappu_bot"
+      },
+      "cta": {
+        "label": "Open the bot in Telegram",
+        "href": "https://t.me/suwappu_bot"
+      },
+      "secondaryCta": {
+        "label": "Check service status",
+        "href": "/status"
+      },
+      "proof": [
+        {
+          "label": "Service status",
+          "href": "/status"
+        },
+        {
+          "label": "Changelog",
+          "href": "/changelog"
+        },
+        {
+          "label": "Cross-chain guide",
+          "href": "/docs/guides/cross-chain-swaps"
+        },
+        {
+          "label": "Security overview",
+          "href": "/security"
+        }
+      ],
+      "limits": [
+        "Suwappu cannot speed up a third-party bridge.",
+        "A failed source tx means funds did not leave; a confirmed one can still be delayed.",
+        "No refund or recovery timeline is promised here.",
+        "Verify addresses before assuming a loss."
+      ],
+      "faq": [
+        {
+          "q": "How long should it take?",
+          "a": "The quote shows an estimate; same-chain swaps take seconds and bridges longer."
+        },
+        {
+          "q": "Could slippage cause failure?",
+          "a": "A tx can revert if price moved past your limit; funds stay in your wallet."
+        },
+        {
+          "q": "Where do I report it?",
+          "a": "/support with the source tx hash."
+        },
+        {
+          "q": "Is the service down?",
+          "a": "Check /status."
+        }
+      ],
+      "related": [
+        "swap-usdc-base-to-solana",
+        "cross-chain-swap-without-a-bridge",
+        "how-much-slippage-cross-chain-swap",
+        "is-a-telegram-trading-bot-safe"
+      ],
+      "keywords": [
+        "cross-chain swap stuck",
+        "bridge transaction pending",
+        "swap not received other chain",
+        "bridge taking too long",
+        "funds not arrived after bridge"
+      ]
+    },
+    {
+      "slug": "how-much-slippage-cross-chain-swap",
+      "audience": "trader",
+      "asker": "human",
+      "intent": "informational",
+      "title": "How much slippage should I set on a swap?",
+      "metaDescription": "Slippage is the worst price you accept: 3% on $1,000 means at least $970 out. Use the lowest setting that fills and read minimum received.",
+      "h1": "How much slippage should I set on a swap?",
+      "answer": "Slippage is the largest price drop you will accept before the swap fails. At 3%, a $1,000 swap must return at least about $970. Use the lowest setting that still fills; read the quote's minimum received. A price impact above 5% is a warning.",
+      "problem": "Set slippage too low and the swap fails and you pay gas. Set it too high and you invite a worse fill.",
+      "steps": [
+        {
+          "title": "Find the minimum",
+          "detail": "Quotes show minimum received (amount_out_min via the API)."
+        },
+        {
+          "title": "Do the arithmetic",
+          "detail": "Minimum = expected out x (1 - slippage). 3% of $1,000 is $30."
+        },
+        {
+          "title": "Match to liquidity",
+          "detail": "Deep pairs like ETH/USDC need less; thin tokens more."
+        },
+        {
+          "title": "Check price impact",
+          "detail": "The simulate endpoint warns above 5%."
+        },
+        {
+          "title": "Re-quote on expiry",
+          "detail": "API quotes last 60 seconds."
+        }
+      ],
+      "snippet": {
+        "lang": "bash",
+        "label": "See the floor your slippage sets (API)",
+        "code": "curl -s -X POST https://api.suwappu.bot/v1/agent/quote \\\n  -H \"Authorization: Bearer $SUWAPPU_API_KEY\" -H \"Content-Type: application/json\" \\\n  -d '{\"from_token\":\"ETH\",\"to_token\":\"USDC\",\"amount\":\"0.5\",\"chain\":\"base\",\"slippage\":0.01}'"
+      },
+      "product": {
+        "name": "Suwappu Terminal",
+        "href": "https://terminal.suwappu.bot"
+      },
+      "cta": {
+        "label": "Open the Terminal",
+        "href": "https://terminal.suwappu.bot"
+      },
+      "secondaryCta": {
+        "label": "Read the quote reference",
+        "href": "/docs/api-reference/quote"
+      },
+      "proof": [
+        {
+          "label": "Quote reference",
+          "href": "/docs/api-reference/quote"
+        },
+        {
+          "label": "Simulate reference",
+          "href": "/docs/api-reference/simulate"
+        },
+        {
+          "label": "Service status",
+          "href": "/status"
+        },
+        {
+          "label": "Risk disclosure",
+          "href": "/legal/risk"
+        }
+      ],
+      "limits": [
+        "No setting protects against all price movement or MEV.",
+        "The API default is 3% with a 0 to 50% range; confirm the bot's default in its settings.",
+        "Slippage is separate from fees and gas.",
+        "Not financial advice."
+      ],
+      "faq": [
+        {
+          "q": "What is the API default?",
+          "a": "3%, from 0 to 0.5 as a decimal; 0.03 equals 3%."
+        },
+        {
+          "q": "Does low slippage save money?",
+          "a": "Only if the swap still fills; a failed swap costs gas."
+        },
+        {
+          "q": "What is price impact?",
+          "a": "How much your size moves the pool price."
+        },
+        {
+          "q": "Does the fee come out of slippage?",
+          "a": "No; the routed output already reflects the platform fee."
+        }
+      ],
+      "related": [
+        "why-is-my-cross-chain-swap-stuck",
+        "swap-usdc-base-to-solana",
+        "swap-fee-tiers-break-even",
+        "simulate-swap-before-signing"
+      ],
+      "keywords": [
+        "how much slippage",
+        "slippage tolerance swap",
+        "best slippage setting",
+        "what is slippage crypto",
+        "swap failed slippage"
+      ]
+    },
+    {
+      "slug": "swap-fee-tiers-break-even",
+      "audience": "trader",
+      "asker": "human",
+      "intent": "commercial",
+      "title": "Is a Pro subscription worth it? Fee break-even",
+      "metaDescription": "Swap fees: 1.0% Free, 0.5% Pro, 0.3% Premium, 0.1% Enterprise. Pro costs $9.99 per 30 days and breaks even near $1,998 of volume.",
+      "h1": "Is Suwappu Pro worth it for the lower swap fee?",
+      "answer": "Pro lowers the swap fee from 1.0% to 0.5% for $9.99 per 30 days. Divide: 9.99 / 0.005 = $1,998. Above about $1,998 of swap volume in a window Pro costs less than Free; below it, stay on Free.",
+      "problem": "You do not want to pay for a tier you will not use, and you do not want to overpay on fees if you trade a lot.",
+      "steps": [
+        {
+          "title": "Estimate monthly volume",
+          "detail": "Add up swaps in dollars."
+        },
+        {
+          "title": "Divide",
+          "detail": "Pro: 9.99 / (1.0% - 0.5%) = $1,998."
+        },
+        {
+          "title": "Check Premium",
+          "detail": "Premium $29.99 at 0.3% beats Pro above (29.99-9.99)/0.2% = $10,000."
+        },
+        {
+          "title": "Check Enterprise",
+          "detail": "$99.99 at 0.1% beats Premium above (99.99-29.99)/0.2% = $35,000."
+        },
+        {
+          "title": "Compare on /pricing",
+          "detail": "The fee calculator runs your number."
+        }
+      ],
+      "snippet": {
+        "lang": "telegram",
+        "label": "Check and subscribe",
+        "code": "/sub\n/fees"
+      },
+      "product": {
+        "name": "Suwappu pricing",
+        "href": "/pricing"
+      },
+      "cta": {
+        "label": "Compare plans with your volume",
+        "href": "/pricing"
+      },
+      "secondaryCta": {
+        "label": "Open the bot in Telegram",
+        "href": "https://t.me/suwappu_bot"
+      },
+      "proof": [
+        {
+          "label": "Pricing",
+          "href": "/pricing"
+        },
+        {
+          "label": "Changelog",
+          "href": "/changelog"
+        },
+        {
+          "label": "Service status",
+          "href": "/status"
+        },
+        {
+          "label": "Security overview",
+          "href": "/security"
+        }
+      ],
+      "limits": [
+        "These tier fees are the platform schedule; the Agent API charges route-specific fees (about 0.8% on EVM, 0.3% on Solana by default; read the live quote).",
+        "Prices are 30-day prepaid windows in crypto, not auto-renewing by default.",
+        "Network gas is separate.",
+        "Fee rates can change; check /pricing."
+      ],
+      "faq": [
+        {
+          "q": "What is Premium's break-even versus Free?",
+          "a": "29.99 / 0.7% is about $4,284 per window."
+        },
+        {
+          "q": "Do points discount fees?",
+          "a": "Points can give a fee discount, floored at 0.1%."
+        },
+        {
+          "q": "What about referrals?",
+          "a": "30% referral rewards are in the fee schedule; check /ref."
+        },
+        {
+          "q": "What is the cheapest for me?",
+          "a": "The tier with the lowest total of fee plus subscription at your volume."
+        }
+      ],
+      "related": [
+        "telegram-trading-bot-cross-chain",
+        "limit-orders-dca-telegram",
+        "price-alerts-telegram",
+        "how-much-slippage-cross-chain-swap"
+      ],
+      "keywords": [
+        "Suwappu Pro worth it",
+        "swap fee tiers",
+        "DEX fee comparison subscription",
+        "trading bot subscription break even",
+        "lower swap fees crypto"
+      ]
+    },
+    {
+      "slug": "spending-limits-ai-agent-wallet",
+      "audience": "desk",
+      "asker": "both",
+      "intent": "commercial",
+      "title": "Spending limits for an AI agent wallet",
+      "metaDescription": "Policies cap USD per trade, day and session and allowlist chains, tokens and contracts. Enforced for org API keys; set up with the team.",
+      "h1": "How do I put spending limits on an AI agent's wallet?",
+      "answer": "Suwappu's policy engine can cap USD per trade, per day and per session, trades per hour, slippage and gas, and allowlist chains, tokens, destinations and contracts. It is enforced on execution for org API key requests. There is no self-serve policy endpoint today; talk to the team.",
+      "problem": "An agent with a funded wallet and no ceiling is one bad loop from an expensive afternoon.",
+      "steps": [
+        {
+          "title": "Define the ceiling",
+          "detail": "Pick per-trade, daily and session USD caps and an hourly trade count."
+        },
+        {
+          "title": "Narrow the surface",
+          "detail": "Allowlist chains, tokens, destination addresses and router contracts."
+        },
+        {
+          "title": "Choose approval mode",
+          "detail": "always_ask, autonomous, or require approval above a USD threshold."
+        },
+        {
+          "title": "Run through an org key",
+          "detail": "Policies evaluate on swap and swap/execute for org keys and MCP agents with an organization."
+        },
+        {
+          "title": "Test with a quote and simulate",
+          "detail": "A blocked intent returns a policy error, not a fill."
+        }
+      ],
+      "snippet": {
+        "lang": "json",
+        "label": "Policy fields the engine evaluates (reference, not an API body)",
+        "code": "{\n  \"maxTxUsd\": 500,\n  \"dailyCapUsd\": 2000,\n  \"sessionCapUsd\": 1000,\n  \"maxTxPerHour\": 10,\n  \"maxSlippageBps\": 100,\n  \"maxGasUsd\": 5,\n  \"allowedChains\": [\"base\", \"arbitrum\"],\n  \"allowedTokens\": [\"USDC\", \"ETH\"],\n  \"requireApprovalAboveUsd\": 250,\n  \"approvalMode\": \"above_limit\"\n}"
+      },
+      "product": {
+        "name": "Enterprise",
+        "href": "/enterprise"
+      },
+      "cta": {
+        "label": "Talk to the team",
+        "href": "/contact"
+      },
+      "secondaryCta": {
+        "label": "Read the enterprise overview",
+        "href": "/enterprise"
+      },
+      "proof": [
+        {
+          "label": "Enterprise controls",
+          "href": "/enterprise"
+        },
+        {
+          "label": "Security overview",
+          "href": "/security"
+        },
+        {
+          "label": "OpenAPI 3.1 spec",
+          "href": "https://api.suwappu.bot/v1/agent/openapi"
+        },
+        {
+          "label": "Source on GitHub",
+          "href": "https://github.com/0xSoftBoi/suwappubot"
+        }
+      ],
+      "limits": [
+        "No public endpoint creates org spend policies; they are set with the team.",
+        "Enforcement is hard for Suwappu-held keys and the managed wallet path, advisory for a self-signing wallet that builds and signs entirely client-side.",
+        "Policies are not enforced for plain agent keys with no org.",
+        "Solana trades cannot enter an approval flow; they are refused instead."
+      ],
+      "faq": [
+        {
+          "q": "Is a cap enforced if my agent signs itself?",
+          "a": "No. Self-signing outside Suwappu can bypass the API, so the control is advisory there."
+        },
+        {
+          "q": "Do caps cover reads?",
+          "a": "No. Only execution is gated; quotes and portfolio reads are not."
+        },
+        {
+          "q": "Can the agent remove the cap?",
+          "a": "The delete endpoint distinguishes agent-created policies from admin ones; agents cannot remove admin caps."
+        },
+        {
+          "q": "What happens at the cap?",
+          "a": "The call is blocked with a policy error."
+        }
+      ],
+      "related": [
+        "approval-workflow-onchain-trades",
+        "agent-kill-switch-for-trading-agents",
+        "audit-log-for-trading-agents",
+        "let-ai-agent-swap-tokens"
+      ],
+      "keywords": [
+        "AI agent wallet spending limit",
+        "agent spend policy",
+        "cap AI trading agent",
+        "agent fleet spending controls",
+        "per transaction limit agent wallet"
+      ]
+    },
+    {
+      "slug": "approval-workflow-onchain-trades",
+      "audience": "desk",
+      "asker": "both",
+      "intent": "commercial",
+      "title": "Approval workflow for on-chain agent trades",
+      "metaDescription": "Trades above a policy threshold return 202 with an approval_id. The human owner approves; the agent re-submits. Agents cannot self-approve.",
+      "h1": "How do I require human approval for an agent's on-chain trades?",
+      "answer": "Set an approval threshold on the org policy. A trade above it returns HTTP 202 with an approval_id instead of executing. The linked human owner approves or denies with their own credentials, never an agent key, and the agent re-submits the request with approval_id.",
+      "problem": "You want agents to run small trades alone and escalate large ones, without a human reading every request.",
+      "steps": [
+        {
+          "title": "Set the rule",
+          "detail": "always_ask, or requireApprovalAboveUsd."
+        },
+        {
+          "title": "Agent submits",
+          "detail": "POST /swap/execute returns 202 {status:pending, approval_id, expires_at}."
+        },
+        {
+          "title": "Owner decides",
+          "detail": "POST /v1/agent/approvals/:id/approve or /deny, authenticated as the owner."
+        },
+        {
+          "title": "Agent polls",
+          "detail": "GET /v1/agent/approvals/:id with the agent key."
+        },
+        {
+          "title": "Re-submit",
+          "detail": "Send the original request with approval_id; the trade is re-quoted and policy re-checked."
+        }
+      ],
+      "snippet": {
+        "lang": "bash",
+        "label": "Agent polls, then re-submits",
+        "code": "curl -s https://api.suwappu.bot/v1/agent/approvals/APPROVAL_ID \\\n  -H \"Authorization: Bearer $SUWAPPU_API_KEY\"\n\ncurl -s -X POST https://api.suwappu.bot/v1/agent/swap/execute \\\n  -H \"Authorization: Bearer $SUWAPPU_API_KEY\" -H \"Content-Type: application/json\" \\\n  -d '{\"approval_id\":\"APPROVAL_ID\"}'"
+      },
+      "product": {
+        "name": "Enterprise",
+        "href": "/enterprise"
+      },
+      "cta": {
+        "label": "Talk to the team",
+        "href": "/contact"
+      },
+      "secondaryCta": {
+        "label": "Read the enterprise overview",
+        "href": "/enterprise"
+      },
+      "proof": [
+        {
+          "label": "Enterprise controls",
+          "href": "/enterprise"
+        },
+        {
+          "label": "OpenAPI 3.1 spec",
+          "href": "https://api.suwappu.bot/v1/agent/openapi"
+        },
+        {
+          "label": "Security overview",
+          "href": "/security"
+        },
+        {
+          "label": "Source on GitHub",
+          "href": "https://github.com/0xSoftBoi/suwappubot"
+        }
+      ],
+      "limits": [
+        "Approvals expire; an expired one cannot be used.",
+        "An approval does not bypass caps; policy re-runs at execution.",
+        "Solana trades carry no USD value at this layer and are refused rather than approved.",
+        "Approvals tied only to an agent's own linked owner (no org) cannot yet be decided end-to-end."
+      ],
+      "faq": [
+        {
+          "q": "Can an agent approve itself?",
+          "a": "No. Approve and deny never accept an agent key."
+        },
+        {
+          "q": "What if nobody approves?",
+          "a": "The request expires and cannot execute."
+        },
+        {
+          "q": "Is there step-up?",
+          "a": "Optionally, when the deployment sets APPROVAL_STEP_UP_REQUIRED, a short-lived challenge is required."
+        },
+        {
+          "q": "Where is it logged?",
+          "a": "Approval create, approve and deny write audit entries."
+        }
+      ],
+      "related": [
+        "spending-limits-ai-agent-wallet",
+        "audit-log-for-trading-agents",
+        "agent-kill-switch-for-trading-agents",
+        "idempotent-agent-swaps"
+      ],
+      "keywords": [
+        "approval workflow on-chain trades",
+        "human in the loop agent trading",
+        "agent trade approval API",
+        "two-person approval crypto agent",
+        "require approval above threshold"
+      ]
+    },
+    {
+      "slug": "audit-log-for-trading-agents",
+      "audience": "desk",
+      "asker": "both",
+      "intent": "commercial",
+      "title": "An audit log for trading agents",
+      "metaDescription": "Agent actions land in a hash-chained, append-only log. Read it with GET /v1/agent/audit; an org key can verify the chain. Not a third-party audit.",
+      "h1": "Is there an audit log for what my trading agents did?",
+      "answer": "Yes. Policy decisions, approvals, link events and kill-switch changes write to a hash-chained, append-only log. Read it with GET /v1/agent/audit (filter by event_type and since); an org key can verify the whole chain with /audit/verify. It is a tamper-evident log, not a third-party audit.",
+      "problem": "When an agent moves money, someone will ask what happened and whether the record can be trusted.",
+      "steps": [
+        {
+          "title": "Authenticate",
+          "detail": "Agent key reads its own rows; an org key reads the org's."
+        },
+        {
+          "title": "Query",
+          "detail": "GET /v1/agent/audit?event_type=swap.executed&since=2026-01-01&limit=100."
+        },
+        {
+          "title": "Filter",
+          "detail": "org keys can add agent_id; limit is capped at 500."
+        },
+        {
+          "title": "Verify",
+          "detail": "GET /v1/agent/audit/verify with an org key returns valid, count and firstBreakId."
+        },
+        {
+          "title": "Export",
+          "detail": "Persist rows with your own retention."
+        }
+      ],
+      "snippet": {
+        "lang": "bash",
+        "label": "Query the audit log",
+        "code": "curl -s \"https://api.suwappu.bot/v1/agent/audit?event_type=swap.executed&limit=50\" \\\n  -H \"Authorization: Bearer $SUWAPPU_API_KEY\""
+      },
+      "product": {
+        "name": "Enterprise",
+        "href": "/enterprise"
+      },
+      "cta": {
+        "label": "Talk to the team",
+        "href": "/contact"
+      },
+      "secondaryCta": {
+        "label": "Read the enterprise overview",
+        "href": "/enterprise"
+      },
+      "proof": [
+        {
+          "label": "OpenAPI 3.1 spec",
+          "href": "https://api.suwappu.bot/v1/agent/openapi"
+        },
+        {
+          "label": "Enterprise controls",
+          "href": "/enterprise"
+        },
+        {
+          "label": "Security overview",
+          "href": "/security"
+        },
+        {
+          "label": "Source on GitHub",
+          "href": "https://github.com/0xSoftBoi/suwappubot"
+        }
+      ],
+      "limits": [
+        "Verification needs an org key, so one tenant cannot read another's chain.",
+        "Tamper-evident is not tamper-proof or independently audited.",
+        "Only events the service writes appear; on-chain history lives on the chain.",
+        "No SOC 2 or external audit report is published."
+      ],
+      "faq": [
+        {
+          "q": "What does it record?",
+          "a": "Non-allow policy decisions, approval events, link/unlink and kill-switch changes, and other agent events."
+        },
+        {
+          "q": "Can I verify integrity?",
+          "a": "With an org key, via /audit/verify."
+        },
+        {
+          "q": "How far back?",
+          "a": "Retention is not stated; export what you need."
+        },
+        {
+          "q": "Is it per agent?",
+          "a": "A plain agent key sees only its own rows."
+        }
+      ],
+      "related": [
+        "approval-workflow-onchain-trades",
+        "agent-kill-switch-for-trading-agents",
+        "spending-limits-ai-agent-wallet",
+        "treasury-swaps-api-for-desks"
+      ],
+      "keywords": [
+        "audit log trading agent",
+        "agent activity log crypto",
+        "tamper evident audit log",
+        "who did my agent trade",
+        "compliance log AI agent"
+      ]
+    },
+    {
+      "slug": "agent-kill-switch-for-trading-agents",
+      "audience": "desk",
+      "asker": "both",
+      "intent": "informational",
+      "title": "A kill switch for trading agents",
+      "metaDescription": "POST /v1/agent/killswitch with an org key halts execution for the org. Reads fail closed: an unreadable state blocks trades.",
+      "h1": "How do I stop all my agents trading immediately?",
+      "answer": "With an org API key, POST /v1/agent/killswitch {scope:\"org\", active:true, reason}. Execution is then blocked for the organization. The check runs before ordinary policies and fails closed: if the switch state cannot be read, the trade is blocked.",
+      "problem": "When something looks wrong, you need one call that works faster than finding each agent.",
+      "steps": [
+        {
+          "title": "Use an org key",
+          "detail": "Plain agent keys are rejected."
+        },
+        {
+          "title": "Activate",
+          "detail": "POST /v1/agent/killswitch with scope org, active true and a reason."
+        },
+        {
+          "title": "Confirm",
+          "detail": "GET /v1/agent/killswitch lists switch state."
+        },
+        {
+          "title": "Investigate",
+          "detail": "Read the audit log; every change is logged."
+        },
+        {
+          "title": "Release",
+          "detail": "POST with active false."
+        }
+      ],
+      "snippet": {
+        "lang": "bash",
+        "label": "Halt the org",
+        "code": "curl -s -X POST https://api.suwappu.bot/v1/agent/killswitch \\\n  -H \"Authorization: Bearer $SUWAPPU_ORG_KEY\" -H \"Content-Type: application/json\" \\\n  -d '{\"scope\":\"org\",\"active\":true,\"reason\":\"incident\"}'"
+      },
+      "product": {
+        "name": "Enterprise",
+        "href": "/enterprise"
+      },
+      "cta": {
+        "label": "Talk to the team",
+        "href": "/contact"
+      },
+      "secondaryCta": {
+        "label": "Read the enterprise overview",
+        "href": "/enterprise"
+      },
+      "proof": [
+        {
+          "label": "OpenAPI 3.1 spec",
+          "href": "https://api.suwappu.bot/v1/agent/openapi"
+        },
+        {
+          "label": "Enterprise controls",
+          "href": "/enterprise"
+        },
+        {
+          "label": "Security overview",
+          "href": "/security"
+        },
+        {
+          "label": "Source on GitHub",
+          "href": "https://github.com/0xSoftBoi/suwappubot"
+        }
+      ],
+      "limits": [
+        "Org keys manage only their org-scope switch via the API; agent and global scopes are not set this way.",
+        "It halts Suwappu-mediated execution; a self-signing wallet can still sign elsewhere.",
+        "It does not cancel transactions already broadcast.",
+        "It is not an uptime or loss guarantee."
+      ],
+      "faq": [
+        {
+          "q": "Does it stop quotes?",
+          "a": "It gates execution; reads are not policy-gated."
+        },
+        {
+          "q": "Who can flip it?",
+          "a": "An org API key for the org's own scope."
+        },
+        {
+          "q": "Is it logged?",
+          "a": "Yes, kill-switch changes write audit rows."
+        },
+        {
+          "q": "What if the DB is down?",
+          "a": "Kill-switch reads fail closed and block."
+        }
+      ],
+      "related": [
+        "spending-limits-ai-agent-wallet",
+        "audit-log-for-trading-agents",
+        "approval-workflow-onchain-trades",
+        "treasury-swaps-api-for-desks"
+      ],
+      "keywords": [
+        "agent kill switch",
+        "emergency stop trading agents",
+        "halt all agents crypto",
+        "circuit breaker AI agent",
+        "stop agent wallet immediately"
+      ]
+    },
+    {
+      "slug": "treasury-swaps-api-for-desks",
+      "audience": "desk",
+      "asker": "human",
+      "intent": "commercial",
+      "title": "A swap API for multi-chain treasury ops",
+      "metaDescription": "Quote, simulate and execute across 18 Agent API chains, with org keys, approvals and an audit log. Enterprise is $99.99 per 30 days. Talk to the team.",
+      "h1": "Is there a swap API for multi-chain treasury operations?",
+      "answer": "Yes. The Agent API quotes, simulates and executes swaps across 18 chains, and an Enterprise organization adds org keys, approvals, caps, kill switch and an audit log. Enterprise is $99.99 per 30 days at a 0.1% platform swap fee and 10,000 requests per minute.",
+      "problem": "Treasury moves need predictable pricing, a record, and a way to stop. Consumer swap UIs offer none of them.",
+      "steps": [
+        {
+          "title": "Talk to the team",
+          "detail": "Describe chains, size and approval needs."
+        },
+        {
+          "title": "Get an org",
+          "detail": "Org accounts with roles (Owner, Admin, Member, Viewer) and scoped org API keys exist."
+        },
+        {
+          "title": "Quote and simulate",
+          "detail": "Same-size quotes across routes, then simulate."
+        },
+        {
+          "title": "Gate and log",
+          "detail": "Policies, approvals and audit apply to org-key execution."
+        },
+        {
+          "title": "Monitor",
+          "detail": "Usage per org is available."
+        }
+      ],
+      "snippet": {
+        "lang": "bash",
+        "label": "Read a managed wallet balance",
+        "code": "curl -s \"https://api.suwappu.bot/v1/agent/portfolio?wallet_address=0xYourManagedWallet\" \\\n  -H \"Authorization: Bearer $SUWAPPU_API_KEY\""
+      },
+      "product": {
+        "name": "Enterprise",
+        "href": "/enterprise"
+      },
+      "cta": {
+        "label": "Talk to the team",
+        "href": "/contact"
+      },
+      "secondaryCta": {
+        "label": "Read the enterprise overview",
+        "href": "/enterprise"
+      },
+      "proof": [
+        {
+          "label": "Enterprise",
+          "href": "/enterprise"
+        },
+        {
+          "label": "OpenAPI 3.1 spec",
+          "href": "https://api.suwappu.bot/v1/agent/openapi"
+        },
+        {
+          "label": "Security overview",
+          "href": "/security"
+        },
+        {
+          "label": "Service status",
+          "href": "/status"
+        }
+      ],
+      "limits": [
+        "No SLA, SOC 2 or audit report is claimed here.",
+        "Org roles are Owner, Admin, Member and Viewer; seats default to 10 per org.",
+        "Lending and perps are read or quote only on the Agent API.",
+        "The Agent API fee is 0.8% on EVM routes and 0.3% on Solana routes, independent of subscription tier; confirm in a live quote."
+      ],
+      "faq": [
+        {
+          "q": "What does Enterprise cost?",
+          "a": "$99.99 per 30 days prepaid; swap fee 0.1% on the platform schedule."
+        },
+        {
+          "q": "Can I bring my own wallets?",
+          "a": "Yes: prepare an unsigned transaction and sign it yourself."
+        },
+        {
+          "q": "Who is it for?",
+          "a": "Teams that need caps, approvals and a log."
+        },
+        {
+          "q": "How do I start?",
+          "a": "Contact the team."
+        }
+      ],
+      "related": [
+        "spending-limits-ai-agent-wallet",
+        "approval-workflow-onchain-trades",
+        "routing-transparency-best-execution",
+        "audit-log-for-trading-agents"
+      ],
+      "keywords": [
+        "multi-chain treasury swap API",
+        "DAO treasury swaps API",
+        "org accounts DEX aggregator API",
+        "institutional swap API",
+        "treasury rebalance API"
+      ]
+    },
+    {
+      "slug": "routing-transparency-best-execution",
+      "audience": "desk",
+      "asker": "both",
+      "intent": "informational",
+      "title": "Routing transparency for swap execution",
+      "metaDescription": "Each quote shows route, price impact, minimum output, gas and bridge fee so you can compare same-size quotes. No best-price guarantee.",
+      "h1": "How can I see how a swap was routed?",
+      "answer": "Each quote names its route and returns amount_out, amount_out_min, price_impact, estimated_gas_usd, bridge_fee_usd and estimated time. To test execution quality, request same-size quotes for the pairs and chains you care about and compare. Suwappu does not guarantee the best price.",
+      "problem": "Best execution is a claim until you can inspect the route and compare it with alternatives.",
+      "steps": [
+        {
+          "title": "Quote",
+          "detail": "POST /v1/agent/quote and keep the full response."
+        },
+        {
+          "title": "Read the route",
+          "detail": "route and dex name the path; price_impact shows size effect."
+        },
+        {
+          "title": "Compare",
+          "detail": "Request the same size on other chains or pairs."
+        },
+        {
+          "title": "Simulate",
+          "detail": "Check slippage_sane and revert checks."
+        },
+        {
+          "title": "Record",
+          "detail": "Store quotes with timestamps for review."
+        }
+      ],
+      "snippet": {
+        "lang": "bash",
+        "label": "Extract the fields that matter",
+        "code": "curl -s -X POST https://api.suwappu.bot/v1/agent/quote \\\n  -H \"Authorization: Bearer $SUWAPPU_API_KEY\" -H \"Content-Type: application/json\" \\\n  -d '{\"from_token\":\"ETH\",\"to_token\":\"USDC\",\"amount\":\"10\",\"chain\":\"base\"}' \\\n  | python3 -c \"import sys,json;q=json.load(sys.stdin);print({k:q.get(k) for k in ['route','amount_out','amount_out_min','price_impact','estimated_gas_usd','bridge_fee_usd']})\""
+      },
+      "product": {
+        "name": "Agent API",
+        "href": "/agents"
+      },
+      "cta": {
+        "label": "Get an API key",
+        "href": "/start"
+      },
+      "secondaryCta": {
+        "label": "Talk to the team",
+        "href": "/contact"
+      },
+      "proof": [
+        {
+          "label": "Quote reference",
+          "href": "/docs/api-reference/quote"
+        },
+        {
+          "label": "OpenAPI 3.1 spec",
+          "href": "https://api.suwappu.bot/v1/agent/openapi"
+        },
+        {
+          "label": "Architecture",
+          "href": "/architecture"
+        },
+        {
+          "label": "Research",
+          "href": "/research"
+        }
+      ],
+      "limits": [
+        "Quotes are indicative; execution can differ within slippage.",
+        "21 venues are chain-gated; not every venue serves every route.",
+        "MEV-resistant routes (CoW, Jito) are preferred only where the pair is eligible, and not on the Agent API.",
+        "No best-price or cheapest guarantee."
+      ],
+      "faq": [
+        {
+          "q": "How many venues?",
+          "a": "21 routing venues across the platform, chain-gated."
+        },
+        {
+          "q": "Which fee applies?",
+          "a": "Agent API fees are route-specific; read the quote."
+        },
+        {
+          "q": "Can I audit past quotes?",
+          "a": "Store them yourself; swap history is per managed swap."
+        },
+        {
+          "q": "Does the route change?",
+          "a": "Yes, per pair, size and time."
+        }
+      ],
+      "related": [
+        "cross-chain-swap-api",
+        "treasury-swaps-api-for-desks",
+        "simulate-swap-before-signing",
+        "free-swap-quote-api"
+      ],
+      "keywords": [
+        "best execution crypto swap",
+        "DEX aggregator route transparency",
+        "swap routing explained",
+        "which DEX did my swap use",
+        "price impact quote API"
+      ]
+    }
+  ]
+}

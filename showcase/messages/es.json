@@ -22,13 +22,10 @@
     "menu": {
       "products": "Productos",
       "developers": "Desarrolladores",
-      "company": "Por qué Suwappu",
       "grpTrade": "Operar",
       "grpMarkets": "Mercados",
       "grpBuild": "Construir",
       "grpReference": "Referencia",
-      "grpWhy": "El argumento",
-      "grpMore": "Más",
       "terminalTitle": "Terminal",
       "terminalDesc": "La mesa de trading completa",
       "botTitle": "Bot de Telegram",
@@ -77,7 +74,6 @@
       "autopilotDesc": "Observa al agente autónomo operar y verifica sus decisiones",
       "signalsTitle": "Signal Intelligence",
       "signalsDesc": "Señales on-chain explicables, con su evidencia",
-      "grpTrust": "Confianza de agentes",
       "passportTitle": "Agent Passport",
       "passportDesc": "Prueba de que un humano respalda al agente",
       "arbiterTitle": "Arbiter",
@@ -86,6 +82,34 @@
       "label": "Principal",
       "open": "Abrir menú",
       "close": "Cerrar menú",
+      "startTitle": "Obtener una clave API",
+      "startDesc": "Una llamada, sin formulario",
+      "solveTitle": "Problemas resueltos",
+      "solveDesc": "Los pasos exactos para tareas reales",
+      "solutions": "Soluciones",
+      "resources": "Recursos",
+      "grpAgents": "Agentes",
+      "grpAudience": "Por perfil",
+      "grpExplore": "Explorar",
+      "grpLearn": "Aprender",
+      "grpCompany": "Empresa",
+      "forTradersTitle": "Para traders",
+      "forTradersDesc": "Swaps, perps y automatización",
+      "forBuildersTitle": "Para creadores de agentes",
+      "forBuildersDesc": "Conecta un agente a la API",
+      "forDesksTitle": "Para mesas",
+      "forDesksDesc": "Organizaciones, roles y claves acotadas",
+      "governmentTitle": "Gobierno",
+      "governmentDesc": "Adquisiciones y garantías",
+      "openapiTitle": "Especificación OpenAPI",
+      "openapiDesc": "Legible por máquina, 3.1",
+      "aboutTitle": "Acerca de",
+      "aboutDesc": "Quién lo construye",
+      "careersTitle": "Empleo",
+      "careersDesc": "Puestos abiertos",
+      "contactTitle": "Contacto",
+      "contactDesc": "Habla con el equipo",
+      "language": "Idioma",
       "mobileTitle": "Menú"
     }
   },
@@ -105,16 +129,16 @@
   },
   "home": {
     "hero": {
-      "eyebrow": "Plataforma de trading full-stack",
-      "h1": "La plataforma de trading full-stack para mercados cross-chain.",
-      "lead": "Ejecución, enrutamiento, investigación y gestión de portafolio en 45 cadenas, desde un solo lugar. Opera desde Terminal o Telegram, o integra mediante REST, MCP y SDK tipados.",
+      "h1": "Intercambia cualquier token en {platformChains} cadenas.",
+      "lead": "Un solo lugar para personas y agentes de IA: un Terminal y un bot de Telegram para operar, una API y un servidor MCP para construir.",
       "ctaTerminal": "Abrir Terminal",
-      "ctaApi": "Leer la documentación",
+      "ctaApi": "Obtener una clave API",
       "ctaTelegram": "Operar en Telegram",
       "telegramNav": "Telegram",
       "ticketLabel": "Ticket de ejecución · cotización de producción",
       "ticketStatus": "Datos de producción · vigencia indicada",
-      "ticketNote": "Este ticket solo muestra una cotización. La simulación y la autorización son pasos separados; si no hay datos en vivo, nunca se sustituyen por precios de demostración."
+      "ticketNote": "Este ticket solo muestra una cotización. La simulación y la autorización son pasos separados; si no hay datos en vivo, nunca se sustituyen por precios de demostración.",
+      "ctaAgents": "Para agentes"
     },
     "quote": {
       "stateChecking": "Comprobando cotización",
@@ -146,14 +170,15 @@
       "platformChains": "cadenas de plataforma",
       "routingVenues": "rutas integradas",
       "agentApiChains": "cadenas de Agent API",
-      "routeNote": "La cobertura de plataforma y de Agent API es distinta. Cada ruta usa solo proveedores compatibles.",
       "status": "Estado del servicio",
       "statusMeta": "Salud en vivo",
       "openapi": "OpenAPI",
-      "openapiMeta": "Esquema legible por máquinas",
-      "githubMeta": "Código fuente",
+      "openapiMeta": "OpenAPI 3.1",
+      "githubMeta": "Código abierto",
       "changelog": "Novedades",
-      "changelogMeta": "Lo publicado"
+      "changelogMeta": "Último: {date}",
+      "routesThrough": "RUTAS A TRAVÉS DE",
+      "statsLine": "{platformChains} cadenas de plataforma · {routerCount} proveedores de enrutamiento · {agentApiChains} cadenas de Agent API — a fecha de {date}"
     },
     "interfaces": {
       "eyebrow": "Capacidad 06",
@@ -186,8 +211,8 @@
       "authorizeBody": "La autocustodia devuelve una transacción sin firmar para que tú la firmes. La ejecución REST gestionada puede firmar y transmitir bajo controles del servidor.",
       "screenshotAlt": "Terminal de Suwappu con gráfico ETH/USDC, libro de órdenes y ticket de swap.",
       "screenshotCaption": "Suwappu Terminal · captura del producto · 31 jul 2026",
-      "mevTitle": "Buscador de MEV propio",
-      "mevBody": "Un buscador escrito en Rust examina las rutas pendientes en busca de riesgo de sandwich antes de ejecutar, desarrollado internamente en lugar de tercerizado.",
+      "mevTitle": "Enrutamiento consciente del MEV",
+      "mevBody": "El bot prefiere rutas resistentes al MEV, como las subastas por lotes de CoW (EVM) y Jito (Solana), cuando el par es elegible. No se aplica a la API de Agentes.",
       "benchTitle": "Benchmarking de ejecutores",
       "benchBody": "Cada ruta de ejecución se compara contra la latencia y el slippage medidos, no contra cifras simuladas."
     },
@@ -208,7 +233,7 @@
       "curveBody": "El venue de Curve del terminal lista cada pool en cada red donde Curve está desplegado, directamente desde la Curve Prices API: ordenable por TVL, volumen de 24h o APR base, con búsqueda y a un clic del panel de swap. Construido sobre nuestro fork de flet-curve.",
       "screenshotAlt": "Mesa de perpetuos de Suwappu con mercados de HyperLiquid, datos de mercado y ticket de orden.",
       "screenshotCaption": "Perpetuos de HyperLiquid en Suwappu · captura del producto · 31 jul 2026",
-      "lead": "La prioridad de ruta inteligente ordena los mercados, incluido el DEX propio de Tempo para swaps estables sin comisión y las subastas por lotes de CoW protegidas contra MEV, antes de que CCTP y Across liquiden un tramo de bridge. Un gestor de RPC de respaldo mantiene enrutable cada una de las 45 cadenas si un proveedor falla."
+      "lead": "La prioridad de ruta inteligente ordena los mercados, incluido el DEX propio de Tempo para swaps estables sin comisión y las subastas por lotes de CoW resistentes al MEV, antes de que CCTP y Across liquiden un tramo de bridge. Un gestor de RPC de respaldo mantiene enrutable cada una de las 45 cadenas si un proveedor falla."
     },
     "security": {
       "eyebrow": "Modelo de seguridad",
@@ -218,7 +243,7 @@
       "selfCustodyTitle": "Autocustodia",
       "selfCustodyBody": "Los flujos de transacción sin firmar dejan la firma y la difusión en manos de quien la solicita; ninguna clave se guarda nunca del lado del servidor.",
       "managedTitle": "Firma gestionada",
-      "managedBody": "La ejecución gestionada firma mediante cifrado de sobre KMS (kms_aesgcm_v2), firma Turnkey en TEE, o un firmante MPC, según la ruta de la billetera.",
+      "managedBody": "La ejecución gestionada firma mediante cifrado de sobre KMS (kms_aesgcm_v2), claves custodiadas en Turnkey (opcional por billetera), o un firmante MPC, según la ruta de la billetera.",
       "policiesTitle": "Políticas del servidor",
       "policiesBody": "2FA, límites de gasto, disyuntores de circuito y recuperación social se aplican en el límite del servidor; el monitoreo de aprobaciones revoca automáticamente lo que detecta.",
       "boundaryTitle": "Límite de garantías actual",
@@ -240,7 +265,12 @@
       "eyebrow": "Elige el modelo de autoridad",
       "title": "Envía la intención. Mantén explícita la autoridad de ejecución.",
       "lead": "Empieza con la interfaz que corresponda a quien debe revisar, firmar y transmitir.",
-      "telegram": "O opera en Telegram"
+      "telegram": "O opera en Telegram",
+      "tradersLead": "Swaps, bridges, perps, automatización y copy trading, desde una sola cuenta.",
+      "seeRouting": "Ver cómo funciona el enrutamiento",
+      "tradeLabel": "Opera ahora",
+      "buildLabel": "Constrúyelo",
+      "desks": "Habla con el equipo (mesas)"
     },
     "useCases": {
       "eyebrow": "Qué puedes hacer",
@@ -301,15 +331,8 @@
       "fedrampTitle": "Preparación FedRAMP High",
       "fedrampBody": "Un paquete de evidencias con correspondencia NIST SP 800-53 y un perfil de despliegue gubernamental fail-closed."
     },
-    "atmosphere": {
-      "soundOn": "Sonido activado",
-      "soundOff": "Sonido apagado",
-      "videoLabel": "Vista aérea lenta del océano abierto"
-    },
-    "announce": {
-      "tag": "Nuevo · WebMCP",
-      "copy": "El Agent Desk: dale al agente de tu navegador un mandato, no tus claves. Sin registro."
-    }
+    "schematic": "Esquema",
+    "rankCaption": "Esquema · el orden varía según la solicitud"
   },
   "cta": {
     "kicker": "Empieza ahora",
@@ -333,7 +356,7 @@
     "referral_body": "Refiere traders activos y gana el 30% de sus comisiones, en cada cadena, pagado automáticamente. Obtén tu enlace con /ref dentro del bot.",
     "referral_cta": "Obtener tu enlace de referido",
     "enterprise_heading": "¿Necesitas un plan personalizado?",
-    "enterprise_body": "Infraestructura dedicada, precios por volumen y SLA para mesas de trading y flotas de agentes.",
+    "enterprise_body": "Infraestructura dedicada y precios por volumen para mesas de trading y flotas de agentes. El soporte y las condiciones del servicio se acuerdan con el equipo.",
     "enterprise_cta": "Háblanos"
   },
   "languageSwitcher": {

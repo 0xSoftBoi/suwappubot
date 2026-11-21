@@ -1,0 +1,131 @@
+/* ==========================================================================
+   Sales pages v3 (pricing, enterprise, contact, compare, security, solutions).
+   Composes the v3 kit on the cream/navy pages. Prefix: sv3-. Page-scoped
+   module CSS still owns each page's own components; this file only holds
+   shared sales-page compositions (hero band, meters, dark slab, diagram stage).
+   ========================================================================== */
+
+.sv3-page { position: relative; color: var(--v3-ink); overflow-x: clip; }
+
+/* Hero band: glow + faint grid behind the page header */
+.sv3-heroband { position: relative; isolation: isolate; }
+.sv3-heroband .v3-bd { inset: -80px -10vw -40px; }
+.sv3-heroband::after {
+  content: '';
+  position: absolute; inset: -60px 0 auto; height: 460px; z-index: -1;
+  background: radial-gradient(60% 70% at 50% 0%, rgba(229, 141, 43, 0.14), transparent 70%);
+  pointer-events: none;
+}
+
+/* Fee meter inside plan cards: bar length = fee relative to Free (real numbers) */
+.sv3-meter { display: block; position: relative; height: 6px; margin: 16px 0 0; border-radius: 999px; background: var(--v3-line); overflow: hidden; }
+.sv3-meter i { position: absolute; inset: 0; border-radius: inherit; transform-origin: left; transform: scaleX(var(--w, 1));
+  background: linear-gradient(90deg, var(--v3-cool), var(--v3-accent)); transition: transform 900ms var(--v3-ease); }
+.sv3-meter--hot i { background: linear-gradient(90deg, #f6a93c, #c9731d); box-shadow: 0 0 14px var(--v3-glow); }
+
+/* Dark slab (enterprise): visual layer */
+.sv3-slab { position: relative; isolation: isolate; }
+.sv3-slab__art { position: absolute; right: -6%; top: 50%; width: min(520px, 60%); translate: 0 -50%; opacity: 0.5; z-index: 0; pointer-events: none; }
+.sv3-slab > :not(.sv3-slab__art) { position: relative; z-index: 1; }
+.sv3-slab::before { content: ''; position: absolute; inset: 0; z-index: 0; background: radial-gradient(60% 80% at 85% 20%, rgba(246, 169, 60, 0.18), transparent 65%), radial-gradient(50% 60% at 0% 100%, rgba(127, 208, 230, 0.1), transparent 70%); }
+
+/* Diagram stage: framed glass panel holding a graphic (light-safe) */
+.sv3-stage { position: relative; padding: clamp(14px, 2.4vw, 28px); border-radius: 22px; border: 1px solid var(--v3-line);
+  background: radial-gradient(90% 70% at 50% 0%, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.55)), var(--v3-surface);
+  box-shadow: var(--v3-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.9); overflow: hidden; }
+.sv3-stage--dark { background: linear-gradient(160deg, #10263a, #0a1826); border-color: rgba(255,255,255,0.12); --v3-ink: #faf6ee; --v3-dim: #c4beb5; --v3-line: rgba(255,255,255,0.1); --v3-line-strong: rgba(255,255,255,0.22); --v3-accent: #f6a93c; --v3-cool: #7fd0e6; --v3-surface-hi: rgba(255,255,255,0.09); color: #faf6ee; }
+.sv3-stage .v3-gfx { max-width: 460px; margin-inline: auto; }
+
+.sv3-tri { display: grid; gap: 14px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 860px) { .sv3-tri { grid-template-columns: minmax(0, 1fr); } }
+
+/* Section wrapper used between existing blocks on summer-shell pages */
+.sv3-block { position: relative; margin-block: clamp(3rem, 7vw, 5.5rem); }
+.sv3-block--glass { padding: clamp(1.25rem, 3vw, 2.5rem); border: 1px solid var(--v3-line); border-radius: 24px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0.6)); box-shadow: var(--v3-shadow), inset 0 1px 0 #fff; }
+
+@media (prefers-reduced-motion: reduce) { .sv3-meter i { transition: none; } }
+@media (max-width: 700px) { .sv3-slab__art { width: 90%; right: -30%; opacity: 0.16; } }
+
+/* Enterprise: evaluation questions as alternating text / schematic rows */
+.sv3-crits { display: grid; gap: clamp(2.5rem, 6vw, 5rem); margin-top: clamp(2rem, 4vw, 3.5rem); }
+.sv3-crit { display: grid; gap: clamp(1.25rem, 4vw, 4rem); align-items: center; }
+@media (min-width: 900px) {
+  .sv3-crit { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .sv3-crit--flip .sv3-crit__text { order: 2; }
+}
+.sv3-crit__num { display: flex; align-items: baseline; gap: 0.8rem; font-family: var(--type-display-font, var(--font-serif)); font-size: 2.4rem; line-height: 1; color: var(--v3-accent); }
+.sv3-crit__num i { font-style: normal; font-family: var(--v3-font-mono); font-size: 0.68rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--v3-faint); }
+.sv3-crit h3 { margin: 0.9rem 0 0; font-family: var(--type-display-font, var(--font-serif)); font-size: clamp(1.5rem, 1.1rem + 1.4vw, 2.1rem); font-weight: 500; line-height: 1.12; letter-spacing: -0.02em; color: var(--v3-ink); text-wrap: balance; }
+.sv3-crit p { margin: 0.9rem 0 0; max-width: 52ch; color: var(--v3-dim); line-height: 1.65; }
+.sv3-stage .v3-orbit { width: min(100%, 340px); }
+.sv3-stage .v3-rank { max-width: 420px; margin-inline: auto; }
+.sv3-hub { font-family: var(--v3-font-mono); font-size: 0.8rem; letter-spacing: 0.16em; color: var(--v3-ink); }
+.sv3-darkflow .v3-flow { margin-top: 2rem; }
+.sv3-darkflow { position: relative; }
+.institutional-metric strong .v3-count { font: inherit; letter-spacing: inherit; text-transform: none; color: inherit; display: inline; }
+
+/* Solutions */
+.sv3-col { display: grid; gap: 14px; min-width: 0; }
+.sv3-stage--wide { margin-bottom: 14px; }
+.sv3-stage--wide .v3-gfx { max-width: 760px; }
+.sv3-ringnum { display: block; font-family: var(--type-display-font, var(--font-serif)); font-size: 2.6rem; line-height: 1; color: var(--v3-ink); }
+.sv3-ringlabel { display: block; margin-top: 4px; font-family: var(--v3-font-mono); font-size: 0.68rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--v3-faint); }
+.sv3-stage .v3-ring, .sv3-stage .v3-chainring { max-width: 300px; margin-inline: auto; }
+
+/* Compare: derived score meter under column heads */
+.sv3-score { display: block; position: relative; height: 4px; margin: 8px auto 0; width: 70%; border-radius: 999px; background: var(--v3-line); overflow: hidden; }
+.sv3-score i { position: absolute; inset: 0; transform-origin: left; transform: scaleX(var(--w, 0)); background: linear-gradient(90deg, var(--v3-cool), var(--v3-accent)); border-radius: inherit; }
+
+/* Security */
+.sv3-duo { display: grid; gap: 14px; grid-template-columns: 1.15fr 0.85fr; margin-top: clamp(1rem, 3vw, 2rem); align-items: stretch; }
+.sv3-duo .sv3-stage { display: grid; align-content: center; }
+.sv3-duo .v3-framed { width: min(100%, 300px); }
+@media (max-width: 860px) { .sv3-duo { grid-template-columns: minmax(0, 1fr); } }
+.sv3-practices { margin-block: clamp(1rem, 3vw, 2rem); }
+
+/* Contact: form beside a dark "what happens next" panel */
+.sv3-demo { box-shadow: var(--v3-shadow), inset 0 1px 0 #fff; background: radial-gradient(80% 120% at 100% 0%, rgba(229,141,43,0.16), transparent 60%), linear-gradient(180deg, #fffefb, #fff6e8); }
+.sv3-contact { display: grid; align-items: start; gap: clamp(14px, 2.5vw, 28px); }
+@media (min-width: 900px) {
+  .sv3-contact { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); }
+  .sv3-contact .sv3-next { order: -1; position: sticky; top: 92px; }
+}
+.sv3-next { position: relative; isolation: isolate; overflow: hidden; padding: clamp(1.5rem, 3vw, 2.5rem); border-radius: 24px; color: #faf6ee;
+  background: radial-gradient(70% 60% at 100% 0%, rgba(246,169,60,0.2), transparent 65%), linear-gradient(160deg, #10263a, #0a1826);
+  box-shadow: 0 40px 70px -40px rgba(10, 24, 38, 0.8), inset 0 1px 0 rgba(255,255,255,0.1); }
+.sv3-next .sv3-slab__art { right: -18%; width: 70%; opacity: 0.3; }
+.sv3-next > :not(.sv3-slab__art) { position: relative; z-index: 1; }
+.sv3-next.sv3-next :is(h2, li, span) { color: #faf6ee; }
+.sv3-next.sv3-next p { color: #c4beb5; }
+.sv3-next.sv3-next [class*='trustLabel'] { color: #f6a93c; }
+.sv3-next.sv3-next [class*='check'] { color: #f6a93c; }
+.sv3-next.sv3-next [class*='note'] { color: #c4beb5; }
+.sv3-next.sv3-next li { border-color: rgba(255,255,255,0.12); }
+.sv3-formpanel { box-shadow: var(--v3-shadow), inset 0 1px 0 #fff; background: linear-gradient(180deg, #ffffff, #fffaf1); }
+
+/* v3 fix pass A: full-width split tile (visual left, text right) */
+.sv3-tile-split { flex-direction: row; align-items: center; }
+.sv3-tile-split .v3-tile__visual { flex: 0 0 min(30%, 240px); padding: 18px; }
+.sv3-tile-split .v3-tile__body { padding: 18px 24px 18px 6px; }
+@media (max-width: 700px) { .sv3-tile-split { flex-direction: column; align-items: stretch; } .sv3-tile-split .v3-tile__visual { flex: none; } }
+/* quiet backdrops (no ambient dots) and tidy mobile buttons */
+@media (max-width: 640px) { .mkt-cta .summer-actions a, .sv3-slab .summer-actions a { width: 100%; justify-content: center; text-align: center; } }
+
+/* v3 fix pass A: enterprise rhythm (full-width dark stage for Q03), tight heading to lede */
+@media (min-width: 900px) {
+  .sv3-crit--stage { grid-template-columns: minmax(0, 1fr); justify-items: center; text-align: center; }
+  .sv3-crit--stage .sv3-crit__text { order: 0; }
+  .sv3-crit--stage .sv3-crit__num { justify-content: center; }
+  .sv3-crit--stage p { margin-inline: auto; }
+  .sv3-crit--stage .sv3-stage { width: 100%; padding-block: clamp(28px, 4vw, 52px); }
+}
+.institutional-section__intro--stack, .institutional-darkband__head--stack { gap: 0; row-gap: 0; }
+.institutional-section__intro--stack p, .institutional-darkband__head--stack p { margin-top: 0.9rem; }
+.sv3-score + * , .institutional-metric span { font-size: 0.7rem; }
+
+/* v3 fix pass A: pricing credit costs + rate limits share one tinted band */
+.sv3-tables2 { display: grid; gap: clamp(1rem, 3vw, 2.5rem); grid-template-columns: minmax(0, 1fr); margin-top: 2rem; padding: clamp(16px, 3vw, 32px); border-radius: 22px; background: linear-gradient(160deg, rgba(255, 244, 226, 0.9), rgba(255, 250, 241, 0.6)); border: 1px solid rgba(201, 115, 29, 0.18); }
+.sv3-tables2 > div { min-width: 0; }
+.sv3-tables2 .compare__title { margin-top: 0 !important; }
+@media (min-width: 1000px) { .sv3-tables2 { grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); } }

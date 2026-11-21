@@ -1,0 +1,9 @@
+{
+  "skills": [
+    {
+      "name": "suwappu-swaps",
+      "description": "Use this skill when an agent needs to quote, simulate or prepare a token swap across chains through the Suwappu Agent API or its MCP server, or needs to know Suwappu's call order, units, limits and how to get an API key.",
+      "files": ["SKILL.md"]
+    }
+  ]
+}

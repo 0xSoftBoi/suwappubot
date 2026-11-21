@@ -4,7 +4,10 @@ import SummerFooter from '@/components/SummerFooter';
 import AgentDesk from './AgentDesk';
 import stats from '@/data/stats.generated.json';
 import { PROOF_STATS } from './proof-data';
+import { Reveal, Backdrop } from '@/components/v3';
 import styles from './agent-desk.module.css';
+import '../sales-v3.css';
+import '../product-v3.css';
 
 export const metadata: Metadata = {
   title: 'Agent Desk | Give your agent a mandate, not your keys',
@@ -216,11 +219,15 @@ const CITATIONS = [
 
 export default function AgentTerminalPage() {
   return (
-    <div className={`summer-page docs-shell institutional-page ${styles.page}`}>
+    <div className={`summer-page docs-shell institutional-page v3-tone-light ${styles.page}`}>
       <SummerNav />
       <main id="main-content">
       <div className="summer-shell mkt-page">
-        <header className="mkt-hero mkt-hero--center">
+        <div className="pv3-heroband">
+          <Backdrop kind="mesh" />
+          <Backdrop kind="grid" />
+          <div className="pv3-hero__grid pv3-hero__grid--one">
+        <header className="mkt-hero pv3-herotext">
           <p className="summer-kicker">WebMCP Agent Desk</p>
           <h1>Give your agent a mandate, not your keys.</h1>
           <p className="mkt-hero__lead">
@@ -236,6 +243,8 @@ export default function AgentTerminalPage() {
             </a>
           </div>
         </header>
+          </div>
+        </div>
 
         <nav className={styles.subnav} aria-label="On this page">
           <a href="#desk-mandate">The desk</a>
@@ -248,7 +257,7 @@ export default function AgentTerminalPage() {
 
         <AgentDesk />
 
-        <section className="institutional-section" id="how-it-works">
+        <Reveal><section className="institutional-section" id="how-it-works">
           <h2>How a mandate becomes a trade</h2>
           <ol className={styles.stepFlow}>
             {STEPS.map((s) => (
@@ -263,9 +272,9 @@ export default function AgentTerminalPage() {
               </li>
             ))}
           </ol>
-        </section>
+        </section></Reveal>
 
-        <section className="institutional-section" id="tools">
+        <Reveal><section className="institutional-section" id="tools">
           <h2>The tools this page registers</h2>
           <p className={styles.sectionLead}>
             Registered with <code className="summer-code">document.modelContext.registerTool()</code>,
@@ -304,9 +313,9 @@ export default function AgentTerminalPage() {
               </div>
             );
           })}
-        </section>
+        </section></Reveal>
 
-        <section className="institutional-section" id="proof">
+        <Reveal><section className="institutional-section" id="proof">
           <h2>Proved, not promised.</h2>
           <p className={styles.sectionLead}>
             Every claim on this page has a suite behind it. Not a badge, a repeatable
@@ -345,9 +354,9 @@ export default function AgentTerminalPage() {
               wins isn’t proof of anything.
             </p>
           </div>
-        </section>
+        </section></Reveal>
 
-        <section className="institutional-section" id="grounded">
+        <Reveal><section className="institutional-section" id="grounded">
           <h2>Grounded in the literature.</h2>
           <p className={styles.sectionLead}>
             The desk’s design claims aren’t vibes. Each one maps to named, verified prior art.
@@ -376,9 +385,9 @@ export default function AgentTerminalPage() {
             </a>
             . This desk is ahead of the academic literature on this exact protocol.
           </p>
-        </section>
+        </section></Reveal>
 
-        <section className="institutional-section" id="try-it">
+        <Reveal><section className="institutional-section" id="try-it">
           <h2>Things to ask your agent here</h2>
           <ul className={styles.promptFlow}>
             {[
@@ -397,7 +406,7 @@ export default function AgentTerminalPage() {
             Without a WebMCP-capable browser the desk still works by hand. The tools are a
             second door onto the same controls, not the only one.
           </p>
-        </section>
+        </section></Reveal>
       </div>
       </main>
       <SummerFooter />

@@ -27,6 +27,15 @@ const nextConfig = {
   ],
   headers: async () => [
     {
+      // Agent skills (parity pass 2): explicit content types so loaders do not guess.
+      source: '/.well-known/skills/:path*.md',
+      headers: [{ key: 'Content-Type', value: 'text/markdown; charset=utf-8' }],
+    },
+    {
+      source: '/.well-known/skills/index.json',
+      headers: [{ key: 'Content-Type', value: 'application/json; charset=utf-8' }],
+    },
+    {
       // Apply security headers to all routes (belt-and-suspenders with middleware)
       source: '/(.*)',
       headers: [

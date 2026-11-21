@@ -276,6 +276,28 @@ export default function DeskFlow({
           })}
         </svg>
       </div>
+      {/* Phone layout: the same nodes as a vertical spine, one labelled group per column. */}
+      <ol className={styles.stack} aria-label="Flow groups, in the order authority moves">
+        {COL_TITLES.map((t, ci) => (
+          <li key={t} className={styles.stackGroup} data-gate={ci === 3 || undefined}>
+            <span className={styles.stackTitle}>{t}</span>
+            <ul className={styles.stackList}>
+              {NODES.filter((n) => n.col === ci).map((n) => (
+                <li
+                  key={n.id}
+                  className={styles.stackNode}
+                  data-gated={n.gated || undefined}
+                  data-hot={hotNodes.has(n.id) || undefined}
+                  data-live={(n.tool && n.tool === lastTool) || undefined}
+                >
+                  <b>{n.label}</b>
+                  <span>{n.sub}</span>
+                </li>
+              ))}
+            </ul>
+          </li>
+        ))}
+      </ol>
       <p className={styles.readout}>
         <span
           data-state={

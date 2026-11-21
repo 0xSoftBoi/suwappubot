@@ -1,26 +1,27 @@
 import type { Metadata } from 'next';
-import { getTranslations } from 'next-intl/server';
+import { getLocale, getTranslations } from 'next-intl/server';
 import StructuredData from '@/components/StructuredData';
 import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import LiveQuote from '@/components/LiveQuote';
-import OceanAtmosphere from '@/components/OceanAtmosphere';
-import DepthSurfaceGL from '@/components/DepthSurfaceGL';
-import QuoteRaceGL from '@/components/QuoteRaceGL';
-import ToolConstellationGL from '@/components/ToolConstellationGL';
+import TrackedLink from '@/components/solve/TrackedLink';
 import ProofShot from '@/components/ProofShot';
-import Reveal from '@/components/Reveal';
+import {
+  Reveal, CountUp, SpotlightCard, V3Section, SectionHead, Backdrop, RouteMap, PipelineFlow,
+  VenueRank, SparkCard, ToolOrbit, ProductFrame, ProblemStrip } from '@/components/v3';
 import FaqAccordion from '@/components/FaqAccordion';
 import productStats from '@/data/stats.generated.json';
+import { entries as changelogEntries } from '@/data/changelog';
 import { GITHUB_URL, TELEGRAM_URL, TERMINAL_URL, MINI_APP_URL } from '@/lib/links';
 import './hero-d/hero-d.css';
 import './site.css';
+import './home-v3.css';
 
 export const metadata: Metadata = {
   title: 'Suwappu | The full-stack cross-chain trading platform',
   description:
     'Suwappu is the full-stack cross-chain trading platform: execution, routing, research, ' +
-    'and portfolio management across 7+ chains, from one venue.',
+    `and portfolio management across ${productStats.platformChains} chains, from one venue.`,
 };
 
 export const revalidate = 60;
@@ -28,6 +29,12 @@ export const revalidate = 60;
 export default async function Home() {
   const h = await getTranslations('home');
 
+  const locale = await getLocale();
+  const fmtDate = (iso: string) =>
+    new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(`${iso}T00:00:00Z`));
+
+  // Real values only: the spec version is what GET /v1/agent/openapi serves,
+  // the changelog date is the newest entry, status is a link (no live datum).
   const proofLinks = [
     { label: h('evidence.status'), meta: h('evidence.statusMeta'), href: '/status', external: false },
     {
@@ -37,8 +44,17 @@ export default async function Home() {
       external: true,
     },
     { label: 'GitHub', meta: h('evidence.githubMeta'), href: GITHUB_URL, external: true },
-    { label: h('evidence.changelog'), meta: h('evidence.changelogMeta'), href: '/changelog', external: false },
+    {
+      label: h('evidence.changelog'),
+      meta: h('evidence.changelogMeta', { date: fmtDate(changelogEntries[0].date) }),
+      href: '/changelog',
+      external: false,
+    },
   ];
+
+  // Venues and bridges the router really calls (stats.routers), in a fixed order.
+  const routeVenues = ['Jupiter', '0x', '1inch', 'Li.Fi', 'CoW', 'KyberSwap', 'Across', 'CCTP', 'Wormhole', 'LayerZero', 'OKX', 'Socket']
+    .filter((v) => productStats.routers.includes(v));
 
   const executionSteps = [
     { number: '01', title: h('execution.intentTitle'), body: h('execution.intentBody') },
@@ -70,19 +86,10 @@ export default async function Home() {
     { title: h('government.fedrampTitle'), body: h('government.fedrampBody') },
   ];
 
-  // 01–08: what you can DO. Each links down to the capability deep-dive that
-  // powers it, so the grid reads as a table of contents for the rest of the page.
-  const useCases = [
-    { number: '01', title: h('useCases.item01Title'), body: h('useCases.item01Body'), href: '#engine' },
-    { number: '02', title: h('useCases.item02Title'), body: h('useCases.item02Body'), href: '#routing' },
-    { number: '03', title: h('useCases.item03Title'), body: h('useCases.item03Body'), href: '#hyperliquid' },
-    { number: '04', title: h('useCases.item04Title'), body: h('useCases.item04Body'), href: '#portfolio' },
-    { number: '05', title: h('useCases.item05Title'), body: h('useCases.item05Body'), href: '#research' },
-    { number: '06', title: h('useCases.item06Title'), body: h('useCases.item06Body'), href: '#routing' },
-    { number: '07', title: h('useCases.item07Title'), body: h('useCases.item07Body'), href: '#terminal' },
-    { number: '08', title: h('useCases.item08Title'), body: h('useCases.item08Body'), href: '#portfolio' },
-  ];
-
+  // Real routing venues (stats.routers) for the rank diagram, in a fixed order.
+  const rankVenues = ['Jupiter', 'Li.Fi', 'CoW', '1inch', 'Across', 'KyberSwap', 'OKX'].filter((v) =>
+    productStats.routers.includes(v)
+  );
   // Real surfaces without a public destination link yet (no App Store/Web
   // Store listing on the marketing site) render as plain text, matching the
   // precedent set by WHATSAPP_ENABLED in lib/links.ts: real, but not linked
@@ -149,207 +156,144 @@ export default async function Home() {
 
   return (
     <>
-      {/* The hero poster is the largest contentful paint. Preloading it here
-          (Next hoists this into <head>) starts the fetch with the document
-          rather than after React hydrates and mounts the atmosphere layer. */}
-      <link rel="preload" as="image" href="/media/ocean-poster.webp" type="image/webp" />
       <StructuredData />
       <div className="hd sw sw-dark">
         <SummerNav />
 
-        <a href="/agent-terminal" className="home-announce">
-          <span className="home-announce__tag">{h('announce.tag')}</span>
-          <span className="home-announce__copy">{h('announce.copy')}</span>
-          <span className="home-announce__arrow" aria-hidden="true">
-            →
-          </span>
-        </a>
-
         <main id="main-content">
+          {/* One idea above the fold: a headline, a line, two doors, and the real
+              Terminal. The background is a flat deep-ocean wash with one soft
+              glow (no photo/video, so nothing competes with the capture). */}
           <div className="home-stage">
-          <OceanAtmosphere
-            labels={{
-              soundOn: h('atmosphere.soundOn'),
-              soundOff: h('atmosphere.soundOff'),
-              videoLabel: h('atmosphere.videoLabel'),
-            }}
-          />
-          <section className="home-hero" aria-labelledby="home-hero-title">
-            <div className="home-hero__copy">
-              <p className="home-eyebrow">{h('hero.eyebrow')}</p>
-              <h1 id="home-hero-title">{h('hero.h1')}</h1>
-              <p className="home-hero__lead">{h('hero.lead')}</p>
+            <section className="home-hero" aria-labelledby="home-hero-title">
+              <div className="home-hero__copy">
+                <h1 id="home-hero-title">{h('hero.h1', { platformChains: productStats.platformChains })}</h1>
+                <p className="home-hero__lead">{h('hero.lead')}</p>
 
-              <div className="home-actions">
-                <a className="hd__btn" href={TERMINAL_URL}>{h('hero.ctaTerminal')}</a>
-                <a className="hd__btn hd__btn--ghost" href="/docs">
-                  {h('hero.ctaApi')}
-                </a>
+                <div className="home-actions">
+                  <TrackedLink className="hd__btn hd__btn--primary" href={TERMINAL_URL} sameTab surface="home_hero" slug="home" kind="primary">
+                    {h('hero.ctaTerminal')}
+                  </TrackedLink>
+                  <TrackedLink className="hd__btn hd__btn--ghost" href="/agents" surface="home_hero" slug="home" kind="secondary">
+                    {h('hero.ctaAgents')} <span aria-hidden="true">→</span>
+                  </TrackedLink>
+                </div>
               </div>
-              <a
-                className="home-hero__telegram"
-                href={TELEGRAM_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                {h('hero.ctaTelegram')} <span aria-hidden="true">→</span>
-              </a>
-            </div>
+            </section>
 
-          </section>
-
-            {/* The hero's visual is the real trading desk, which is what every
-                comparable product leads with. It replaces the live-quote
-                widget, which moved down to the execution section: that widget
-                renders an honest "unavailable" state when the demo key has no
-                credits, and an error panel is the wrong thing to make the most
-                prominent element on the page. It still ships, still tells the
-                truth, just not as the first impression. */}
-            <div className="home-heroshot">
-              <img
+            {/* The real trading desk, large and flat. The live quote widget
+                stays down in the engine section: it renders an honest
+                "unavailable" state and must not be the first thing seen. */}
+            <div className="hv3-heroshot">
+              <ProductFrame
+                calm
                 src="/proof/spot-desk.png"
                 width={3160}
                 height={940}
                 alt={h('execution.screenshotAlt')}
-                decoding="async"
+                title="ETH/USDC"
               />
             </div>
           </div>
 
-          <section className="home-proofbar" aria-label={h('evidence.ariaLabel')}>
-            <div className="home-proofbar__intro">
-              <dl className="home-proofbar__stats">
-                <div>
-                  <dt>{h('evidence.platformChains')}</dt>
-                  <dd>{productStats.platformChains}</dd>
-                </div>
-                <div>
-                  <dt>{h('evidence.routingVenues')}</dt>
-                  <dd>{productStats.routerCount}</dd>
-                </div>
-                <div>
-                  <dt>{h('evidence.agentApiChains')}</dt>
-                  <dd>{productStats.agentApiChains}</dd>
-                </div>
-              </dl>
-              <small>{h('evidence.routeNote')}</small>
-            </div>
-            <div className="home-proofbar__links">
-              {proofLinks.map((item) => (
-                <a
-                  key={item.label}
-                  href={item.href}
-                  {...(item.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-                >
-                  <span>{item.label}</span>
-                  <small>{item.meta}</small>
-                  <b aria-hidden="true">{item.external ? '↗' : '→'}</b>
-                </a>
-              ))}
-            </div>
-          </section>
-
-          {/* Use-case grid: 01–08, what you can DO. Its own numbering track,
-              separate from the capability deep-dives below — tempo runs the
-              same two-track pattern (use cases, then how it's built). */}
-          <section id="use-cases" className="home-section" aria-labelledby="usecases-title">
-            <Reveal>
-              <div className="home-section__head">
-                <h2 id="usecases-title">{h('useCases.title')}</h2>
-                <p className="home-section__head-lead">{h('useCases.lead')}</p>
+          {/* Proof: honest, for a company with no customer logos. Venues we really
+              route through (text wordmarks from stats.generated.json), then the
+              open artifacts, then the three real numbers on one dated line. */}
+          <section className="hv3-proof" aria-label={h('evidence.ariaLabel')}>
+            <Reveal className="hv3-proof__inner">
+              <div className="hv3-proof__routes">
+                <p className="hv3-proof__label">{h('evidence.routesThrough')}</p>
+                <ul>
+                  {routeVenues.map((v) => (
+                    <li key={v}><a href="/architecture">{v}</a></li>
+                  ))}
+                </ul>
               </div>
-
-              <div className="home-usecases" role="list" aria-label={h('useCases.ariaLabel')}>
-                {useCases.map((item) => (
-                  <a key={item.number} className="home-usecase" href={item.href} role="listitem">
-                    <span className="home-usecase__number">{item.number}</span>
-                    <h3>{item.title}</h3>
-                    <p>{item.body}</p>
-                    <b aria-hidden="true">→</b>
+              <div className="hv3-proof__links">
+                {proofLinks.map((item) => (
+                  <a
+                    key={item.label}
+                    href={item.href}
+                    {...(item.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+                  >
+                    <span>{item.label}</span>
+                    <small>{item.meta}</small>
+                    <b aria-hidden="true">{item.external ? '↗' : '→'}</b>
                   </a>
                 ))}
               </div>
+              <p className="hv3-proof__line">
+                {h('evidence.statsLine', {
+                  platformChains: productStats.platformChains,
+                  routerCount: productStats.routerCount,
+                  agentApiChains: productStats.agentApiChains,
+                  date: fmtDate(productStats.generatedAt),
+                })}
+              </p>
             </Reveal>
           </section>
 
-          {/* Capability deep-dives: 01–07, what's UNDER the hood. */}
-          <section id="engine" className="home-section home-section--execution" aria-labelledby="execution-title">
+          {/* 3 How a trade routes: the one technical advantage, merged from the old
+              pipeline, venue-rank, MEV/benchmark and route sections. */}
+          <V3Section id="engine" labelledBy="execution-title" variant="bleed" backdrop={<Backdrop kind="grid" />}>
             <Reveal>
-              <div className="home-section__head home-section__head--split">
-                <div>
-                  <h2 id="execution-title">{h('execution.title')}</h2>
-                </div>
-                <p>{h('execution.lead')}</p>
+              <SectionHead id="execution-title" title={h('markets.title')} lead={h('markets.lead')} />
+            </Reveal>
+            <Reveal className="hv3-flowwrap">
+              <PipelineFlow steps={executionSteps} />
+            </Reveal>
+            <Reveal id="routing" className="hv3-stage v3-glass" delay={80}>
+              <div className="hv3-stage__rank">
+                <VenueRank venues={rankVenues} caption={h('rankCaption')} />
               </div>
-
-              <div className="home-steps-wrap">
-                <ol className="home-steps">
-                  {executionSteps.map((step) => (
-                    <li key={step.number}>
-                      <span className="home-step__number">{step.number}</span>
-                      <h3>{step.title}</h3>
-                      <p>{step.body}</p>
-                    </li>
-                  ))}
-                </ol>
-
-                {/* QuoteRaceGL: one lane per routing venue races the same quote
-                    in parallel and one wins — the visual of what this section
-                    describes. Ambient, behind the copy: opacity low, palette
-                    quiet, so the steps stay the thing being read. */}
-                <div className="home-quoterace" aria-hidden="true">
-                  <QuoteRaceGL venues={productStats.routerCount} />
-                </div>
+              <div className="hv3-stage__map">
+                <RouteMap />
               </div>
-
-              <div className="home-execution-extra">
+            </Reveal>
+            <div className="hv3-engine">
+              <Reveal stagger className="hv3-engine__facts">
                 {executionFacts.map((fact) => (
-                  <article key={fact.title}>
-                    <strong>{fact.title}</strong>
+                  <article key={fact.title} className="v3-glass">
+                    <h3>{fact.title}</h3>
                     <p>{fact.body}</p>
                   </article>
                 ))}
-              </div>
-
-              {/* The live execution ticket, moved here from the hero. This is
-                  where it belongs: the section is literally about how an
-                  intent becomes an inspectable execution. The desk screenshot
-                  it replaces now opens the page. */}
-              <div className="home-ticket">
+              </Reveal>
+              {/* The live execution ticket: honest "unavailable" state, never mocked. */}
+              <Reveal className="hv3-ticket v3-glass" delay={120}>
                 <p className="home-product-label">
                   <span>{h('hero.ticketLabel')}</span>
                   <span>{h('hero.ticketStatus')}</span>
                 </p>
                 <LiveQuote variant="dark" />
                 <p className="home-product-note">{h('hero.ticketNote')}</p>
-              </div>
+              </Reveal>
+            </div>
+            <Reveal className="home-actions">
+              <a className="hd__btn hd__btn--ghost" href="/architecture">{h('close.seeRouting')} <span aria-hidden="true">→</span></a>
             </Reveal>
-          </section>
+          </V3Section>
 
-          <section id="routing" className="home-section" aria-labelledby="markets-title">
+          {/* 4 For traders: capability cards (anchors kept for redirects), the real
+              perps capture, portfolio (moved here from the cream band), CTAs. */}
+          <V3Section id="terminal" labelledBy="usecases-title" backdrop={<Backdrop kind="mesh" />}>
             <Reveal>
-              {/* The right column is a real rendered element (order-book ridge),
-                  not a floating explainer — the sanctioned use of a split head. */}
-              <div className="home-section__head home-section__head--figure">
-                <div>
-                  <h2 id="markets-title">{h('markets.title')}</h2>
-                  <p className="home-section__head-lead">{h('markets.lead')}</p>
-                </div>
-                <div className="home-glfigure" aria-hidden="true">
-                  <DepthSurfaceGL />
-                </div>
-              </div>
-
-              <div className="home-capabilities">
-                {capabilities.map((capability) => (
-                  <article key={capability.id} id={capability.id}>
-                    <p>{capability.kicker}</p>
-                    <h3>{capability.title}</h3>
-                    <span>{capability.body}</span>
-                  </article>
-                ))}
-              </div>
-
+              <SectionHead id="usecases-title" title={h('useCases.title')} lead={h('close.tradersLead')} />
+            </Reveal>
+            <Reveal stagger className="v3-bento hv3-caps">
+              {capabilities.map((capability) => (
+                <SpotlightCard
+                  key={capability.id}
+                  id={capability.id}
+                  className="v3-span-2 v3-tile--row"
+                  index={capability.kicker}
+                  title={capability.title}
+                >
+                  {capability.body}
+                </SpotlightCard>
+              ))}
+            </Reveal>
+            <Reveal className="hv3-proofshot">
               <ProofShot
                 src="/proof/perps-desk.png"
                 width={3160}
@@ -359,176 +303,155 @@ export default async function Home() {
                 mobileHint={h('proof.mobileHint')}
               />
             </Reveal>
-          </section>
-
-          <section id="research" className="home-section" aria-labelledby="research-title">
-            <Reveal>
-              <div className="home-section__head home-section__head--split">
-                <div>
-                  <h2 id="research-title">{h('research.title')}</h2>
-                </div>
-                <p>{h('research.lead')}</p>
-              </div>
-              <div className="home-execution-extra">
-                {researchFacts.map((fact) => (
-                  <article key={fact.title}>
-                    <strong>{fact.title}</strong>
-                    <p>{fact.body}</p>
-                  </article>
-                ))}
-              </div>
-              <div className="home-actions">
-                <a className="hd__btn hd__btn--ghost" href="/research">{h('research.ctaResearch')}</a>
-                <a className="hd__btn hd__btn--ghost" href="/signals">{h('research.ctaSignals')}</a>
-              </div>
-            </Reveal>
-          </section>
-
-          <section id="portfolio" className="home-section" aria-labelledby="portfolio-title">
-            <Reveal>
-              <div className="home-section__head home-section__head--split">
-                <div>
-                  <h2 id="portfolio-title">{h('portfolio.title')}</h2>
-                </div>
-                <p>{h('portfolio.lead')}</p>
-              </div>
-              <div className="home-execution-extra">
+            <Reveal id="portfolio" className="hv3-portfolio">
+              <h3 className="hv3-portfolio__title">{h('portfolio.title')}</h3>
+              <ul className="hv3-facts">
                 {portfolioFacts.map((fact) => (
-                  <article key={fact.title}>
+                  <li key={fact.title}>
                     <strong>{fact.title}</strong>
                     <p>{fact.body}</p>
-                  </article>
+                  </li>
                 ))}
-              </div>
-              <div className="home-actions">
-                <a className="hd__btn hd__btn--ghost" href={TERMINAL_URL}>{h('portfolio.cta')}</a>
-              </div>
-            </Reveal>
-          </section>
-
-          <section id="security" className="home-section home-section--security" aria-labelledby="security-title">
-            <Reveal>
-              <div className="home-security">
-                <div className="home-security__intro">
-                  <p className="home-eyebrow">{h('security.eyebrow')}</p>
-                  <h2 id="security-title">{h('security.title')}</h2>
-                  <p>{h('security.lead')}</p>
-                  <a className="hd__btn hd__btn--ghost" href="/security">{h('security.cta')}</a>
-                </div>
-
-                <div className="home-security__facts">
-                  {security.map((item) => (
-                    <article key={item.title}>
-                      <h3>{item.title}</h3>
-                      <p>{item.body}</p>
-                    </article>
-                  ))}
-                  <aside>
-                    <strong>{h('security.boundaryTitle')}</strong>
-                    <p>{h('security.boundaryBody')}</p>
-                  </aside>
-                </div>
-              </div>
-            </Reveal>
-          </section>
-
-          <section id="terminal" className="home-section" aria-labelledby="interfaces-title">
-            <Reveal>
-              {/* Right column is the MCP tool constellation — exactly
-                  stats.mcpToolCount nodes from the registry the server ships. */}
-              <div className="home-section__head home-section__head--figure">
-                <div>
-                  <h2 id="interfaces-title">{h('interfaces.title')}</h2>
-                  <p className="home-section__head-lead">{h('interfaces.lead')}</p>
-                </div>
-                <div className="home-glfigure home-glfigure--tall" aria-hidden="true">
-                  <ToolConstellationGL
-                    toolCount={productStats.mcpToolCount}
-                    names={productStats.mcpTools}
-                  />
-                </div>
-              </div>
-
-              <div
-                className="home-interface-register"
-                role="group"
-                aria-label={h('interfaces.ariaLabel')}
-              >
-                <a href={TERMINAL_URL}>
-                  <span>01</span><strong>{h('interfaces.terminal')}</strong><small>{h('interfaces.terminalMeta')}</small><b aria-hidden="true">→</b>
-                </a>
-                <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer">
-                  <span>02</span><strong>Telegram</strong><small>{h('interfaces.telegramMeta')}</small><b aria-hidden="true">↗</b>
-                </a>
-                <a id="agents" href="/docs">
-                  <span>03</span><strong>{h('interfaces.programmatic')}</strong><small>{h('interfaces.programmaticMeta')}</small><b aria-hidden="true">→</b>
-                </a>
-              </div>
-              <p className="home-interface-note">{h('interfaces.boundary')}</p>
-
-              <p className="home-surfaces-label">{h('interfaces.surfacesLabel')}</p>
-              <ul className="home-surfaces">
-                {surfaces.map((surface) =>
-                  surface.href ? (
-                    <li key={surface.label}>
-                      <a href={surface.href} target="_blank" rel="noopener noreferrer">{surface.label}</a>
-                    </li>
-                  ) : (
-                    <li key={surface.label}>{surface.label}</li>
-                  )
-                )}
               </ul>
             </Reveal>
-          </section>
+            <Reveal className="home-actions">
+              <a className="hd__btn hd__btn--primary" href={TERMINAL_URL}>{h('hero.ctaTerminal')}</a>
+              <a className="hd__btn hd__btn--ghost" href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer">
+                {h('hero.ctaTelegram')} <span aria-hidden="true">→</span>
+              </a>
+            </Reveal>
+          </V3Section>
 
-          <section id="government" className="home-section" aria-labelledby="government-title">
-            <Reveal>
-              <div className="home-section__head home-section__head--split">
-                <div>
-                  <h2 id="government-title">{h('government.title')}</h2>
+          {/* 5 For agents and developers: the surfaces and the MCP tool orbit. */}
+          <V3Section id="developers" labelledBy="interfaces-title" variant="bleed" backdrop={<Backdrop kind="mesh" />}>
+            <div className="v3-split v3-split--reverse">
+              <Reveal>
+                <SectionHead id="interfaces-title" title={h('interfaces.title')} lead={h('interfaces.lead')} />
+                <div className="hv3-register" role="group" aria-label={h('interfaces.ariaLabel')}>
+                  <a href={TERMINAL_URL}>
+                    <span>01</span><strong>{h('interfaces.terminal')}</strong><small>{h('interfaces.terminalMeta')}</small><b aria-hidden="true">→</b>
+                  </a>
+                  <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer">
+                    <span>02</span><strong>Telegram</strong><small>{h('interfaces.telegramMeta')}</small><b aria-hidden="true">↗</b>
+                  </a>
+                  <a id="agents" href="/docs">
+                    <span>03</span><strong>{h('interfaces.programmatic')}</strong><small>{h('interfaces.programmaticMeta')}</small><b aria-hidden="true">→</b>
+                  </a>
                 </div>
-                <p>{h('government.lead')}</p>
+                <p className="hv3-note">{h('interfaces.boundary')}</p>
+                <p className="hv3-surfaces-label">{h('interfaces.surfacesLabel')}</p>
+                <ul className="hv3-surfaces">
+                  {surfaces.map((surface) =>
+                    surface.href ? (
+                      <li key={surface.label}>
+                        <a href={surface.href} target="_blank" rel="noopener noreferrer">{surface.label}</a>
+                      </li>
+                    ) : (
+                      <li key={surface.label}>{surface.label}</li>
+                    )
+                  )}
+                </ul>
+                <div className="home-actions">
+                  <a className="hd__btn hd__btn--primary" href="/start">{h('hero.ctaApi')}</a>
+                  <a className="hd__btn hd__btn--ghost" href="/agents">{h('hero.ctaAgents')} <span aria-hidden="true">→</span></a>
+                </div>
+              </Reveal>
+              <Reveal delay={100}>
+                <ToolOrbit count={productStats.mcpToolCount}>
+                  <span className="hv3-orbit-num"><CountUp value={productStats.mcpToolCount} /></span>
+                  <span className="hv3-orbit-label">MCP</span>
+                </ToolOrbit>
+              </Reveal>
+            </div>
+          </V3Section>
+
+          {/* 6 Control and authority. */}
+          <V3Section id="security" labelledBy="security-title">
+            <Reveal className="hv3-security v3-glass">
+              <div className="hv3-security__intro">
+                <p className="v3-kicker">{h('security.eyebrow')}</p>
+                <h2 id="security-title" className="v3-head__title">{h('security.title')}</h2>
+                <p className="v3-head__lead">{h('security.lead')}</p>
+                <a className="hd__btn hd__btn--ghost" href="/security">{h('security.cta')}</a>
               </div>
-              <div className="home-execution-extra">
-                {governmentFacts.map((fact) => (
-                  <article key={fact.title}>
-                    <strong>{fact.title}</strong>
-                    <p>{fact.body}</p>
+              <div className="hv3-security__facts">
+                {security.map((item) => (
+                  <article key={item.title}>
+                    <h3>{item.title}</h3>
+                    <p>{item.body}</p>
                   </article>
                 ))}
-              </div>
-              <div className="home-actions">
-                <a className="hd__btn hd__btn--ghost" href="/government">{h('government.cta')}</a>
+                <aside>
+                  <strong>{h('security.boundaryTitle')}</strong>
+                  <p>{h('security.boundaryBody')}</p>
+                </aside>
               </div>
             </Reveal>
-          </section>
+          </V3Section>
 
-          <section className="home-section home-section--finish" aria-labelledby="faq-title">
+          {/* 7 For desks (and government): one quiet band. */}
+          <V3Section id="government" labelledBy="government-title" variant="band" backdrop={<Backdrop kind="grid" />}>
             <Reveal>
-              <div className="home-faq">
-                <div className="home-section__head">
-                  <h2 id="faq-title">{h('faq.title')}</h2>
-                </div>
-                <FaqAccordion items={faq} />
-              </div>
+              <SectionHead id="government-title" align="center" title={h('government.title')} lead={h('government.lead')} />
+            </Reveal>
+            <Reveal stagger className="hv3-quiet">
+              {governmentFacts.map((fact, i) => (
+                <article key={fact.title}>
+                  <span>{String(i + 1).padStart(2, '0')}</span>
+                  <h3>{fact.title}</h3>
+                  <p>{fact.body}</p>
+                </article>
+              ))}
+            </Reveal>
+            <Reveal className="home-actions hv3-center">
+              <a className="hd__btn hd__btn--ghost" href="/government">{h('government.cta')}</a>
+              <a className="hd__btn hd__btn--ghost" href="/enterprise">{h('close.desks')} <span aria-hidden="true">→</span></a>
+            </Reveal>
+          </V3Section>
 
-              <div className="home-close">
-                <p className="home-eyebrow">{h('close.eyebrow')}</p>
-                <h2>{h('close.title')}</h2>
-                <p>{h('close.lead')}</p>
+          {/* 8 Research and signals, in the open. */}
+          <V3Section id="research" labelledBy="research-title">
+            <div className="v3-split v3-split--wide-visual">
+              <Reveal>
+                <SectionHead id="research-title" title={h('research.title')} lead={h('research.lead')} />
                 <div className="home-actions">
-                  <a className="hd__btn" href={TERMINAL_URL}>{h('hero.ctaTerminal')}</a>
-                  <a className="hd__btn hd__btn--ghost" href="/docs">{h('hero.ctaApi')}</a>
+                  <a className="hd__btn hd__btn--ghost" href="/research">{h('research.ctaResearch')}</a>
+                  <a className="hd__btn hd__btn--ghost" href="/signals">{h('research.ctaSignals')}</a>
                 </div>
-                <a
-                  className="home-close__telegram"
-                  href={TELEGRAM_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  {h('close.telegram')} <span aria-hidden="true">→</span>
-                </a>
+              </Reveal>
+              <Reveal stagger className="hv3-sparks">
+                {researchFacts.map((fact, i) => (
+                  <SparkCard key={fact.title} title={fact.title} body={fact.body} kind={(['ticks', 'line', 'bars'] as const)[i]} seed={i * 2 + 1} tag={h('schematic')} />
+                ))}
+              </Reveal>
+            </div>
+          </V3Section>
+
+          {/* 9 FAQ + audience-split close. */}
+          <V3Section labelledBy="faq-title" className="hv3-finish">
+            <Reveal className="home-faq">
+              <div className="home-section__head">
+                <h2 id="faq-title" className="v3-head__title">{h('faq.title')}</h2>
               </div>
+              <FaqAccordion items={faq} />
+            </Reveal>
+          </V3Section>
+
+          <div className="v3-wrap"><ProblemStrip surface="home" slugs={["cross-chain-swap-api", "telegram-trading-bot-cross-chain", "let-ai-agent-swap-tokens", "swap-usdc-base-to-solana"]} /></div>
+          <section className="hv3-close v3-tone-dark" aria-label={h('close.title')}>
+            <Reveal className="hv3-close__inner">
+              <h2 className="v3-head__title">{h('close.title')}</h2>
+              <div className="hv3-split-cta">
+                <div>
+                  <p className="v3-kicker">{h('close.tradeLabel')}</p>
+                  <TrackedLink className="hd__btn hd__btn--primary" href={TERMINAL_URL} sameTab surface="home_close" slug="home" kind="primary">{h('hero.ctaTerminal')}</TrackedLink>
+                </div>
+                <div>
+                  <p className="v3-kicker">{h('close.buildLabel')}</p>
+                  <TrackedLink className="hd__btn hd__btn--ghost" href="/start" surface="home_close" slug="home" kind="secondary">{h('hero.ctaApi')}</TrackedLink>
+                </div>
+              </div>
+              <a className="home-close__telegram" href="/contact">{h('close.desks')} <span aria-hidden="true">→</span></a>
             </Reveal>
           </section>
         </main>

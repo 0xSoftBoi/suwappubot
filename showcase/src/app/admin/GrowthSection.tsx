@@ -2,6 +2,10 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import styles from './growth.module.css';
+import DailyChart from '@/components/charts/DailyChart';
+import MiniTrend from '@/components/charts/MiniTrend';
+import { CountUp, Reveal } from '@/components/v3';
+import { getSolvePage } from '@/data/solve';
 
 /**
  * Growth: the marketing + sales funnel, written for a non-technical reader.
@@ -42,6 +46,14 @@ export type GrowthReport = {
   topEvents: { name: string; count: number; visitors: number }[];
   leadSources: { source: string; count: number }[];
   recentLeads: Lead[];
+  // Added later on the API: absent on older versions, so always read defensively.
+  landingPages?: LandingPage[];
+  landingPagesTruncated?: boolean;
+  aiReferrals?: { source: string; sessions: number }[];
+};
+type LandingPage = {
+  path: string; slug: string | null; visitors: number; views: number; ctaClicks: number;
+  snippetCopies: number; clickRate: number; topDestination: string | null; entrances: number;
 };
 
 const RANGES = [
@@ -54,6 +66,7 @@ const nf = new Intl.NumberFormat(undefined);
 const fmt = (n: number) => nf.format(n);
 const uf = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
 const usd = (n: number) => uf.format(n);
+const compact = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 });
 const pct = (part: number, whole: number) =>
   whole > 0 ? `${(part / whole * 100).toFixed(part / whole < 0.1 ? 1 : 0)}%` : '0%';
 const dayLabel = (iso: string) =>
@@ -92,78 +105,153 @@ function Change({ now, before, days }: { now: number; before: number; days: numb
   );
 }
 
-function Tile({ label, value, hint, now, before, days }: {
+export function KpiGrid({ children }: { children: React.ReactNode }) {
+  return <div className={styles.tiles}>{children}</div>;
+}
+
+export function KpiTile(props: { label: string; value: string; hint?: React.ReactNode; count?: number; panel?: boolean; children?: React.ReactNode }) {
+  const { label, value, hint, count, panel, children } = props;
+  return (
+    <div className={styles.tile}>
+      <p className={styles.tileLabel}>{label}</p>
+      {panel ? children : <p className={styles.tileValue}>{count !== undefined ? <CountUp value={count} duration={1100} /> : value}</p>}
+      {hint && <p className={styles.tileHint}>{hint}</p>}
+    </div>
+  );
+}
+
+function Tile({ label, value, hint, now, before, days, count, spark }: {
   label: string; value: string; hint: string; now?: number; before?: number; days: number;
+  /** Whole-number tiles count up on first view; others show the formatted value. */
+  count?: number; spark?: number[];
 }) {
   return (
     <div className={styles.tile}>
       <p className={styles.tileLabel}>{label}</p>
-      <p className={styles.tileValue}>{value}</p>
+      <div className={styles.tileRow}>
+        <p className={styles.tileValue}>{count !== undefined ? <CountUp value={count} duration={1100} /> : value}</p>
+        {spark && <MiniTrend values={spark} />}
+      </div>
       {now !== undefined && before !== undefined && <Change now={now} before={before} days={days} />}
       <p className={styles.tileHint}>{hint}</p>
     </div>
   );
 }
 
-/** One measure per chart, one hue, baseline at zero. Hover or focus a bar for the exact value. */
-function DailyBars({ title, unit, data, values, format = fmt }: {
-  title: string; unit: [string, string]; data: Day[]; values: number[]; format?: (n: number) => string;
-}) {
-  const u = (n: number) => (unit[0] ? ` ${n === 1 ? unit[0] : unit[1]}` : '');
-  const [active, setActive] = useState<number | null>(null);
-  // Signed scale: money can go backwards (a refund day), so bars below the
-  // zero line are real and must not be drawn as small positive ones.
-  const top = Math.max(0, ...values);
-  const bottom = Math.min(0, ...values);
-  const span = top - bottom || 1;
-  const total = values.reduce((a, b) => a + b, 0);
-  const anyActivity = values.some((v) => v !== 0);
-  const W = 640, H = 150, PAD_B = 22, PAD_T = 8;
-  const plotH = H - PAD_B - PAD_T;
-  const zeroY = PAD_T + (top / span) * plotH;
-  const slot = W / Math.max(1, values.length);
-  const barW = Math.max(2, slot - 2); // 2px surface gap between adjacent bars
-  const tickEvery = Math.ceil(values.length / 6);
-  const shown = active ?? values.length - 1;
+function Skeleton() {
+  return (
+    <div className={styles.skel} role="status" aria-label="Loading your numbers">
+      <div className={styles.tiles}>
+        {Array.from({ length: 7 }, (_, i) => (
+          <div key={i} className={styles.tile}><i className={styles.sk} style={{ width: '40%' }} /><i className={styles.sk} style={{ width: '62%', height: 34, marginTop: 14 }} /><i className={styles.sk} style={{ width: '85%', marginTop: 16 }} /></div>
+        ))}
+      </div>
+      <div className={styles.charts}>
+        {[0, 1].map((i) => <div key={i} className={styles.chart}><i className={styles.sk} style={{ width: '30%' }} /><i className={styles.sk} style={{ height: 170, marginTop: 16 }} /></div>)}
+      </div>
+    </div>
+  );
+}
 
+/** One measure per chart: signed baseline (refund days draw below zero), hover/arrow-key readout. */
+function DailyBars({ title, unit, data, values, format = fmt, mode = 'area' }: {
+  title: string; unit: [string, string]; data: Day[]; values: number[]; format?: (n: number) => string; mode?: 'area' | 'bars';
+}) {
+  const total = values.reduce((a, b) => a + b, 0);
   return (
     <figure className={styles.chart}>
       <figcaption className={styles.chartHead}>
         <span className={styles.chartTitle}>{title}</span>
-        <span className={styles.chartReadout} aria-live="polite">
-          {data[shown] ? `${dayLabel(data[shown].date)}: ${format(values[shown])}${u(values[shown])}` : ''}
-        </span>
+        <span className={styles.chartReadout}>{values.some((v) => v !== 0) ? `${format(total)} total` : ''}</span>
       </figcaption>
-      {!anyActivity ? (
-        <p className={styles.empty}>Nothing recorded in this period yet.</p>
-      ) : (
-        <svg viewBox={`0 0 ${W} ${H}`} className={styles.chartSvg} role="img"
-          aria-label={`${title}: ${format(total)}${u(total)} in total, highest day ${format(top)}${bottom < 0 ? `, lowest day ${format(bottom)}` : ''}.`}
-          onMouseLeave={() => setActive(null)}>
-          <line x1="0" x2={W} y1={zeroY} y2={zeroY} className={styles.axis} />
-          {values.map((v, i) => {
-            const h = v === 0 ? 0 : Math.max(2, (Math.abs(v) / span) * plotH);
-            const x = i * slot + (slot - barW) / 2;
-            return (
-              <g key={data[i].date}>
-                {/* Hit target is the full column, larger than the mark. */}
-                <rect x={i * slot} y={0} width={slot} height={H - PAD_B} fill="transparent"
-                  tabIndex={0} aria-label={`${dayLabel(data[i].date)}: ${format(v)}${u(v)}`}
-                  onMouseEnter={() => setActive(i)} onFocus={() => setActive(i)} onBlur={() => setActive(null)}
-                  className={styles.hit} />
-                <rect x={x} y={v >= 0 ? zeroY - h : zeroY} width={barW} height={h} rx={Math.min(3, barW / 2)}
-                  className={v < 0 ? styles.barNegative : i === shown ? styles.barActive : styles.bar} pointerEvents="none" />
-                {i % tickEvery === 0 && (
-                  <text x={i * slot + slot / 2} y={H - 6} textAnchor="middle" className={styles.tick}>
-                    {dayLabel(data[i].date)}
-                  </text>
-                )}
-              </g>
-            );
-          })}
-        </svg>
-      )}
+      <DailyChart title={title} mode={mode} unit={unit[0] ? unit : undefined} format={format}
+        formatAxis={format === fmt ? (n) => compact.format(n) : (n) => `$${compact.format(n)}`}
+        points={data.map((d, i) => ({ label: d.date, value: values[i] }))} />
     </figure>
+  );
+}
+
+const AI_NAMES: Record<string, string> = {
+  'chatgpt.com': 'ChatGPT', 'chat.openai.com': 'ChatGPT', 'perplexity.ai': 'Perplexity', 'www.perplexity.ai': 'Perplexity',
+  'claude.ai': 'Claude', 'gemini.google.com': 'Gemini', 'copilot.microsoft.com': 'Copilot',
+};
+const aiName = (s: string) => AI_NAMES[s.toLowerCase()] ?? s;
+
+function destinationLabel(d: string | null): string {
+  if (!d) return '—';
+  const x = d.toLowerCase();
+  if (x.includes('t.me')) return 'Telegram';
+  if (x.includes('/start')) return 'Get an API key';
+  if (x.includes('/contact')) return 'Talk to the team';
+  if (x.includes('terminal')) return 'Terminal';
+  return d;
+}
+
+type PageRow = LandingPage & { title: string; href: string };
+type SortKey = 'visitors' | 'entrances' | 'ctaClicks' | 'clickRate' | 'snippetCopies';
+const PAGE_COLS: { key: SortKey; label: string }[] = [
+  { key: 'visitors', label: 'Visitors' }, { key: 'entrances', label: 'Started here' },
+  { key: 'ctaClicks', label: 'Clicked the button' }, { key: 'clickRate', label: 'Click rate' },
+  { key: 'snippetCopies', label: 'Copied code' },
+];
+
+/** Which /solve pages bring people in, and which of them get the button clicked. */
+function ProblemPages({ pages, truncated }: { pages: LandingPage[]; truncated: boolean }) {
+  const [sort, setSort] = useState<SortKey>('visitors');
+  const rows: PageRow[] = useMemo(() => pages.map((p) => {
+    const page = p.slug ? getSolvePage(p.slug) : undefined;
+    return { ...p, title: page?.h1 ?? p.path, href: p.path };
+  }), [pages]);
+  const sorted = useMemo(() => [...rows].sort((a, b) => b[sort] - a[sort] || b.visitors - a.visitors), [rows, sort]);
+  const best = useMemo(() => rows.filter((r) => r.slug && r.visitors > 0).sort((a, b) => b.visitors - a.visitors)[0], [rows]);
+  return (
+    <div className={styles.panel}>
+      <h3 className={styles.panelTitle}>Which problems bring people in — and which get clicked</h3>
+      <p className={styles.panelHint}>
+        {best
+          ? <>“{best.title}” brought the most visitors ({fmt(best.visitors)}) and {(best.clickRate * 100).toFixed(1)}% clicked through.{' '}</>
+          : null}
+        Each row is a page that answers one question. “Started here” is how many people’s visit began on it.
+      </p>
+      {rows.length === 0 ? (
+        <p className={styles.empty}><span className={styles.emptyMark} aria-hidden="true" />No visits to problem pages yet. They appear here as soon as someone lands on one.</p>
+      ) : (
+        <div className={styles.tableWrap}>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th scope="col">Problem page</th>
+                {PAGE_COLS.map((c) => (
+                  <th key={c.key} scope="col" aria-sort={sort === c.key ? 'descending' : undefined}>
+                    <button type="button" className={styles.sortBtn} onClick={() => setSort(c.key)}>{c.label}{sort === c.key ? ' ↓' : ''}</button>
+                  </th>
+                ))}
+                <th scope="col">Where clicks go</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((r) => (
+                <tr key={r.path}>
+                  <td data-label="Page"><a className={styles.link} href={r.href} target="_blank" rel="noreferrer">{r.title}</a></td>
+                  <td data-label="Visitors">{fmt(r.visitors)}</td>
+                  <td data-label="Started here">{fmt(r.entrances)}</td>
+                  <td data-label="Clicked">{fmt(r.ctaClicks)}</td>
+                  <td data-label="Click rate">
+                    <span className={styles.rateCell}>
+                      <span>{(r.clickRate * 100).toFixed(1)}%</span>
+                      <span className={styles.rateTrack} aria-hidden="true"><span className={styles.rateFill} style={{ width: `${Math.min(100, Math.max(0, r.clickRate * 100))}%` }} /></span>
+                    </span>
+                  </td>
+                  <td data-label="Copied code">{fmt(r.snippetCopies)}</td>
+                  <td data-label="Clicks go to">{destinationLabel(r.topDestination)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {truncated ? <p className={styles.panelHint} style={{ margin: '10px 0 0' }}>Capped: only the busiest pages are shown.</p> : null}
+    </div>
   );
 }
 
@@ -176,7 +264,7 @@ function RankList({ title, hint, rows, empty, format = fmt }: {
     <div className={styles.panel}>
       <h3 className={styles.panelTitle}>{title}</h3>
       <p className={styles.panelHint}>{hint}</p>
-      {rows.length === 0 ? <p className={styles.empty}>{empty}</p> : (
+      {rows.length === 0 ? <p className={styles.empty}><span className={styles.emptyMark} aria-hidden="true" />{empty}</p> : (
         <ul className={styles.rank}>
           {rows.map((r) => (
             <li key={r.key}>
@@ -201,6 +289,7 @@ export default function GrowthSection({ load }: { load: (path: string) => Promis
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [openLead, setOpenLead] = useState<number | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -211,7 +300,7 @@ export default function GrowthSection({ load }: { load: (path: string) => Promis
       .catch((e: Error) => { if (!cancelled) setError(e.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [days, load]);
+  }, [days, load, attempt]);
 
   const headline = useMemo(() => {
     if (!report) return '';
@@ -227,7 +316,10 @@ export default function GrowthSection({ load }: { load: (path: string) => Promis
       <div className={styles.head}>
         <div>
           <h2 id="growth-title" className={styles.title}>Is it working?</h2>
-          <p className={styles.sub}>Visitors, sign-ups and sales leads from suwappu.bot.</p>
+          <p className={styles.sub}>
+            Visitors, sign-ups and sales leads from suwappu.bot.
+            {report && <span className={styles.rangeCtx}>{dayLabel(report.window.from)} – {dayLabel(report.window.to)}, UTC</span>}
+          </p>
         </div>
         <div className={styles.ranges} role="group" aria-label="Time period">
           {RANGES.map((r) => (
@@ -243,10 +335,13 @@ export default function GrowthSection({ load }: { load: (path: string) => Promis
         <p className={styles.error} role="alert">
           {error === 'UNAUTHORIZED'
             ? 'Your sign-in has expired. Sign out and sign in again.'
-            : 'These numbers could not be loaded right now. Refresh the page to try again.'}
+            : 'These numbers could not be loaded right now. Nothing is lost; try again in a moment.'}
+          {error !== 'UNAUTHORIZED' && (
+            <button type="button" className={styles.retry} onClick={() => setAttempt((a) => a + 1)}>Try again</button>
+          )}
         </p>
       )}
-      {!report && loading && <p className={styles.empty}>Loading your numbers…</p>}
+      {!report && loading && <Skeleton />}
 
       {report && (
         <div className={loading ? styles.stale : undefined}>
@@ -266,43 +361,44 @@ export default function GrowthSection({ load }: { load: (path: string) => Promis
             </p>
           )}
 
-          <div className={styles.tiles}>
+          <Reveal className={styles.tiles} stagger>
             <Tile days={report.days} label="Visitors" value={fmt(report.totals.visitors)}
-              now={report.totals.visitors} before={report.previous.visitors}
+              count={report.totals.visitors} spark={report.series.map((d) => d.visitors)} now={report.totals.visitors} before={report.previous.visitors}
               hint="Different people who opened the site." />
             <Tile days={report.days} label="Sales leads" value={fmt(report.totals.leads)}
-              now={report.totals.leads} before={report.previous.leads}
+              count={report.totals.leads} now={report.totals.leads} before={report.previous.leads}
               hint="People who sent the “Talk to the team” form." />
             <Tile days={report.days} label="All form sign-ups" value={fmt(report.totals.conversions)}
-              now={report.totals.conversions} before={report.previous.conversions}
+              count={report.totals.conversions} now={report.totals.conversions} before={report.previous.conversions}
               hint={`Leads ${fmt(report.totals.leads)} · newsletter ${fmt(report.totals.newsletter)} · mobile waitlist ${fmt(report.totals.mobileWaitlist)} · name reservations ${fmt(report.totals.reservations)}.`} />
             <Tile days={report.days} label="Visitor → sign-up rate"
               value={report.tracking.available ? pct(report.funnel[2]?.count ?? 0, report.totals.visitors) : '—'}
               hint="Out of every 100 visitors, how many filled in a form." />
             <Tile days={report.days} label="Money in"
               value={report.moneyIn.available ? usd(report.moneyIn.totalUsd) : '—'}
+              spark={report.moneyIn.available ? report.series.map((d) => d.moneyInUsd) : undefined}
               now={report.moneyIn.available ? report.moneyIn.totalUsd : undefined}
               before={report.moneyIn.available ? report.moneyIn.previousUsd : undefined}
               hint={report.stripe.available
                 ? 'Everything received in this period: card payments from Stripe (after refunds), swap fees, pay-per-call, API credits and agent plans.'
                 : 'Payments recorded in this period. Card payments are NOT included because Stripe could not be read (see below).'} />
             <Tile days={report.days} label="New accounts" value={fmt(report.totals.signups)}
-              now={report.totals.signups} before={report.previous.signups}
+              count={report.totals.signups} spark={report.series.map((d) => d.signups)} now={report.totals.signups} before={report.previous.signups}
               hint="New user accounts created in the product." />
-            <Tile days={report.days} label="Paying customers" value={fmt(report.paidCustomers.total)}
+            <Tile days={report.days} label="Paying customers" value={fmt(report.paidCustomers.total)} count={report.paidCustomers.total}
               hint={`Active right now. Pro ${fmt(report.paidCustomers.byTier.pro ?? 0)} · Premium ${fmt(report.paidCustomers.byTier.premium ?? 0)} · Enterprise ${fmt(report.paidCustomers.byTier.enterprise ?? 0)}.`} />
-          </div>
+          </Reveal>
 
           <div className={styles.charts}>
             <DailyBars title="Visitors per day" unit={['visitor', 'visitors']} data={report.series}
               values={report.series.map((d) => d.visitors)} />
             <DailyBars title="Form sign-ups per day" unit={['sign-up', 'sign-ups']} data={report.series}
-              values={report.series.map((d) => d.leads + d.newsletter + d.mobileWaitlist + d.reservations)} />
+              values={report.series.map((d) => d.leads + d.newsletter + d.mobileWaitlist + d.reservations)} mode="bars" />
           </div>
 
           <div className={styles.grid2}>
             <DailyBars title="Money in per day" unit={['', '']} format={usd} data={report.series}
-              values={report.series.map((d) => d.moneyInUsd)} />
+              values={report.series.map((d) => d.moneyInUsd)} mode="bars" />
             <RankList title="Where the money came from" format={usd}
               hint="Money received in this period, by type."
               empty="No payments recorded in this period yet."
@@ -357,8 +453,33 @@ export default function GrowthSection({ load }: { load: (path: string) => Promis
                   </li>
                 ))}
               </ol>
-            ) : <p className={styles.empty}>No visits recorded in this period yet.</p>}
+            ) : <p className={styles.empty}><span className={styles.emptyMark} aria-hidden="true" />No visits recorded in this period yet.</p>}
           </div>
+
+          {Array.isArray(report.landingPages) ? (
+            <ProblemPages pages={report.landingPages} truncated={!!report.landingPagesTruncated} />
+          ) : null}
+
+          {Array.isArray(report.aiReferrals) ? (
+            <div className={styles.panel}>
+              <h3 className={styles.panelTitle}>Visits sent by AI assistants</h3>
+              <p className={styles.panelHint}>People who arrived from a link inside an AI assistant’s answer.</p>
+              {report.aiReferrals.length === 0 ? (
+                <p className={styles.empty}><span className={styles.emptyMark} aria-hidden="true" />None yet in this period.</p>
+              ) : (
+                <ul className={styles.rank}>
+                  {report.aiReferrals.map((a) => (
+                    <li key={a.source}>
+                      <div className={styles.rankRow}>
+                        <span className={styles.rankLabel} title={a.source}>{aiName(a.source)}</span>
+                        <span className={styles.rankValue}>{fmt(a.sessions)} {a.sessions === 1 ? 'visit' : 'visits'}</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ) : null}
 
           <div className={styles.grid2}>
             <RankList title="Where visitors come from" hint="The site or campaign that sent them. “direct” means they typed the address or used a bookmark."
@@ -384,7 +505,7 @@ export default function GrowthSection({ load }: { load: (path: string) => Promis
             <p className={styles.panelHint}>
               Everyone who sent the “Talk to the team” form, newest first. Select a row to read what they asked for.
             </p>
-            {report.recentLeads.length === 0 ? <p className={styles.empty}>No leads yet. When someone sends the contact form, they appear here.</p> : (
+            {report.recentLeads.length === 0 ? <p className={styles.empty}><span className={styles.emptyMark} aria-hidden="true" />No leads yet. When someone sends the contact form, they appear here.</p> : (
               <div className={styles.tableWrap}>
                 <table className={styles.table}>
                   <thead>
@@ -395,17 +516,17 @@ export default function GrowthSection({ load }: { load: (path: string) => Promis
                       const open = openLead === lead.id;
                       return [
                         <tr key={lead.id} className={open ? styles.rowOpen : undefined}>
-                          <td>{when(lead.createdAt)}</td>
-                          <td>
+                          <td data-label="When">{when(lead.createdAt)}</td>
+                          <td data-label="Who">
                             <button type="button" className={styles.leadBtn} aria-expanded={open}
                               onClick={() => setOpenLead(open ? null : lead.id)}>
                               {lead.name ?? 'Name not given'}
                             </button>
                           </td>
-                          <td>{lead.company ?? '—'}</td>
-                          <td>{lead.email ? <a className={styles.link} href={`mailto:${encodeURIComponent(lead.email)}`}>{lead.email}</a> : '—'}</td>
-                          <td>{lead.monthlyVolume ?? '—'}</td>
-                          <td>{lead.source ?? 'Not tagged'}</td>
+                          <td data-label="Company">{lead.company ?? '—'}</td>
+                          <td data-label="Email">{lead.email ? <a className={styles.link} href={`mailto:${encodeURIComponent(lead.email)}`}>{lead.email}</a> : '—'}</td>
+                          <td data-label="Volume">{lead.monthlyVolume ?? '—'}</td>
+                          <td data-label="From">{lead.source ?? 'Not tagged'}</td>
                         </tr>,
                         open && (
                           <tr key={`${lead.id}-detail`} className={styles.detail}>

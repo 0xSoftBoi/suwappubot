@@ -10,14 +10,21 @@ site (wrong nav, wrong palette, "some old library" look).
 Every page MUST use, unless it already deliberately doesn't:
 
 - **Nav:** `@/components/SummerNav` — the ONLY header. Sticky glass bar:
-  brand · three panels (Products / Developers / Why Suwappu) · Pricing · Docs ·
-  language · one "Launch Terminal" CTA. Behaviour is `@ui-sdk/react`
+  brand · four panels (Products / Solutions / Developers / Resources) ·
+  Pricing · a globe language menu (`LanguageMenu`, `@ui-sdk/react` menu) · one
+  orange "Launch Terminal" CTA. Behaviour is `@ui-sdk/react`
   (`navigation-menu`, `dialog`, `accordion`); styles are `src/app/nav.css`,
   keyed on `data-slot` + state attributes. Dark pages get the dark header from
   an ancestor `.sw-dark` / `.summer-page--cosmic` / `.summer-page--passport`,
   or `<SummerNav tone="dark" />` — never re-patch header colours per page.
   New routes go in `NavMenuData.ts` (+ `nav.menu.*` in all four locales), not
-  in the top row.
+  in the top row. The four-pill `LanguageSwitcher` lives in the mobile sheet
+  and the footer only.
+- **Home hero is one idea:** a headline of seven words or fewer, one line of
+  subhead, exactly two buttons (primary action + "For agents"), one product
+  capture. No kicker, announcement bar, floating chips or ambient audio. Proof
+  under it is the "ROUTES THROUGH" text row (real venues from generated stats,
+  never third-party logos, never "trusted by") and dated real counts.
 - **Interactive widgets:** build menus, dialogs, accordions, comboboxes, tabs
   and form fields on `@ui-sdk/react/<name>` (live examples: `SummerNav`,
   `docs/DocsSearch`, `EnterpriseContactForm`, `FooterNewsletterForm`) (version-matched docs in
@@ -75,3 +82,17 @@ Every page MUST use, unless it already deliberately doesn't:
    no placeholder hrefs, no invented URLs.
 5. All four locales (`messages/en|fr|es|zh.json`) updated together when copy
    changes.
+
+## v3 kit (`src/components/v3/` + `src/app/v3.css`)
+
+Reuse; do not fork a second motion/card system. Tone-aware via `--v3-*` vars
+(dark under `.sw-dark`/`.v3-tone-dark`, cream/navy under `.v3-tone-light`).
+Import from `@/components/v3`.
+
+- `Reveal` (`stagger`, `delay`): scroll-entry rise; visible without JS/reduced motion.
+- `CountUp`: real numbers only (final value in SSR HTML).
+- `SpotlightCard` + `MiniViz kind`: bento card with pointer glow and pictogram slot (`.v3-bento`, `.v3-span-2`).
+- `V3Section` / `SectionHead` / `Backdrop` (mesh, glow, grid, grain): section layouts and headers; `.v3-split` for text/visual.
+- Graphics (all `aria-hidden`, paused off-screen via `Live`, static when reduced motion): `RouteMap`, `PipelineFlow`, `VenueRank`, `ChainRing`, `Sparkline`/`SparkCard`, `ToolOrbit`, `BoundaryRings`, `ProductFrame`.
+- Traps: never name a class with "card" in it (globals.css `.sw-dark [class*='card']` flattens it); diagrams use real names only and show no invented numbers.
+

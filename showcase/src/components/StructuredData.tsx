@@ -24,8 +24,8 @@ export default function StructuredData() {
         'A2A agent-to-agent protocol',
         'REST API with OpenAPI spec',
         'Telegram trading bot',
-        'MEV-shielded routing',
-        'User-signed execution with TEE-backed and self-custody key options',
+        'MEV-resistant routes such as CoW where the pair is eligible',
+        'User-signed execution, with Turnkey-held managed-wallet keys or self-custody',
       ],
     },
     // Organization
@@ -71,7 +71,7 @@ export default function StructuredData() {
           name: 'How do I integrate Suwappu with Claude or other AI agents?',
           acceptedAnswer: {
             '@type': 'Answer',
-            text: 'Suwappu runs a remote MCP server at https://api.suwappu.bot/mcp exposing 22 tools over Streamable HTTP. There is nothing to install locally: in Claude Code run "claude mcp add --transport http suwappu https://api.suwappu.bot/mcp", in Codex add it to ~/.codex/config.toml, or point any MCP client at the URL with an Authorization: Bearer header.',
+            text: `Suwappu runs a remote MCP server at https://api.suwappu.bot/mcp exposing ${stats.mcpToolCount} tools over Streamable HTTP. There is nothing to install locally: in Claude Code run "claude mcp add --transport http suwappu https://api.suwappu.bot/mcp", in Codex add it to ~/.codex/config.toml, or point any MCP client at the URL with an Authorization: Bearer header.`,
           },
         },
         {
@@ -79,7 +79,7 @@ export default function StructuredData() {
           name: 'Who holds the keys on Suwappu?',
           acceptedAnswer: {
             '@type': 'Answer',
-            text: 'By default you sign every swap yourself. Managed-wallet keys are secured by envelope encryption (kms_aesgcm_v2) or signed inside a hardware-backed TEE via Turnkey, never as a plaintext key Suwappu can read. Bring your own keys via the agent API for full self-custody.',
+            text: 'By default you sign every swap yourself. Managed-wallet keys are secured by envelope encryption (kms_aesgcm_v2) or held with Turnkey, never as a plaintext key Suwappu can read. Bring your own keys via the agent API for full self-custody.',
           },
         },
         {

@@ -31,6 +31,7 @@ import { TERMINAL_URL } from '@/lib/links';
 import { track } from '@/lib/analytics';
 import { MENU_PANELS, type MenuItem } from './NavMenuData';
 import LanguageSwitcher from './LanguageSwitcher';
+import LanguageMenu from './LanguageMenu';
 
 /**
  * SummerNav: the one site header.
@@ -40,7 +41,7 @@ import LanguageSwitcher from './LanguageSwitcher';
  * Styles live in app/nav.css and key off `data-slot` / state attributes.
  *
  * Every product surface must stay reachable from here: the top row carries
- * three panels plus Pricing and Docs, and anything not in the row is one hover
+ * four panels (Products / Solutions / Developers / Resources) plus Pricing, and anything not in the row is one hover
  * away inside a panel (see NavMenuData).
  */
 
@@ -64,10 +65,7 @@ export default function SummerNav({ tone }: { tone?: 'light' | 'dark' }) {
   const isCurrent = (href: string) =>
     href === pathname || (href !== '/' && !href.includes('#') && pathname.startsWith(`${href}/`));
 
-  const flatLinks = [
-    { href: '/pricing', label: nav('pricing') },
-    { href: '/docs', label: nav('docs') },
-  ];
+  const flatLinks = [{ href: '/pricing', label: nav('pricing') }];
 
   const closeMobile = () => setMobileOpen(false);
 
@@ -142,7 +140,7 @@ export default function SummerNav({ tone }: { tone?: 'light' | 'dark' }) {
 
         <div className="site-nav__actions">
           <div className="site-nav__lang">
-            <LanguageSwitcher current={locale} />
+            <LanguageMenu current={locale} />
           </div>
           <a
             className="site-nav__cta"

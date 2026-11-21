@@ -1,5 +1,7 @@
 import { TELEGRAM_URL } from '@/lib/links';
+import { useLocale } from 'next-intl';
 import FooterNewsletterForm from './FooterNewsletterForm';
+import LanguageSwitcher from './LanguageSwitcher';
 import stats from '@/data/stats.generated.json';
 
 const TERMINAL_URL = 'https://terminal.suwappu.bot';
@@ -14,6 +16,7 @@ const columns: { title: string; links: { label: string; href: string; external?:
       { label: 'Agent Desk (WebMCP)', href: '/agent-terminal' },
       { label: 'Arbiter (Proof of Done)', href: '/arbiter' },
       { label: 'Telegram Bot', href: TELEGRAM_URL, external: true },
+      { label: 'Get an API key', href: '/start' },
       { label: 'Agent API', href: '/docs/api-reference/overview' },
       { label: 'TypeScript SDK', href: '/docs/quick-start/sdk-examples' },
       { label: 'MCP Server', href: '/docs/protocols/mcp' },
@@ -34,20 +37,24 @@ const columns: { title: string; links: { label: string; href: string; external?:
   {
     title: 'Developers',
     links: [
+      { label: 'Problems solved', href: '/solve' },
       { label: 'Documentation', href: '/docs' },
       { label: 'API Reference', href: '/docs/api-reference/overview' },
       { label: 'Architecture', href: '/architecture' },
-      { label: 'Changelog', href: '/changelog' },
       { label: 'Research', href: '/research' },
+      { label: 'OpenAPI', href: 'https://api.suwappu.bot/v1/agent/openapi', external: true },
       { label: 'llms.txt', href: '/llms.txt', external: true },
-      { label: 'Status', href: '/status' },
     ],
   },
   {
     title: 'Company',
     links: [
       { label: 'About', href: '/about' },
+      { label: 'Status', href: '/status' },
+      { label: 'Changelog', href: '/changelog' },
       { label: 'Security', href: '/security' },
+      { label: 'Report a vulnerability', href: '/security#disclosure' },
+      { label: 'Brand kit', href: '/brand' },
       { label: 'Careers', href: '/careers' },
       { label: 'GitHub', href: GITHUB_URL, external: true },
       { label: 'Talk to sales', href: '/contact' },
@@ -65,6 +72,7 @@ const columns: { title: string; links: { label: string; href: string; external?:
 ];
 
 export default function SummerFooter() {
+  const locale = useLocale();
   return (
     <footer className="summer-footer" aria-label="Site footer">
       <div className="summer-footer__inner">
@@ -105,6 +113,7 @@ export default function SummerFooter() {
 
       {/* Legal line: prose only. No compliance badges we do not actually hold. */}
       <div className="summer-footer__legal">
+        <LanguageSwitcher current={locale} />
         <p>
           Suwappu is execution software, not a broker, exchange, investment adviser, or custodian.
           Connect your own wallet and you keep your keys; we never take discretionary control of your

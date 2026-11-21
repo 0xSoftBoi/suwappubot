@@ -22,13 +22,10 @@
     "menu": {
       "products": "产品",
       "developers": "开发者",
-      "company": "为什么选择 Suwappu",
       "grpTrade": "交易",
       "grpMarkets": "市场",
       "grpBuild": "构建",
       "grpReference": "参考",
-      "grpWhy": "核心优势",
-      "grpMore": "更多",
       "terminalTitle": "终端",
       "terminalDesc": "完整的网页交易台",
       "botTitle": "Telegram 机器人",
@@ -77,7 +74,6 @@
       "autopilotDesc": "实时观看自主代理交易，并验证它的每个决策",
       "signalsTitle": "Signal Intelligence",
       "signalsDesc": "可解释的链上信号及其证据",
-      "grpTrust": "代理信任",
       "passportTitle": "Agent Passport",
       "passportDesc": "证明代理背后有真人负责",
       "arbiterTitle": "Arbiter",
@@ -86,6 +82,34 @@
       "label": "主导航",
       "open": "打开菜单",
       "close": "关闭菜单",
+      "startTitle": "获取 API 密钥",
+      "startDesc": "一次调用，无需表单",
+      "solveTitle": "已解决的问题",
+      "solveDesc": "真实任务的具体步骤",
+      "solutions": "解决方案",
+      "resources": "资源",
+      "grpAgents": "智能体",
+      "grpAudience": "按用户",
+      "grpExplore": "探索",
+      "grpLearn": "了解",
+      "grpCompany": "公司",
+      "forTradersTitle": "面向交易者",
+      "forTradersDesc": "兑换、永续合约与自动化",
+      "forBuildersTitle": "面向智能体开发者",
+      "forBuildersDesc": "把智能体接入 API",
+      "forDesksTitle": "面向交易台",
+      "forDesksDesc": "组织、角色与受限密钥",
+      "governmentTitle": "政府",
+      "governmentDesc": "采购与保障",
+      "openapiTitle": "OpenAPI 规范",
+      "openapiDesc": "机器可读，3.1",
+      "aboutTitle": "关于",
+      "aboutDesc": "谁在构建",
+      "careersTitle": "招聘",
+      "careersDesc": "开放职位",
+      "contactTitle": "联系",
+      "contactDesc": "联系团队",
+      "language": "语言",
       "mobileTitle": "菜单"
     }
   },
@@ -105,16 +129,16 @@
   },
   "home": {
     "hero": {
-      "eyebrow": "全栈交易平台",
-      "h1": "面向跨链市场的全栈交易平台。",
-      "lead": "执行、路由、研究和投资组合管理，覆盖 45 条链，全部在一个平台完成。可通过 Terminal 或 Telegram 交易，也可通过 REST、MCP 和类型化 SDK 集成。",
+      "h1": "在 {platformChains} 条链上兑换任意代币。",
+      "lead": "为人和 AI 智能体打造的统一交易场所：用终端和 Telegram 机器人交易，用 API 和 MCP 服务器构建。",
       "ctaTerminal": "打开终端",
-      "ctaApi": "查看文档",
+      "ctaApi": "获取 API 密钥",
       "ctaTelegram": "在 Telegram 交易",
       "telegramNav": "Telegram",
       "ticketLabel": "执行票据 · 生产报价",
       "ticketStatus": "生产数据 · 明示时效状态",
-      "ticketNote": "此票据只展示报价。模拟与授权是独立步骤；实时数据不可用时，不会用演示价格替代。"
+      "ticketNote": "此票据只展示报价。模拟与授权是独立步骤；实时数据不可用时，不会用演示价格替代。",
+      "ctaAgents": "面向智能体"
     },
     "quote": {
       "stateChecking": "正在获取报价",
@@ -146,14 +170,15 @@
       "platformChains": "条平台链",
       "routingVenues": "个已集成路由提供方",
       "agentApiChains": "条 Agent API 链",
-      "routeNote": "平台覆盖范围与 Agent API 不同。每条路由只使用兼容的提供方。",
       "status": "服务状态",
       "statusMeta": "实时健康状态",
       "openapi": "OpenAPI",
-      "openapiMeta": "机器可读规范",
-      "githubMeta": "源码",
+      "openapiMeta": "OpenAPI 3.1",
+      "githubMeta": "开源",
       "changelog": "更新日志",
-      "changelogMeta": "最近发布"
+      "changelogMeta": "最新：{date}",
+      "routesThrough": "路由经由",
+      "statsLine": "{platformChains} 条平台链 · {routerCount} 个路由场所 · {agentApiChains} 条 Agent API 链 — 截至 {date}"
     },
     "interfaces": {
       "eyebrow": "能力 06",
@@ -186,8 +211,8 @@
       "authorizeBody": "自托管流程返回未签名交易，由你签名。托管 REST 执行可在服务端控制下签名并广播。",
       "screenshotAlt": "Suwappu Terminal 展示 ETH/USDC 图表、订单簿和兑换票据。",
       "screenshotCaption": "Suwappu Terminal · 产品截图 · 2026 年 7 月 31 日",
-      "mevTitle": "自研 MEV 搜索器",
-      "mevBody": "基于 Rust 的搜索器在执行前对待处理路由进行三明治攻击检测，完全自研而非外包。",
+      "mevTitle": "MEV 感知路由",
+      "mevBody": "在交易对符合条件时，机器人优先选择抗 MEV 的路由，例如 CoW 批量拍卖（EVM）和 Jito（Solana）。此项不适用于 Agent API。",
       "benchTitle": "执行器基准测试",
       "benchBody": "每条执行路径都会基于实测延迟和滑点进行基准测试，而非模拟数据。"
     },
@@ -218,7 +243,7 @@
       "selfCustodyTitle": "自托管",
       "selfCustodyBody": "未签名交易流程将签名与广播留给调用方，服务端从不持有该密钥。",
       "managedTitle": "托管签名",
-      "managedBody": "托管执行通过 KMS 信封加密（kms_aesgcm_v2）、Turnkey TEE 签名或 MPC 签名器完成签名，具体取决于所用的钱包路径。",
+      "managedBody": "托管执行通过 KMS 信封加密（kms_aesgcm_v2）、由 Turnkey 托管密钥（每个钱包可选）或 MPC 签名器完成签名，具体取决于所用的钱包路径。",
       "policiesTitle": "服务端策略",
       "policiesBody": "2FA、消费限额、熔断机制和社交恢复均在服务端边界强制执行；授权监控会自动撤销被标记的授权。",
       "boundaryTitle": "当前保障边界",
@@ -240,7 +265,12 @@
       "eyebrow": "选择权限模型",
       "title": "提交意图，并让执行权限保持明确。",
       "lead": "选择与审核、签名和广播责任相匹配的接口。",
-      "telegram": "或在 Telegram 交易"
+      "telegram": "或在 Telegram 交易",
+      "tradersLead": "兑换、跨链、永续合约、自动化与跟单，一个账户即可。",
+      "seeRouting": "了解路由如何工作",
+      "tradeLabel": "立即交易",
+      "buildLabel": "用它来构建",
+      "desks": "联系团队（交易台）"
     },
     "useCases": {
       "eyebrow": "你能做什么",
@@ -301,15 +331,8 @@
       "fedrampTitle": "FedRAMP High 就绪",
       "fedrampBody": "证据包内含 NIST SP 800-53 控制对照表与故障即关闭的政府部署配置。"
     },
-    "atmosphere": {
-      "soundOn": "声音开",
-      "soundOff": "声音关",
-      "videoLabel": "开阔海面的缓慢航拍画面"
-    },
-    "announce": {
-      "tag": "新功能 · WebMCP",
-      "copy": "Agent Desk：给浏览器里的代理一份授权书，而不是你的密钥。无需登录。"
-    }
+    "schematic": "示意",
+    "rankCaption": "示意 · 顺序因请求而异"
   },
   "cta": {
     "kicker": "立即开始",
@@ -333,7 +356,7 @@
     "referral_body": "推荐活跃交易者并赚取其手续费的 30%：在每条链上自动支付。在机器人中使用 /ref 获取链接。",
     "referral_cta": "获取您的推荐链接",
     "enterprise_heading": "需要定制方案？",
-    "enterprise_body": "为交易台和智能体集群提供专用基础设施、基于交易量的定价和 SLA。",
+    "enterprise_body": "为交易台和智能体集群提供专用基础设施、基于交易量的定价。支持与服务条款由团队另行商定。",
     "enterprise_cta": "联系我们"
   },
   "languageSwitcher": {

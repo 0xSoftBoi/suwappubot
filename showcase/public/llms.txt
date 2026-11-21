@@ -1,13 +1,13 @@
 # Suwappu API
 
-> Cross-chain DeFi API built for AI agents — best-price swaps, HyperLiquid market research, and gasless trades across 40+ chains through one REST API, an MCP server, and a TypeScript SDK.
+> Cross-chain DeFi API built for AI agents: swaps routed across 21 venues, HyperLiquid market research, and sponsored-gas trades. 45 chains on the platform (18 on the Agent API), through one REST API, an MCP server, and a TypeScript SDK.
 
 Base URL: https://api.suwappu.bot/v1/agent
 Auth: Bearer token — `Authorization: Bearer suwappu_sk_...` (get a key from `POST /register`, no auth required).
 
 SDK source contracts: @suwappu/sdk 0.6.x (TypeScript), suwappu 0.3.x (Python, async), @suwappu/openclaw.
 Package registries can lag the repository; verify the installed version and use REST/OpenAPI as the canonical fallback.
-MCP server: POST https://api.suwappu.bot/mcp (JSON-RPC 2.0; source 0.6.0 advertises 22 tools). MCP
+MCP server: POST https://api.suwappu.bot/mcp (JSON-RPC 2.0; source 0.6.0 advertises 23 tools by default). MCP
 2026-07-28 is the preferred stateless protocol revision, with legacy initialize compatibility through 2025-06-18.
 MCP execute_swap only prepares an unsigned self-custody transaction; it never signs or broadcasts.
 A2A protocol: POST https://api.suwappu.bot/a2a (JSON-RPC 2.0) — agent card at
@@ -30,6 +30,10 @@ Read tools answer freely; anything that costs money is a proposal a human must a
 - Agent-surface swap fees are route/configuration-specific rather than subscription-tier discounts. Inspect the live quote; do not hardcode an EVM/Solana fee into strategy economics.
 - Every docs page is available as clean Markdown by appending `.md` to its URL (or sending `Accept: text/markdown`).
 
+## Agent skills
+
+- [suwappu-swaps](https://suwappu.bot/.well-known/skills/suwappu-swaps/SKILL.md): load this skill for the safe call order (get_quote, simulate_swap, execute_swap), units, limits and key registration. It grants no wallet access. Index: https://suwappu.bot/.well-known/skills/index.json
+
 ## Suwappu Arbiter (Proof of Done)
 
 - Page: https://suwappu.bot/arbiter — machine-readable evidence: https://suwappu.bot/arbiter.json
@@ -38,6 +42,36 @@ Read tools answer freely; anything that costs money is a proposal a human must a
 - v1 verifies deterministic, machine-checkable rubrics (GitHub PR merge); it proves "done as specified", not "good".
 - Also on testnet only: a separate contract `suwappu-arb3.testnet` (code sha256 `667f4c62a77bdb59442d74daf75d2bb6c093c8bb1fcf893e4bba6562cff9ba8a`) that pins two rubrics: the PR rubric and `http_json_v1`, where the enclave fetches an HTTPS endpoint and checks conditions on the JSON it returns. It fixes a late-callback double-payment bug that the contract above still has, but that fix was tested only in a local harness. Known limits: a condition already true at creation can be paid out immediately; the account that signs the resolve call shows about 0.3 NEAR less balance during it; whoever controls the checked endpoint controls the verdict; not audited. See the `contract_v3` block in /arbiter.json.
 - Roadmap, NOT shipped: mainnet, independent audit, in-contract TDX quote verification, NEAR Intents funding, Agent Market integration, LLM-judged rubrics.
+
+## Problems solved
+Each page names a problem, answers it directly and links the product that solves it. Every one is also clean Markdown at <url>.md. Start: https://suwappu.bot/start (get an API key in one call).
+- [How do I let an AI agent swap tokens without handing it my keys?](https://suwappu.bot/solve/let-ai-agent-swap-tokens.md): Register an agent with one POST, get a quote, dry-run it with /swap/simulate, then either execute from a Suwappu managed wallet or take an unsigned transaction and sign it yourself.
+- [Is there an MCP server my agent can use for crypto swaps?](https://suwappu.bot/solve/mcp-server-for-crypto-swaps.md): Yes.
+- [Which API quotes a cross-chain swap in one call?](https://suwappu.bot/solve/cross-chain-swap-api.md): POST /v1/agent/quote with from_chain and to_chain.
+- [How do I simulate a swap before signing it?](https://suwappu.bot/solve/simulate-swap-before-signing.md): POST /v1/agent/swap/simulate with a quote_id and your wallet_address.
+- [How do agents pay per call for a swap API with x402?](https://suwappu.bot/solve/x402-pay-per-call-api.md): When a free-tier agent runs out of credits, Suwappu answers HTTP 402 with an x402 challenge: USDC on Base, an amount and a payTo address.
+- [Is there a swap quote API I can call without signing up?](https://suwappu.bot/solve/free-swap-quote-api.md): Yes.
+- [Is there a TypeScript or Python SDK for DEX swaps?](https://suwappu.bot/solve/typescript-python-sdk-dex-swaps.md): Yes.
+- [How do I give Claude access to crypto without giving it my keys?](https://suwappu.bot/solve/give-claude-crypto-wallet-safely.md): Connect Claude to https://api.suwappu.bot/mcp.
+- [Can my agent get crypto quotes from another agent over A2A?](https://suwappu.bot/solve/a2a-crypto-trading-agent.md): Yes.
+- [How do I get notified when an agent's swap completes?](https://suwappu.bot/solve/agent-swap-status-webhooks.md): Set a public HTTPS callback_url with PATCH /v1/agent/me.
+- [How do I stop an agent from swapping twice after a timeout?](https://suwappu.bot/solve/idempotent-agent-swaps.md): Send one persisted Idempotency-Key per intended trade on POST /v1/agent/swap/execute.
+- [How do I swap USDC on Base to a token on Solana?](https://suwappu.bot/solve/swap-usdc-base-to-solana.md): Open the Suwappu Terminal, choose USDC on Base as the source and your Solana token as the destination, and compare the quoted minimum output, fee and time before confirming.
+- [Can I swap across chains without using a bridge separately?](https://suwappu.bot/solve/cross-chain-swap-without-a-bridge.md): Yes.
+- [Is there a Telegram trading bot that swaps across chains?](https://suwappu.bot/solve/telegram-trading-bot-cross-chain.md): Yes.
+- [How do I set a crypto price alert in Telegram?](https://suwappu.bot/solve/price-alerts-telegram.md): Open t.me/suwappu_bot and send /a.
+- [How do I set a limit order or recurring buy in Telegram?](https://suwappu.bot/solve/limit-orders-dca-telegram.md): Subscribe to Pro, then use /o for limit orders, /dca for a fixed-amount recurring buy and /trailing for trailing stops in t.me/suwappu_bot.
+- [How do I snipe a new Solana token launch from Telegram?](https://suwappu.bot/solve/snipe-new-solana-launches-telegram.md): Subscribe to Pro, make sure you have a default Solana wallet in the bot, then send /snipe <contract> <amount in SOL>, or /snipe for the menu.
+- [Is a Telegram trading bot safe to use?](https://suwappu.bot/solve/is-a-telegram-trading-bot-safe.md): It depends on three things: who holds the keys, what limits cap a mistake, and what you can verify yourself.
+- [Why is my cross-chain swap stuck or pending?](https://suwappu.bot/solve/why-is-my-cross-chain-swap-stuck.md): Most pending swaps are waiting on a bridge leg, not lost.
+- [How much slippage should I set on a swap?](https://suwappu.bot/solve/how-much-slippage-cross-chain-swap.md): Slippage is the largest price drop you will accept before the swap fails.
+- [Is Suwappu Pro worth it for the lower swap fee?](https://suwappu.bot/solve/swap-fee-tiers-break-even.md): Pro lowers the swap fee from 1.0% to 0.5% for $9.99 per 30 days.
+- [How do I put spending limits on an AI agent's wallet?](https://suwappu.bot/solve/spending-limits-ai-agent-wallet.md): Suwappu's policy engine can cap USD per trade, per day and per session, trades per hour, slippage and gas, and allowlist chains, tokens, destinations and contracts.
+- [How do I require human approval for an agent's on-chain trades?](https://suwappu.bot/solve/approval-workflow-onchain-trades.md): Set an approval threshold on the org policy.
+- [Is there an audit log for what my trading agents did?](https://suwappu.bot/solve/audit-log-for-trading-agents.md): Yes.
+- [How do I stop all my agents trading immediately?](https://suwappu.bot/solve/agent-kill-switch-for-trading-agents.md): With an org API key, POST /v1/agent/killswitch {scope:"org", active:true, reason}.
+- [Is there a swap API for multi-chain treasury operations?](https://suwappu.bot/solve/treasury-swaps-api-for-desks.md): Yes.
+- [How can I see how a swap was routed?](https://suwappu.bot/solve/routing-transparency-best-execution.md): Each quote names its route and returns amount_out, amount_out_min, price_impact, estimated_gas_usd, bridge_fee_usd and estimated time.
 
 ## Quick Start
 - [Overview](https://suwappu.bot/docs/quick-start/overview.md): Suwappu is a cross-chain DeFi API built for AI agents. The safest onboarding path gets you to a useful quote with **zero capital at risk**, then makes you choose custody before an execution path appea
