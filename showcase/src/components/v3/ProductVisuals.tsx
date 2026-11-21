@@ -284,7 +284,7 @@ function Pipeline() {
     <Svg>
       <line className="pvx-dim" x1="50" y1="110" x2="270" y2="110" />
       <line className="pvx-acc pvx-travel-line" x1="50" y1="110" x2="270" y2="110" />
-      {['SIGNAL', 'GATES', 'FILL', 'RECORD'].map((n, i) => (
+      {['QUOTE', 'DRY RUN', 'EXECUTE', 'TRACK'].map((n, i) => (
         <g key={n}>
           <circle className={i === 2 ? 'pvx-solid' : 'pvx-box'} cx={50 + i * 73.3} cy="110" r="16" />
           <T x={50 + i * 73.3} y={114} anchor="middle">{String(i + 1)}</T>
