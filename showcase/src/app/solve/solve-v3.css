@@ -136,7 +136,11 @@
 .sv-hubcta p { margin: 0; font-weight: 600; color: var(--v3-ink); }
 
 /* /start */
-.sv-start { display: grid; gap: 1.5rem; max-width: 54rem; }
+.sv-start { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.5rem; max-width: 54rem; min-width: 0; }
+.sv-start > *, .sv-tabs, .sv-tabs > * { min-width: 0; max-width: 100%; }
+.sv-lede code, .sv-note code { overflow-wrap: anywhere; word-break: break-word; }
+.sv-form { box-sizing: border-box; }
+.sv-form input { width: 100%; box-sizing: border-box; }
 .sv-tabs [data-slot='tabs-list'] { display: flex; gap: 0.35rem; margin-bottom: 0.7rem; }
 .sv-tabs [data-slot='tabs-tab'] { min-height: 40px; padding: 0 1rem; border-radius: 999px; border: 1px solid var(--v3-line-strong); background: rgba(255,255,255,0.8); color: var(--v3-ink); font: 600 0.875rem var(--font-sans, inherit); cursor: pointer; }
 .sv-tabs [data-slot='tabs-tab'][data-selected], .sv-tabs [data-slot='tabs-tab'][aria-selected='true'] { background: #17324a; color: #fff; border-color: #17324a; }

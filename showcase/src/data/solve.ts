@@ -79,7 +79,9 @@ export function getSolvePage(slug: string): SolvePage | undefined {
 
 /** First sentence of the answer, for tiles and link lists. */
 export function teaser(p: Pick<SolvePage, 'answer'>, max = 150): string {
-  const first = p.answer.split(/(?<=[.!?])\s/)[0] ?? p.answer;
+  const parts = p.answer.split(/(?<=[.!?])\s/);
+  // A bare "Yes." / "No." is not a teaser: take the next sentence too.
+  const first = (parts[0] ?? p.answer).length < 25 && parts[1] ? `${parts[0]} ${parts[1]}` : (parts[0] ?? p.answer);
   return first.length <= max ? first : `${first.slice(0, max - 1).trimEnd()}…`;
 }
 
