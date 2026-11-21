@@ -11,6 +11,7 @@ be explicit and idempotent rather than an accident of import order.
 from __future__ import annotations
 
 import logging
+import re
 import sys
 
 # httpx logs every request URL at INFO and the Telegram Bot API puts the bot
@@ -22,6 +23,19 @@ _NOISY_LOGGERS = ("httpx", "httpcore", "urllib3", "telegram.request")
 _FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
 _configured = False
+
+# Telegram bot tokens look like "<bot id>:<35-char secret>". Exception text from
+# python-telegram-bot includes the token verbatim ("The token `…` was rejected
+# by the server"), and that went straight to Railway logs. Redact it from every
+# formatted line — message and traceback — whatever logger emitted it.
+# No \b: a "bot" prefix ("bot123:…", "/bot123:…/" in API URLs) has no word
+# boundary before the digits, so \b let the most common forms through.
+_TELEGRAM_TOKEN_RE = re.compile(r"(?<![0-9])[0-9]{6,12}:[A-Za-z0-9_-]{30,}")
+
+
+class _RedactingFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        return _TELEGRAM_TOKEN_RE.sub("<redacted-telegram-token>", super().format(record))
 
 
 class _BelowErrorFilter(logging.Filter):
@@ -37,7 +51,7 @@ def _build_handlers() -> list[logging.Handler]:
     Railway tags every stderr line severity "error", so a single stderr handler
     made all of our INFO traffic look like an outage and buried real errors.
     """
-    formatter = logging.Formatter(_FORMAT)
+    formatter = _RedactingFormatter(_FORMAT)
     out = logging.StreamHandler(sys.stdout)
     out.addFilter(_BelowErrorFilter())
     out.setFormatter(formatter)
@@ -88,6 +102,10 @@ def configure_logging(level: str | None = None) -> None:
         for h in _build_handlers():
             root.addHandler(h)
         root.setLevel(numeric_level)
+        # Route warnings.warn() (e.g. PTBUserWarning at handler registration)
+        # through logging, so they follow the stdout split and the redaction
+        # instead of going raw to stderr, which Railway tags as "error".
+        logging.captureWarnings(True)
         _configured = True
     route_server_loggers()
 
