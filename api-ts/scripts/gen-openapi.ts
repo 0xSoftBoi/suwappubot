@@ -211,9 +211,6 @@ const SCHEMA_MAP: Record<
 						maxAmountWei: {
 							description: 'Required for spending_limit. Per-transaction max native value in wei (not an aggregate).',
 						},
-						timeWindowSeconds: {
-							description: 'Not supported: aggregate time-window limits are not enforced, so any value is rejected with 400.',
-						},
 						allowedAddresses: {
 							description: 'Required for whitelist.',
 						},
@@ -289,6 +286,12 @@ const SCHEMA_MAP: Record<
 	},
 }
 
+/** Properties accepted by Zod but deliberately absent from the public spec
+ * (rejected at the route with 400). Dotted path from the schema root. */
+const DROP_PROPS: Record<string, string[]> = {
+	CreatePolicyRequest: ['properties.params.properties.timeWindowSeconds'],
+}
+
 /** Build the regenerated spec object from the existing one (pure; no IO besides the passed-in spec). */
 export function buildSpec(existing: Json): Json {
 	// Deep clone so we never mutate the parsed input.
@@ -306,6 +309,12 @@ export function buildSpec(existing: Json): Json {
 			? deepMerge(generated, manualOverrides)
 			: generated
 		const withProse = preserveProse(merged, spec.components.schemas[name])
+		for (const path of DROP_PROPS[name] ?? []) {
+			let node: Json = withProse
+			const parts = path.split('.')
+			for (const part of parts.slice(0, -1)) node = node?.[part]
+			if (node) delete node[parts[parts.length - 1]]
+		}
 		spec.components.schemas[name] = withProse
 	}
 

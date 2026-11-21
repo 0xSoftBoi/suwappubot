@@ -1497,7 +1497,7 @@
                   "policies": [
                     {
                       "policyId": "a1b2c3d4-5678-90ab-cdef-1234567890ab",
-                      "policyName": "agent-spending-limit-86400s"
+                      "policyName": "agent-spending-limit-1000000000000000000-a1b2c3"
                     }
                   ]
                 }
@@ -2738,7 +2738,7 @@
       "get": {
         "summary": "List prediction market positions",
         "operationId": "listPredictionPositions",
-        "description": "List the agent's Polymarket positions, enriched with the current midpoint price and unrealized PnL. Requires existing CLOB credentials (place an order first to initialize them). Authenticated and rate-limited by tier.",
+        "description": "List the agent's Polymarket positions, enriched with the current midpoint price and unrealized PnL. Returns an empty list when the agent has no Polymarket account yet. Authenticated and rate-limited by tier.",
         "responses": {
           "200": {
             "description": "Positions with current price and unrealized PnL (empty array if none)",
@@ -2770,25 +2770,21 @@
               }
             }
           },
-          "400": {
-            "description": "No Polymarket credentials found (place an order first to initialize)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "example": {
-                  "error": "Validation Error",
-                  "message": "No Polymarket credentials found. Place an order first to initialize."
-                }
-              }
-            }
-          },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
           "429": {
             "$ref": "#/components/responses/RateLimited"
+          },
+          "502": {
+            "description": "Polymarket credential lookup failed (generic message; detail is logged server-side)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
@@ -4499,10 +4495,6 @@
                 "type": "string",
                 "pattern": "^\\d+$",
                 "description": "Required for spending_limit. Per-transaction max native value in wei (not an aggregate)."
-              },
-              "timeWindowSeconds": {
-                "type": "number",
-                "description": "Not supported: aggregate time-window limits are not enforced, so any value is rejected with 400."
               },
               "allowedAddresses": {
                 "type": "array",

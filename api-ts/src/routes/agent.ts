@@ -3679,6 +3679,14 @@ agentRoutes.post('/wallet/policy', async (c) => {
 		return agentError(c, 400, 'VALIDATION_ERROR', 'allowedAddresses is required for whitelist')
 	}
 
+	// Turnkey policy names are labels that must be unique within the sub-org, so
+	// every created policy gets a unique, readable name. Both the list and delete
+	// endpoints match on AGENT_POLICY_PREFIX only, so this stays compatible.
+	// Semantics: each call ADDS a policy. spending_limit policies are EFFECT_DENY
+	// conditions, so all of them are enforced and the strictest cap wins.
+	// whitelist policies are EFFECT_ALLOW, so multiple whitelists union.
+	const uniq = randomBytes(3).toString('hex')
+
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const turnkeyService = yield* TurnkeyService
@@ -3687,7 +3695,7 @@ agentRoutes.post('/wallet/policy', async (c) => {
 				const condition = `eth.value <= ${params.maxAmountWei}`
 				const policyId = yield* turnkeyService.createPolicy(
 					subOrgId,
-					`${AGENT_POLICY_PREFIX}spending-limit`,
+					`${AGENT_POLICY_PREFIX}spending-limit-${params.maxAmountWei}-${uniq}`,
 					'EFFECT_DENY',
 					condition,
 				)
@@ -3697,7 +3705,7 @@ agentRoutes.post('/wallet/policy', async (c) => {
 				const condition = `eth.tx.to in [${addresses}]`
 				const policyId = yield* turnkeyService.createPolicy(
 					subOrgId,
-					`${AGENT_POLICY_PREFIX}whitelist-${params.allowedAddresses!.length}`,
+					`${AGENT_POLICY_PREFIX}whitelist-${params.allowedAddresses!.length}-${uniq}`,
 					'EFFECT_ALLOW',
 					condition,
 				)
@@ -3707,7 +3715,15 @@ agentRoutes.post('/wallet/policy', async (c) => {
 	)
 
 	if (Either.isLeft(result)) {
-		return agentError(c, 500, 'INTERNAL', result.left.message)
+		const msg = result.left.message
+		// Map Turnkey rejections to 4xx; only genuine upstream failures stay 5xx.
+		if (/already exists|duplicate|not unique|must be unique|label.*(taken|exists)/i.test(msg)) {
+			return agentError(c, 409, 'VALIDATION_ERROR', 'A policy with this name already exists. Retry the request.')
+		}
+		if (/invalid|condition|validation|bad request|\b400\b|\b422\b/i.test(msg)) {
+			return agentError(c, 400, 'VALIDATION_ERROR', 'Turnkey rejected the policy as invalid. Check maxAmountWei / allowedAddresses.')
+		}
+		return agentError(c, 500, 'INTERNAL', msg)
 	}
 
 	return c.json({ success: true, policy: result.right })
