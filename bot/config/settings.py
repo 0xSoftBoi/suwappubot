@@ -530,7 +530,13 @@ class Settings(BaseSettings):
         description="Non-US forward HTTP proxy for HyperUnit requests (e.g. http://host:port).",
     )
 
-    lisk_rpc_url: str = Field(default="https://rpc.api.lisk.com", description="Lisk RPC")
+    lisk_rpc_url: str = Field(
+        # rpc.api.lisk.com no longer resolves (NXDOMAIN / 502 via proxy). Verified
+        # 2026-11-21: lisk.gateway.tenderly.co eth_chainId -> 0x46f (1135) and
+        # eth_call -> 0x. lisk.drpc.org has chain id but rejects eth_call.
+        default="https://lisk.gateway.tenderly.co",
+        description="Lisk RPC",
+    )
     sei_rpc_url: str = Field(default="https://evm-rpc.sei-apis.com", description="Sei RPC")
     soneium_rpc_url: str = Field(default="https://rpc.soneium.org", description="Soneium RPC")
     swellchain_rpc_url: str = Field(

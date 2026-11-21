@@ -1,11 +1,10 @@
 import { Turnkey } from '@turnkey/sdk-server'
 import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
-import { isStarknet } from '../config/chains'
+import { broadcastRawTx, broadcastRawTxTolerant, getRpcUrls, isStarknet, rpcFetch } from '../config/chains'
 import { EnvService } from '../config/EnvService'
 import { logger } from '../lib/logger'
 import { DatabaseError, mapErrorToResponse, NotFoundError, ValidationError } from '../errors'
-import { fetchWithRetry } from '../lib/retry'
 import { telegramAuth } from '../middleware'
 import { ipRateLimit } from '../middleware/ipRateLimit'
 import { runEffectEither } from '../runtime'
@@ -32,38 +31,9 @@ const swapRoutes = new Hono()
 // Protected routes use the telegramAuth middleware explicitly
 
 // Chain ID to RPC endpoint mapping for broadcasting transactions
-const alchemyKey = process.env.ALCHEMY_API_KEY || ''
-const CHAIN_RPC_ENDPOINTS: Record<number, string> = {
-	1:
-		process.env.ETH_RPC_URL ||
-		(alchemyKey
-			? `https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}`
-			: 'https://eth.llamarpc.com'),
-	10:
-		process.env.OPTIMISM_RPC_URL ||
-		(alchemyKey
-			? `https://opt-mainnet.g.alchemy.com/v2/${alchemyKey}`
-			: 'https://optimism.llamarpc.com'),
-	56: process.env.BSC_RPC_URL || 'https://bsc.llamarpc.com',
-	137:
-		process.env.POLYGON_RPC_URL ||
-		(alchemyKey
-			? `https://polygon-mainnet.g.alchemy.com/v2/${alchemyKey}`
-			: 'https://polygon.llamarpc.com'),
-	8453:
-		process.env.BASE_RPC_URL ||
-		(alchemyKey
-			? `https://base-mainnet.g.alchemy.com/v2/${alchemyKey}`
-			: 'https://base.llamarpc.com'),
-	42161:
-		process.env.ARBITRUM_RPC_URL ||
-		(alchemyKey
-			? `https://arb-mainnet.g.alchemy.com/v2/${alchemyKey}`
-			: 'https://arbitrum.llamarpc.com'),
-	43114: process.env.AVALANCHE_RPC_URL || 'https://api.avax.network/ext/bc/C/rpc',
-	59144: process.env.LINEA_RPC_URL || 'https://rpc.linea.build',
-	324: process.env.ZKSYNC_RPC_URL || 'https://mainnet.era.zksync.io',
-}
+const CHAIN_RPC_ENDPOINTS: Record<number, string[]> = Object.fromEntries(
+	[1, 10, 56, 137, 8453, 42161, 43114, 59144, 324].map((id) => [id, getRpcUrls(id)]),
+)
 
 // Parse the USD value of the source amount for storage. Never falls back to
 // quote.fromAmount, which is a token quantity in wei (not a USD value) — doing
@@ -402,14 +372,17 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 			}
 
 			// Fetch current nonce from RPC
-			const fetchNonce = async (addr: string): Promise<string> => {
-				const res = await fetch(rpcUrlForChain, {
+			// preferUrl: the endpoint that accepted our last broadcast (may be ahead of
+			// the others); tag 'pending' so an in-flight approval is counted.
+			const fetchNonce = async (addr: string, tag: 'latest' | 'pending' = 'latest', preferUrl?: string): Promise<string> => {
+				const ordered = preferUrl ? [preferUrl, ...rpcUrlForChain.filter((u) => u !== preferUrl)] : rpcUrlForChain
+				const res = await rpcFetch(ordered, {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify({
 						jsonrpc: '2.0',
 						method: 'eth_getTransactionCount',
-						params: [addr, 'latest'],
+						params: [addr, tag],
 						id: 1,
 					}),
 				})
@@ -418,6 +391,12 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 				return data.result || '0x0'
 			}
 
+			let approvalUrl: string | undefined
+			// Nonce the approval was signed with, once its broadcast succeeded. The
+			// swap must use a strictly higher nonce whichever endpoint answers the
+			// nonce read — a lagging node returning the approval's own nonce would
+			// make the swap collide with (or replace) the approval.
+			let approvalNonceSent: number | undefined
 			// ERC20 approval if fromToken is not native
 			const NATIVE_ZERO = '0x0000000000000000000000000000000000000000'
 			const fromTokenAddr = quote.fromToken.address.toLowerCase()
@@ -433,7 +412,7 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 
 					const allowanceResult = yield* Effect.tryPromise({
 						try: async () => {
-							const res = await fetch(rpcUrlForChain, {
+							const res = await rpcFetch(rpcUrlForChain, {
 								method: 'POST',
 								headers: { 'Content-Type': 'application/json' },
 								body: JSON.stringify({
@@ -505,18 +484,10 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 						// Broadcast approval tx and poll for nonce increment in parallel
 						yield* Effect.tryPromise({
 							try: async () => {
-								const res = await fetch(rpcUrlForChain, {
-									method: 'POST',
-									headers: { 'Content-Type': 'application/json' },
-									body: JSON.stringify({
-										jsonrpc: '2.0',
-										method: 'eth_sendRawTransaction',
-										params: [approvalSignResult.signedTransaction],
-										id: 1,
-									}),
-								})
-								const data = (await res.json()) as { result?: string; error?: { message: string; code: number } }
-								if (data.error) throw new Error(`Approval RPC error: ${data.error.message}`)
+								const sent = await broadcastRawTx(rpcUrlForChain, approvalSignResult.signedTransaction)
+								approvalUrl = sent.url
+								approvalNonceSent = parseInt(approvalNonce, 16)
+								const data = { result: sent.hash }
 								logger.info('[SwapRoute] Approval tx broadcast: %s', data.result)
 
 								// Poll for nonce to increment (approval tx mined) instead of fixed wait
@@ -525,7 +496,7 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 								for (let i = 0; i < 6; i++) {
 									await new Promise((r) => setTimeout(r, 500))
 									try {
-										const currentNonce = parseInt(await fetchNonce(wallet.address), 16)
+										const currentNonce = parseInt(await fetchNonce(wallet.address, 'latest', approvalUrl), 16)
 										if (currentNonce > startNonce) {
 											logger.info('[SwapRoute] Approval confirmed after %dms', (i + 1) * 500)
 											break
@@ -545,7 +516,14 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 
 			// Fetch nonce for the swap tx (after potential approval)
 			const swapNonce = yield* Effect.tryPromise({
-				try: () => fetchNonce(wallet.address),
+				try: async () => {
+					const read = await fetchNonce(wallet.address, approvalUrl ? 'pending' : 'latest', approvalUrl)
+					if (approvalNonceSent === undefined) return read
+					const floor = approvalNonceSent + 1
+					if (parseInt(read, 16) >= floor) return read
+					logger.warn('[SwapRoute] nonce read %s below approval nonce + 1, clamping to %d', read, floor)
+					return `0x${floor.toString(16)}`
+				},
 				catch: (e) => new Error(`Failed to get nonce: ${e}`),
 			})
 
@@ -591,32 +569,17 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 			logger.info('[SwapRoute] Transaction signed successfully')
 
 			let txHash: string | null = null
+			let broadcastAmbiguous = false
 
 			if (rpcUrlForChain) {
 				const broadcastResult = yield* Effect.tryPromise({
 					try: async () => {
-						const res = await fetchWithRetry(rpcUrlForChain, {
-							method: 'POST',
-							headers: { 'Content-Type': 'application/json' },
-							body: JSON.stringify({
-								jsonrpc: '2.0',
-								method: 'eth_sendRawTransaction',
-								params: [signedTransaction],
-								id: 1,
-							}),
-						})
-						const data = (await res.json()) as {
-							result?: string
-							error?: { message: string; code: number }
-						}
-						if (data.error) {
-							throw new Error(`RPC error: ${data.error.message} (code ${data.error.code})`)
-						}
-						return data.result as string
+						return await broadcastRawTxTolerant(rpcUrlForChain, signedTransaction)
 					},
 					catch: (e) => new Error(`Failed to broadcast transaction: ${e}`),
 				})
-				txHash = broadcastResult
+				txHash = broadcastResult.hash
+				broadcastAmbiguous = broadcastResult.ambiguous
 				logger.info('[SwapRoute] Transaction broadcast, txHash: %s', txHash)
 			} else {
 				logger.warn(
@@ -642,7 +605,7 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 				swapId: swapRecord.id,
 				status: newStatus,
 				txHash: txHash || undefined,
-				message: txHash ? 'Transaction submitted.' : 'Transaction signed. Submit to chain to complete swap.',
+				message: txHash ? (broadcastAmbiguous ? 'Transaction submitted; network confirmation is pending. Check swap status — do not resubmit.' : 'Transaction submitted.') : 'Transaction signed. Submit to chain to complete swap.',
 				chain: {
 					chainId: txRequest.chainId,
 					rpcNeeded: !txHash,
@@ -860,7 +823,7 @@ async function fetchNativeBalance(address: string, chainId: string): Promise<str
 	if (!rpcUrl) return null
 
 	try {
-		const res = await fetch(rpcUrl, {
+		const res = await rpcFetch(rpcUrl, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({

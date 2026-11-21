@@ -16,7 +16,7 @@ import ssl
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse, urlsplit
 
 import aiohttp
@@ -81,6 +81,22 @@ _CONTRACT_REVERT_ERROR = re.compile(
     r"execution reverted|(?:'code'|\"code\")\s*:\s*3\b",
     re.IGNORECASE,
 )
+
+
+def _classify_exc(exc: BaseException, limit: int = 80) -> str:
+    """Compact an exception for record_failure WITHOUT losing the classification.
+
+    aiohttp wraps resolver errors as "Cannot connect to host <host>:443 ssl:default
+    [Name or service not known]" — the phrase `_UNRECOVERABLE_ERROR` keys on sits at
+    the END of a >80 char string, so the old `str(e)[:80]` cut it off and dead
+    hosts (NXDOMAIN / "No address associated") were retried on the short backoff
+    forever instead of being parked. Lead with the matched phrase so it survives.
+    """
+    full = str(exc)
+    match = _UNRECOVERABLE_ERROR.search(full)
+    if match:
+        return f"{match.group(0).lower()} | {full[: limit - len(match.group(0)) - 3]}"
+    return full[:limit]
 
 
 def _safe_url(url: str) -> str:
@@ -450,7 +466,17 @@ class RPCEndpoint:
             backoff = min(600, 30 * (2 ** (self.consecutive_failures - 3)))
             self.circuit_open_until = time.monotonic() + backoff
             if not was_open:
-                logger.warning(
+                # Each expired backoff that fails again re-opens the circuit
+                # (30s→60s→…→600s), and a chainlist-discovered endpoint is
+                # optional by design. Warning on every re-open buried real
+                # errors under a dozen dead public RPCs every two minutes, so
+                # only a configured endpoint's FIRST open is a warning.
+                log = (
+                    logger.warning
+                    if self.tier != RPCTier.DISCOVERED and self.consecutive_failures == 3
+                    else logger.debug
+                )
+                log(
                     "RPC circuit OPEN %s (%ss, %s failures, reason=%s)",
                     _safe_url(self.url),
                     backoff,
@@ -657,14 +683,16 @@ class RPCManager:
                         chain=chain_name,
                         tier=RPCTier.DISCOVERED,
                     )
-                    self._endpoints.setdefault(chain_name, []).append(discovered)
+                    # NOT published to self._endpoints yet: the health loop walks
+                    # that table and could record a success for an endpoint on the
+                    # wrong chain before its entry probe rejects it.
                     newly_added.append(discovered)
                     existing_urls.add(rpc_url)
                     added += 1
 
             self._chainlist_last_fetch = time.monotonic()
             total = sum(len(v) for v in self._endpoints.values())
-            logger.info(f"Chainlist: added {added} endpoints ({total} total)")
+            logger.info(f"Chainlist: {added} candidate endpoints to probe ({total} live)")
 
         except Exception as e:
             logger.warning(f"Chainlist fetch failed (using defaults): {e}")
@@ -676,10 +704,23 @@ class RPCManager:
         # rotation on dev.
         if newly_added:
             sem = asyncio.Semaphore(20)
-            await asyncio.gather(
-                *(self._health_check_one(sem, ep) for ep in newly_added),
+            results = await asyncio.gather(
+                *(self._probe_discovered(sem, ep) for ep in newly_added),
                 return_exceptions=True,
             )
+            # Admission is decided by each probe's own return value, never by
+            # mutable health stats. Discovered endpoints are optional by design:
+            # one that fails (wrong chain id, dead host, 4xx/5xx, no eth_call) is
+            # simply never published. The next chainlist refresh may re-probe it.
+            passed = [ep for ep, ok in zip(newly_added, results) if ok is True]
+            for ep in passed:
+                self._endpoints.setdefault(ep.chain, []).append(ep)
+            if len(passed) < len(newly_added):
+                logger.info(
+                    "Chainlist: dropped %d/%d discovered endpoints that failed the entry probe",
+                    len(newly_added) - len(passed),
+                    len(newly_added),
+                )
 
     # === SELECTION ===
 
@@ -737,6 +778,16 @@ class RPCManager:
 
     def get_web3(self, chain_name: str) -> Web3:
         """Get a Web3 instance for the given chain (cached, auto-failover)."""
+        return self.get_web3_with_url(chain_name)[0]
+
+    def get_web3_with_url(self, chain_name: str) -> Tuple[Web3, str]:
+        """Like get_web3 but also returns the endpoint URL serving the client,
+        so callers can `report_failure` against the right endpoint and retry.
+
+        The pair is taken from one local, never re-read from the shared cache:
+        another thread can swap the cache entry in between, which would hand a
+        caller a URL that is not the one its client talks to.
+        """
         chain_name = chain_name.lower()
 
         cached = self._web3_cache.get(chain_name)
@@ -744,13 +795,13 @@ class RPCManager:
             web3, cached_url = cached
             ep = self._find_endpoint(chain_name, cached_url)
             if ep and not ep.is_circuit_open:
-                return web3
+                return web3, cached_url
             self._web3_cache.pop(chain_name, None)
 
         ep = self._select_endpoint(chain_name)
         web3 = self._create_web3(chain_name, ep.url)
         self._web3_cache[chain_name] = (web3, ep.url)
-        return web3
+        return web3, ep.url
 
     def get_rpc_url(self, chain_name: str) -> str:
         """Get the best RPC URL (for raw aiohttp callers)."""
@@ -905,6 +956,37 @@ class RPCManager:
 
         await asyncio.gather(*tasks, return_exceptions=True)
 
+    async def _probe_discovered(self, sem: asyncio.Semaphore, ep: RPCEndpoint) -> bool:
+        """Entry probe for a chainlist endpoint: chain id must match, then the
+        normal liveness + eth_call probe must succeed. Returns admission.
+
+        Runs before `ep` is published, so nothing else touches its stats."""
+        expected = CHAINLIST_IDS.get(ep.chain)
+        if expected is not None:
+            try:
+                async with sem:
+                    connector = aiohttp.TCPConnector(ssl=self._ssl_ctx) if self._ssl_ctx else None
+                    async with aiohttp.ClientSession(
+                        connector=connector, timeout=aiohttp.ClientTimeout(total=10)
+                    ) as session:
+                        async with session.post(
+                            ep.url,
+                            json={"jsonrpc": "2.0", "method": "eth_chainId", "params": [], "id": 1},
+                        ) as resp:
+                            if resp.status != 200:
+                                ep.record_failure(f"http_{resp.status}")
+                                return False
+                            data = await resp.json()
+                result = data.get("result") if isinstance(data, dict) else None
+                if not isinstance(result, str) or int(result, 16) != expected:
+                    ep.record_failure(f"chain id mismatch: {str(result)[:20]}")
+                    return False
+            except Exception as e:
+                ep.record_failure(_classify_exc(e))
+                return False
+        await self._health_check_one(sem, ep)
+        return ep.successful_requests > 0 and not ep.is_circuit_open
+
     async def _health_check_one(self, sem: asyncio.Semaphore, ep: RPCEndpoint):
         async with sem:
             payload = {"jsonrpc": "2.0", "method": "eth_blockNumber", "params": [], "id": 1}
@@ -981,7 +1063,7 @@ class RPCManager:
             except asyncio.TimeoutError:
                 ep.record_failure("timeout")
             except Exception as e:
-                ep.record_failure(str(e)[:80])
+                ep.record_failure(_classify_exc(e))
 
     async def _supports_eth_call(self, session, ep: RPCEndpoint) -> bool:
         """Probe whether the endpoint implements eth_call at all.
@@ -1021,7 +1103,7 @@ class RPCManager:
             ep.record_failure("eth_call timeout")
             return False
         except Exception as e:
-            ep.record_failure(f"eth_call {str(e)[:60]}")
+            ep.record_failure(f"eth_call {_classify_exc(e, 60)}")
             return False
 
     def _decay_all_stats(self):

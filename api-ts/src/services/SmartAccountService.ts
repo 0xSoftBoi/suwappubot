@@ -7,7 +7,7 @@ import { toKernelSmartAccount } from 'permissionless/accounts'
 import { createSmartAccountClient } from 'permissionless'
 import { createPimlicoClient } from 'permissionless/clients/pimlico'
 import { EnvService } from '../config/EnvService'
-import { getRpcUrl } from '../config/chains'
+import { getEvmTransport, getRpcUrl } from '../config/chains'
 import { ExternalServiceError, ValidationError } from '../errors'
 
 // EntryPoint v0.7 + Kernel v0.3.1 — the audited ZeroDev Kernel account driven
@@ -148,7 +148,7 @@ export const SmartAccountServiceLive = Layer.effect(
 
 					return yield* Effect.tryPromise({
 						try: async () => {
-							const publicClient = createPublicClient({ chain, transport: http(rpcUrl) })
+							const publicClient = createPublicClient({ chain, transport: getEvmTransport(chainId) })
 							const account = await toKernelSmartAccount({
 								client: publicClient,
 								owners: [predictOnlyOwner(owner)],
@@ -200,7 +200,7 @@ export const SmartAccountServiceLive = Layer.effect(
 
 					return yield* Effect.tryPromise({
 						try: async () => {
-							const publicClient = createPublicClient({ chain, transport: http(rpcUrl) })
+							const publicClient = createPublicClient({ chain, transport: getEvmTransport(chainId) })
 							const owner = privateKeyToAccount(ownerPrivateKey)
 							const account = await toKernelSmartAccount({
 								client: publicClient,

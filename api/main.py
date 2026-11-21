@@ -155,6 +155,11 @@ def _track_degraded(name: str, log_prefix: str, auto_clear: bool = True):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifecycle manager for the consolidated API + Bot service."""
+    # uvicorn installs its own stderr handlers when the server starts (after our
+    # import-time setup); re-point its loggers at the stdout/stderr split.
+    from bot.utils.logging_setup import route_server_loggers
+
+    route_server_loggers()
     logger.info("🚀 Starting consolidated Suwappu Monolith...")
 
     # Memory guard first, before anything that can allocate: it is the only
@@ -3075,4 +3080,7 @@ async def root_redirect():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # log_config=None: keep uvicorn from installing its own stderr handlers, so
+    # its startup records follow our stdout/stderr split (prod uses the uvicorn
+    # CLI, where route_server_loggers() at import already covers this).
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_config=None)

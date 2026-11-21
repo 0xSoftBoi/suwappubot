@@ -8,7 +8,7 @@ import { DEFAULT_SLIPPAGE } from '../config/constants'
 import { logger } from '../lib/logger'
 import { DrizzleService, requireDb, wallets } from '../db'
 import { mapErrorToResponse, NotFoundError, UnauthorizedError, ValidationError } from '../errors'
-import { fetchWithRetry } from '../lib/retry'
+import { broadcastRawTxTolerant, getRpcUrls } from '../config/chains'
 import { withSigningFallback } from '../services/FallbackSigningService'
 import { type AuthUser, flexAuth } from '../middleware/flexAuth'
 import { ipRateLimit } from '../middleware/ipRateLimit'
@@ -30,39 +30,6 @@ import {
 
 const publicSwapRoutes = new Hono()
 
-// Chain ID to RPC endpoint mapping (shared with swap.ts)
-const alchemyKey = process.env.ALCHEMY_API_KEY || ''
-const CHAIN_RPC_ENDPOINTS: Record<number, string> = {
-	1:
-		process.env.ETH_RPC_URL ||
-		(alchemyKey
-			? `https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}`
-			: 'https://eth.llamarpc.com'),
-	10:
-		process.env.OPTIMISM_RPC_URL ||
-		(alchemyKey
-			? `https://opt-mainnet.g.alchemy.com/v2/${alchemyKey}`
-			: 'https://optimism.llamarpc.com'),
-	56: process.env.BSC_RPC_URL || 'https://bsc.llamarpc.com',
-	137:
-		process.env.POLYGON_RPC_URL ||
-		(alchemyKey
-			? `https://polygon-mainnet.g.alchemy.com/v2/${alchemyKey}`
-			: 'https://polygon.llamarpc.com'),
-	8453:
-		process.env.BASE_RPC_URL ||
-		(alchemyKey
-			? `https://base-mainnet.g.alchemy.com/v2/${alchemyKey}`
-			: 'https://base.llamarpc.com'),
-	42161:
-		process.env.ARBITRUM_RPC_URL ||
-		(alchemyKey
-			? `https://arb-mainnet.g.alchemy.com/v2/${alchemyKey}`
-			: 'https://arbitrum.llamarpc.com'),
-	43114: process.env.AVALANCHE_RPC_URL || 'https://api.avax.network/ext/bc/C/rpc',
-	59144: process.env.LINEA_RPC_URL || 'https://rpc.linea.build',
-	324: process.env.ZKSYNC_RPC_URL || 'https://mainnet.era.zksync.io',
-}
 
 // In-memory quote cache as fallback when Redis is not available
 // Receiver used to price unauthenticated previews. Never signs anything.
@@ -849,34 +816,19 @@ publicSwapRoutes.post('/execute', flexAuth(), async (c) => {
 
 			const signedTransaction = signResult.signedTransaction
 
-			const rpcUrl = CHAIN_RPC_ENDPOINTS[txRequest.chainId]
+			const rpcUrls = getRpcUrls(txRequest.chainId)
 			let txHash: string | null = null
+			let broadcastAmbiguous = false
 
-			if (rpcUrl) {
+			if (rpcUrls.length > 0) {
 				const broadcastResult = yield* Effect.tryPromise({
 					try: async () => {
-						const res = await fetchWithRetry(rpcUrl, {
-							method: 'POST',
-							headers: { 'Content-Type': 'application/json' },
-							body: JSON.stringify({
-								jsonrpc: '2.0',
-								method: 'eth_sendRawTransaction',
-								params: [signedTransaction],
-								id: 1,
-							}),
-						})
-						const data = (await res.json()) as {
-							result?: string
-							error?: { message: string; code: number }
-						}
-						if (data.error) {
-							throw new Error(`RPC error: ${data.error.message} (code ${data.error.code})`)
-						}
-						return data.result as string
+						return await broadcastRawTxTolerant(rpcUrls, signedTransaction)
 					},
 					catch: (e) => new Error(`Failed to broadcast transaction: ${e}`),
 				})
-				txHash = broadcastResult
+				txHash = broadcastResult.hash
+				broadcastAmbiguous = broadcastResult.ambiguous
 				logger.info('[PublicSwap] Transaction broadcast, txHash: %s', txHash)
 			}
 
@@ -894,7 +846,9 @@ publicSwapRoutes.post('/execute', flexAuth(), async (c) => {
 				txHash,
 				signedTransaction: txHash ? undefined : signedTransaction,
 				message: txHash
-					? 'Transaction submitted to the network.'
+					? broadcastAmbiguous
+						? 'Transaction submitted; network confirmation is pending. Check swap status — do not resubmit.'
+						: 'Transaction submitted to the network.'
 					: 'Transaction signed but no RPC available for broadcast.',
 				swap: {
 					fromChain: quote.fromChain,

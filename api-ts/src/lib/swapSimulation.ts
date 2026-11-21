@@ -12,7 +12,7 @@
  * than introducing a viem client for these simple reads.
  */
 
-import { getRpcUrl } from '../config/chains'
+import { RPC_ENDPOINT_LISTS, getRpcUrls, rpcFetch } from '../config/chains'
 import { SOLANA_TOKENS } from '../services/JupiterService'
 
 export interface SimulationCheck {
@@ -51,6 +51,7 @@ export interface SimulationReport {
 }
 
 const RPC_TIMEOUT_MS = 8_000
+const EVM_CHECKS_DEADLINE_MS = 20_000
 
 const NATIVE_EVM_ADDRESSES = new Set([
 	'0x0000000000000000000000000000000000000000',
@@ -95,7 +96,11 @@ interface RpcResult<T> {
  * a check's `detail`, since that flows straight into the API response.
  */
 function classifyRpcError(e: unknown): string {
-	if (e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError')) {
+	const cause = e instanceof Error ? e.cause : undefined
+	if (
+		(e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError')) ||
+		(cause instanceof Error && (cause.name === 'TimeoutError' || cause.name === 'AbortError'))
+	) {
 		return 'RPC timeout'
 	}
 	if (e instanceof Error) {
@@ -105,17 +110,16 @@ function classifyRpcError(e: unknown): string {
 }
 
 async function rpcCall<T = unknown>(
-	rpcUrl: string,
+	rpcUrl: string[],
 	method: string,
 	params: unknown[],
 ): Promise<RpcResult<T>> {
 	try {
-		const res = await fetch(rpcUrl, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-			signal: AbortSignal.timeout(RPC_TIMEOUT_MS),
-		})
+		const res = await rpcFetch(
+			rpcUrl,
+			{ body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) },
+			RPC_TIMEOUT_MS,
+		)
 		const data = (await res.json()) as {
 			result?: T
 			error?: { message: string; data?: string }
@@ -194,11 +198,11 @@ const EVM_ADDRESS_SHAPE_RE = /^0x[0-9a-fA-F]{40}$/
 
 /** Runs checks 2-5 (balance, allowance, gas, eth_call) for an EVM quote. Never throws. */
 export async function runEvmChecks(input: EvmCheckInput): Promise<SimulationCheck[]> {
-	const rpcUrl = getRpcUrl(input.chainId)
+	const rpcUrl = getRpcUrls(input.chainId)
 	const isNative = isNativeEvmToken(input.fromTokenAddress)
 	const checks: SimulationCheck[] = []
 
-	if (!rpcUrl) {
+	if (rpcUrl.length === 0) {
 		const unavailable = (name: string, unverified: boolean): SimulationCheck => ({
 			name,
 			status: 'warn',
@@ -232,23 +236,42 @@ export async function runEvmChecks(input: EvmCheckInput): Promise<SimulationChec
 		]
 	}
 
-	// --- balance_sufficient ---
-	checks.push(await checkEvmBalanceSufficient(rpcUrl, input, isNative))
-
-	// --- allowance_sufficient ---
-	checks.push(await checkEvmAllowanceSufficient(rpcUrl, input, isNative))
-
-	// --- gas_affordable ---
-	checks.push(await checkEvmGasAffordable(rpcUrl, input, isNative))
-
-	// --- eth_call_revert_check ---
-	checks.push(await checkEvmEthCallRevert(rpcUrl, input))
+	// Independent reads run in parallel under an overall deadline so a degraded
+	// endpoint list (N x 8s per call) can't hang the request.
+	const timedOut = (name: string, unverified: boolean): SimulationCheck => ({
+		name,
+		status: 'warn',
+		unverified,
+		detail: 'unverified: simulation timed out',
+	})
+	const withDeadline = <T>(p: Promise<T>, fallbackValue: T): Promise<T> =>
+		new Promise<T>((resolve) => {
+			const t = setTimeout(() => resolve(fallbackValue), EVM_CHECKS_DEADLINE_MS)
+			p.then(
+				(v) => {
+					clearTimeout(t)
+					resolve(v)
+				},
+				() => {
+					clearTimeout(t)
+					resolve(fallbackValue)
+				},
+			)
+		})
+	checks.push(
+		...(await Promise.all([
+			withDeadline(checkEvmBalanceSufficient(rpcUrl, input, isNative), timedOut('balance_sufficient', true)),
+			withDeadline(checkEvmAllowanceSufficient(rpcUrl, input, isNative), timedOut('allowance_sufficient', false)),
+			withDeadline(checkEvmGasAffordable(rpcUrl, input, isNative), timedOut('gas_affordable', true)),
+			withDeadline(checkEvmEthCallRevert(rpcUrl, input), timedOut('eth_call_revert_check', false)),
+		])),
+	)
 
 	return checks
 }
 
 async function checkEvmBalanceSufficient(
-	rpcUrl: string,
+	rpcUrl: string[],
 	input: EvmCheckInput,
 	isNative: boolean,
 ): Promise<SimulationCheck> {
@@ -288,7 +311,7 @@ async function checkEvmBalanceSufficient(
 }
 
 async function checkEvmAllowanceSufficient(
-	rpcUrl: string,
+	rpcUrl: string[],
 	input: EvmCheckInput,
 	isNative: boolean,
 ): Promise<SimulationCheck> {
@@ -318,7 +341,7 @@ async function checkEvmAllowanceSufficient(
 }
 
 async function checkEvmGasAffordable(
-	rpcUrl: string,
+	rpcUrl: string[],
 	input: EvmCheckInput,
 	isNative: boolean,
 ): Promise<SimulationCheck> {
@@ -365,7 +388,7 @@ async function checkEvmGasAffordable(
 	}
 }
 
-async function checkEvmEthCallRevert(rpcUrl: string, input: EvmCheckInput): Promise<SimulationCheck> {
+async function checkEvmEthCallRevert(rpcUrl: string[], input: EvmCheckInput): Promise<SimulationCheck> {
 	if (!input.tx || !input.fromAddress) {
 		return {
 			name: 'eth_call_revert_check',
@@ -440,7 +463,7 @@ const SOLANA_ADDRESS_SHAPE_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/
 /** Runs checks 2 and 4 (balance, gas/fee affordability) for a Solana quote. Never throws. */
 export async function runSolanaChecks(input: SolanaCheckInput): Promise<{ balance: SimulationCheck; gas: SimulationCheck }> {
 	// Solana isn't in CHAIN_ID_TO_KEY (that map is EVM-only), so resolve its RPC directly.
-	const solanaRpcUrl = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com'
+	const solanaRpcUrls = RPC_ENDPOINT_LISTS.solana ?? []
 
 	if (!input.fromAddress) {
 		return {
@@ -483,12 +506,11 @@ export async function runSolanaChecks(input: SolanaCheckInput): Promise<{ balanc
 	const isNativeSol = !mintInfo || mintInfo.symbol === 'SOL' || mintInfo.symbol === 'WSOL'
 
 	try {
-		const res = await fetch(solanaRpcUrl, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getBalance', params: [input.fromAddress] }),
-			signal: AbortSignal.timeout(RPC_TIMEOUT_MS),
-		})
+		const res = await rpcFetch(
+			solanaRpcUrls,
+			{ body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getBalance', params: [input.fromAddress] }) },
+			RPC_TIMEOUT_MS,
+		)
 		const data = (await res.json()) as { result?: { value?: number }; error?: { message: string } }
 		if (data.error || data.result?.value === undefined) {
 			const detail = `unavailable: ${data.error?.message ?? 'no result'}`

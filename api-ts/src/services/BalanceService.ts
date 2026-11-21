@@ -2,7 +2,7 @@ import { Context, Effect, Layer } from 'effect'
 import type { Wallet } from '../db'
 import { logger } from '../lib/logger'
 import { fetchTokenPrices } from '../lib/prices'
-import { RPC_ENDPOINTS, NATIVE_TOKENS } from '../config/chains'
+import { RPC_ENDPOINT_LISTS, RPC_TIMEOUT_MS, NATIVE_TOKENS, rpcFetch } from '../config/chains'
 
 // Token balance with USD value
 export interface TokenBalance {
@@ -25,40 +25,39 @@ export class BalanceService extends Context.Tag('BalanceService')<
 	BalanceServiceInterface
 >() {}
 
-// Fetch native balance for EVM chains (1 retry, 5s timeout per attempt)
+// Fetch native balance for EVM chains. rpcFetch already fails over across the
+// chain's endpoint list, so there is no outer retry loop.
 async function fetchEvmNativeBalance(address: string, chain: string): Promise<string> {
-	const rpcUrl = RPC_ENDPOINTS[chain]
-	if (!rpcUrl) return '0'
+	const rpcUrls = RPC_ENDPOINT_LISTS[chain] ?? []
+	if (rpcUrls.length === 0) return '0'
 
-	const maxAttempts = 2
-	for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-		try {
-			const response = await fetch(rpcUrl, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
+	try {
+		const response = await rpcFetch(
+			rpcUrls,
+			{
 				body: JSON.stringify({
 					jsonrpc: '2.0',
 					method: 'eth_getBalance',
 					params: [address, 'latest'],
 					id: 1,
 				}),
-				signal: AbortSignal.timeout(5000),
-			})
+			},
+			RPC_TIMEOUT_MS,
+		)
 
-			const data = (await response.json()) as { result?: string }
-			if (data.result) {
-				const balanceWei = BigInt(data.result)
-				const decimals = NATIVE_TOKENS[chain]?.decimals || 18
-				const balance = Number(balanceWei) / 10 ** decimals
-				return balance.toFixed(6)
-			}
-		} catch (e) {
-			logger.error(
-				{ err: e },
-				`Failed to fetch ${chain} balance (attempt ${attempt}/${maxAttempts}, rpc=${rpcUrl})`,
-			)
-			if (attempt < maxAttempts) continue
+		const data = (await response.json()) as { result?: string }
+		if (data.result) {
+			const balanceWei = BigInt(data.result)
+			const decimals = NATIVE_TOKENS[chain]?.decimals || 18
+			const balance = Number(balanceWei) / 10 ** decimals
+			return balance.toFixed(6)
 		}
+	} catch (e) {
+		// Never log a URL: endpoints may embed API keys.
+		logger.error(
+			{ err: e instanceof Error ? e.message : String(e) },
+			`Failed to fetch ${chain} balance (${rpcUrls.length} endpoint(s) tried)`,
+		)
 	}
 
 	return '0'
@@ -66,13 +65,11 @@ async function fetchEvmNativeBalance(address: string, chain: string): Promise<st
 
 // Fetch SOL balance
 async function fetchSolanaBalance(address: string): Promise<string> {
-	const rpcUrl = RPC_ENDPOINTS.solana
-	if (!rpcUrl) return '0'
+	const rpcUrls = RPC_ENDPOINT_LISTS.solana ?? []
+	if (rpcUrls.length === 0) return '0'
 
 	try {
-		const response = await fetch(rpcUrl, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
+		const response = await rpcFetch(rpcUrls, {
 			body: JSON.stringify({
 				jsonrpc: '2.0',
 				method: 'getBalance',
