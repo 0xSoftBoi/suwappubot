@@ -83,3 +83,59 @@
 
 /* Days where more went out (refunds, disputes) than came in: same hue, hatched lighter, below the zero line. */
 .barNegative { fill: #38bdf8; opacity: 0.38; }
+
+/* ── v3 polish: depth, skeletons, empty/error, responsive table ─────────── */
+.title { font-family: var(--type-display-font, inherit); font-weight: 500; font-size: 2rem; letter-spacing: -0.015em; }
+.rangeCtx { display: block; margin-top: 2px; color: var(--adm-muted); font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
+.ranges { background: rgba(255, 255, 255, 0.03); }
+.rangeActive { background: rgba(56, 189, 248, 0.16); box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.32); }
+.tile, .panel, .chart {
+  position: relative; border-color: rgba(255, 255, 255, 0.08); border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.022));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 12px 30px -18px rgba(0, 0, 0, 0.6);
+}
+.tile { transition: border-color 0.2s, transform 0.2s; }
+.tile:hover { border-color: rgba(56, 189, 248, 0.3); }
+.tileLabel { font-size: 0.8125rem; letter-spacing: 0.01em; }
+.tileRow { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
+.tileRow .tileValue { margin: 8px 0 6px; font-size: clamp(1.7rem, 2.1vw, 2.15rem); min-width: 0; overflow-wrap: anywhere; }
+.tileRow > :global(.ch-mini) { margin-bottom: 10px; }
+.changeUp, .changeDown, .changeFlat { font-variant-numeric: tabular-nums; }
+.changeUp { color: #6ee7a0; } .changeDown { color: #fca5a5; }
+.chartHead { margin-bottom: 12px; }
+.chartReadout { font-size: 0.8125rem; }
+.rankFill { background: linear-gradient(90deg, rgba(56, 189, 248, 0.55), #38bdf8); transform-origin: left; animation: grow 0.8s cubic-bezier(.2,.7,.2,1) both; }
+.rankTrack { height: 5px; }
+@keyframes grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+.sk { display: block; height: 12px; border-radius: 6px; background: linear-gradient(90deg, rgba(255,255,255,0.05) 20%, rgba(255,255,255,0.11) 50%, rgba(255,255,255,0.05) 80%); background-size: 220% 100%; animation: shimmer 1.6s linear infinite; }
+@keyframes shimmer { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+.skel .tile, .skel .chart { min-height: 0; }
+
+.empty { display: flex; align-items: center; gap: 10px; margin: 6px 0 0; padding: 14px 16px; border: 1px dashed rgba(255, 255, 255, 0.14); border-radius: 10px; color: var(--adm-muted); font-size: 0.9rem; line-height: 1.5; }
+.emptyMark { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--adm-accent); opacity: 0.55; box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.12); }
+.error { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; justify-content: space-between; border-color: rgba(248, 113, 113, 0.28); background: rgba(248, 113, 113, 0.06); line-height: 1.5; }
+.retry { min-height: 36px; padding: 0 14px; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 8px; background: rgba(255, 255, 255, 0.06); color: var(--adm-ink); font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer; }
+.retry:hover { background: rgba(255, 255, 255, 0.12); }
+.retry:focus-visible { outline: 2px solid var(--adm-accent); outline-offset: 2px; }
+.notice { border-radius: 10px; }
+
+.tableWrap { max-height: 560px; overflow: auto; }
+.table th { position: sticky; top: 0; z-index: 1; background: #101a28; padding-left: 12px; }
+.table td { padding-left: 12px; }
+.table tbody tr { transition: background 0.12s; }
+.table tbody tr:hover { background: rgba(255, 255, 255, 0.04); }
+.ledger dd { font-variant-numeric: tabular-nums; }
+
+@media (max-width: 700px) {
+  .title { font-size: 1.6rem; }
+  .table { min-width: 0; }
+  .table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .table, .table tbody, .table tr, .table td { display: block; width: 100%; }
+  .table tr { padding: 10px 0; border-bottom: 1px solid var(--adm-border); }
+  .table td { display: flex; gap: 12px; justify-content: space-between; padding: 4px 0; border: 0; overflow-wrap: anywhere; text-align: right; }
+  .table td[data-label]::before { content: attr(data-label); flex: none; color: var(--adm-muted); font-size: 0.8125rem; text-align: left; }
+  .detail td { display: block; text-align: left; padding: 0; }
+  .tableWrap { max-height: none; }
+}
+@media (prefers-reduced-motion: reduce) { .sk, .rankFill { animation: none; } }

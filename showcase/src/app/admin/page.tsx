@@ -4,6 +4,8 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { API_BASE_URL, AUTH_BASE_URL } from '@/lib/links';
 import FinancePanel from './FinancePanel';
 import GrowthSection, { type GrowthReport } from './GrowthSection';
+import { CountUp } from '@/components/v3';
+import DailyChart from '@/components/charts/DailyChart';
 import { SESSION_AUTH, adminRequestInit } from './adminRequest';
 import './admin.css';
 
@@ -221,197 +223,6 @@ function DonutChart({ breakdown }: { breakdown: SubscriptionBreakdown }) {
   );
 }
 
-// ── Bar chart ─────────────────────────────────────────────────────────────────
-
-interface BarChartProps {
-  data: TimeseriesDay[];
-  color?: string;
-  valueKey?: 'count' | 'usd_volume';
-}
-
-function SvgBarChart({ data, color = '#38bdf8', valueKey = 'count' }: BarChartProps) {
-  const [hovered, setHovered] = useState<number | null>(null);
-  if (!data.length) return <div className="adm-chart-empty">No data yet</div>;
-
-  const vals = data.map(d => (valueKey === 'usd_volume' ? (d.usd_volume ?? 0) : d.count));
-  const maxVal = Math.max(...vals, 1);
-  const n = data.length;
-  const barW = CW / n;
-  const gap  = Math.max(1, barW * 0.18);
-  const bw   = barW - gap;
-
-  const yTicks = [0, 0.25, 0.5, 0.75, 1];
-
-  return (
-    <svg viewBox={`0 0 ${VW} ${VH}`} className="adm-chart-svg" onMouseLeave={() => setHovered(null)}>
-      {/* grid */}
-      {yTicks.map((f, i) => {
-        const y = CT + CH * (1 - f);
-        return <line key={i} x1={CL} x2={CL + CW} y1={y} y2={y} stroke="rgba(255,255,255,0.055)" strokeWidth={1} />;
-      })}
-
-      {/* y-axis labels */}
-      {yTicks.map((f, i) => {
-        const y   = CT + CH * (1 - f);
-        const val = Math.round(maxVal * f);
-        return (
-          <text key={i} x={CL - 5} y={y + 3.5} textAnchor="end" fontSize={9} fill="rgba(126,164,187,0.65)">
-            {valueKey === 'usd_volume' ? fmtUSD(val) : fmtNum(val)}
-          </text>
-        );
-      })}
-
-      {/* bars */}
-      {vals.map((v, i) => {
-        const x   = CL + i * barW + gap / 2;
-        const bh  = Math.max(2, (v / maxVal) * CH);
-        const y   = CT + CH - bh;
-        const hot = hovered === i;
-        return (
-          <rect
-            key={i} x={x} y={y} width={bw} height={bh}
-            fill={hot ? '#7de0ff' : color} opacity={hot ? 1 : 0.68} rx={2}
-            onMouseEnter={() => setHovered(i)}
-            style={{ cursor: 'default' }}
-          />
-        );
-      })}
-
-      {/* x-axis date labels every 7 days */}
-      {data.map((d, i) => {
-        if (i % 7 !== 0 && i !== data.length - 1) return null;
-        const x = CL + i * barW + barW / 2;
-        return (
-          <text key={i} x={x} y={VH - 5} textAnchor="middle" fontSize={8.5} fill="rgba(126,164,187,0.55)">
-            {fmtDateShort(d.date)}
-          </text>
-        );
-      })}
-
-      {/* tooltip */}
-      {hovered !== null && (() => {
-        const i    = hovered;
-        const v    = vals[i];
-        const x    = CL + i * barW + barW / 2;
-        const rawY = CT + CH * (1 - v / maxVal);
-        const ty   = Math.max(CT + 4, rawY - 30);
-        const txt  = valueKey === 'usd_volume' ? fmtUSD(v) : fmtNum(v);
-        const lbl  = fmtDateShort(data[i].date);
-        return (
-          <g>
-            <rect x={x - 30} y={ty} width={60} height={26} rx={4}
-              fill="rgba(11,17,26,0.94)" stroke="rgba(56,189,248,0.32)" strokeWidth={1} />
-            <text x={x} y={ty + 12} textAnchor="middle" fontSize={10} fill="#e2ecf4" fontWeight="700">{txt}</text>
-            <text x={x} y={ty + 22} textAnchor="middle" fontSize={8}  fill="rgba(126,164,187,0.75)">{lbl}</text>
-          </g>
-        );
-      })()}
-    </svg>
-  );
-}
-
-// ── Area chart ────────────────────────────────────────────────────────────────
-
-interface AreaChartProps {
-  data: TimeseriesDay[];
-  color?: string;
-}
-
-function SvgAreaChart({ data, color = '#22c55e' }: AreaChartProps) {
-  const [hovered, setHovered] = useState<number | null>(null);
-  if (!data.length) return <div className="adm-chart-empty">No data yet</div>;
-
-  const vals = data.map(d => d.count);
-  const maxVal = Math.max(...vals, 1);
-  const n = data.length;
-
-  const pts = vals.map((v, i) => ({
-    x: CL + (n === 1 ? CW / 2 : (i / (n - 1)) * CW),
-    y: CT + CH * (1 - v / maxVal),
-  }));
-
-  const linePts  = pts.map(p => `${p.x},${p.y}`).join(' ');
-  const areaPts  = [`${pts[0].x},${CT + CH}`, ...pts.map(p => `${p.x},${p.y}`), `${pts[n - 1].x},${CT + CH}`].join(' ');
-  const bandW    = n > 1 ? CW / (n - 1) : CW;
-  const yTicks   = [0, 0.25, 0.5, 0.75, 1];
-
-  return (
-    <svg viewBox={`0 0 ${VW} ${VH}`} className="adm-chart-svg" onMouseLeave={() => setHovered(null)}>
-      {/* grid */}
-      {yTicks.map((f, i) => {
-        const y = CT + CH * (1 - f);
-        return <line key={i} x1={CL} x2={CL + CW} y1={y} y2={y} stroke="rgba(255,255,255,0.055)" strokeWidth={1} />;
-      })}
-
-      {/* y-axis labels */}
-      {yTicks.map((f, i) => {
-        const y   = CT + CH * (1 - f);
-        const val = Math.round(maxVal * f);
-        return (
-          <text key={i} x={CL - 5} y={y + 3.5} textAnchor="end" fontSize={9} fill="rgba(126,164,187,0.65)">
-            {fmtNum(val)}
-          </text>
-        );
-      })}
-
-      {/* area fill */}
-      <defs>
-        <linearGradient id={`area-grad-${color.replace('#','')}`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%"   stopColor={color} stopOpacity={0.22} />
-          <stop offset="100%" stopColor={color} stopOpacity={0.02} />
-        </linearGradient>
-      </defs>
-      <polygon points={areaPts} fill={`url(#area-grad-${color.replace('#','')})`} />
-
-      {/* line */}
-      <polyline points={linePts} fill="none" stroke={color} strokeWidth={1.6} strokeLinejoin="round" />
-
-      {/* dot on hovered point */}
-      {hovered !== null && (
-        <circle cx={pts[hovered].x} cy={pts[hovered].y} r={3.5} fill={color} />
-      )}
-
-      {/* invisible hover bands */}
-      {vals.map((_, i) => {
-        const x = CL + (n === 1 ? 0 : (i / (n - 1)) * CW) - bandW / 2;
-        return (
-          <rect key={i} x={x} y={CT} width={bandW} height={CH}
-            fill="transparent" onMouseEnter={() => setHovered(i)} style={{ cursor: 'default' }} />
-        );
-      })}
-
-      {/* x-axis labels */}
-      {data.map((d, i) => {
-        if (i % 7 !== 0 && i !== n - 1) return null;
-        const x = pts[i].x;
-        return (
-          <text key={i} x={x} y={VH - 5} textAnchor="middle" fontSize={8.5} fill="rgba(126,164,187,0.55)">
-            {fmtDateShort(d.date)}
-          </text>
-        );
-      })}
-
-      {/* tooltip */}
-      {hovered !== null && (() => {
-        const i   = hovered;
-        const v   = vals[i];
-        const p   = pts[i];
-        const ty  = Math.max(CT + 4, p.y - 32);
-        const txt = fmtNum(v);
-        const lbl = fmtDateShort(data[i].date);
-        return (
-          <g>
-            <rect x={p.x - 30} y={ty} width={60} height={26} rx={4}
-              fill="rgba(11,17,26,0.94)" stroke={`${color}55`} strokeWidth={1} />
-            <text x={p.x} y={ty + 12} textAnchor="middle" fontSize={10} fill="#e2ecf4" fontWeight="700">{txt}</text>
-            <text x={p.x} y={ty + 22} textAnchor="middle" fontSize={8}  fill="rgba(126,164,187,0.75)">{lbl}</text>
-          </g>
-        );
-      })()}
-    </svg>
-  );
-}
-
 // ── Activity charts section ───────────────────────────────────────────────────
 
 function ActivityCharts({ timeseries }: { timeseries: AdminTimeseries | null }) {
@@ -421,7 +232,7 @@ function ActivityCharts({ timeseries }: { timeseries: AdminTimeseries | null }) 
         <div className="adm-section__head">
           <h2 className="adm-section__title">Platform Activity</h2>
         </div>
-        <div className="adm-loading">Loading charts…</div>
+        <div className="adm-loading" role="status">Loading charts…</div>
       </div>
     );
   }
@@ -430,17 +241,17 @@ function ActivityCharts({ timeseries }: { timeseries: AdminTimeseries | null }) 
     {
       title: 'Swap Volume (30d)',
       sub: 'Daily swap count',
-      el: <SvgBarChart data={timeseries.swapVolume} color="#38bdf8" valueKey="count" />,
+      el: <DailyChart title="Swap volume" mode="bars" unit={['swap', 'swaps']} format={fmtNum} points={timeseries.swapVolume.map((d) => ({ label: d.date, value: d.count }))} />,
     },
     {
       title: 'New Agents (30d)',
       sub: 'Daily registrations',
-      el: <SvgAreaChart data={timeseries.newAgents} color="#22c55e" />,
+      el: <DailyChart title="New agents" unit={['agent', 'agents']} format={fmtNum} points={timeseries.newAgents.map((d) => ({ label: d.date, value: d.count }))} />,
     },
     {
       title: 'API Calls (30d)',
       sub: 'Enterprise API traffic',
-      el: <SvgBarChart data={timeseries.apiCalls} color="#818cf8" valueKey="count" />,
+      el: <DailyChart title="API calls" mode="bars" unit={['call', 'calls']} format={fmtNum} points={timeseries.apiCalls.map((d) => ({ label: d.date, value: d.count }))} />,
     },
   ];
 
@@ -481,13 +292,13 @@ function StatCards({ stats, timeseries }: { stats: AdminStats; timeseries: Admin
       {/* Row 1 */}
       <div className="adm-stat">
         <div className="adm-stat__label">Total agents</div>
-        <div className="adm-stat__value">{fmtNum(stats.agents_total)}</div>
+        <div className="adm-stat__value"><CountUp value={stats.agents_total} duration={1100} /></div>
         <DeltaBadge value={stats.agents_24h} />
       </div>
 
       <div className="adm-stat">
         <div className="adm-stat__label">Total swaps</div>
-        <div className="adm-stat__value">{fmtNum(stats.swaps_total)}</div>
+        <div className="adm-stat__value"><CountUp value={stats.swaps_total} duration={1100} /></div>
         <DeltaBadge value={stats.swaps_24h} />
         {stats.swaps_volume_usd_24h !== undefined && (
           <div className="adm-stat__sub">{fmtUSD(stats.swaps_volume_usd_24h)} vol today</div>
@@ -496,7 +307,7 @@ function StatCards({ stats, timeseries }: { stats: AdminStats; timeseries: Admin
 
       <div className="adm-stat">
         <div className="adm-stat__label">Active webhooks</div>
-        <div className="adm-stat__value">{fmtNum(stats.webhooks_active)}</div>
+        <div className="adm-stat__value"><CountUp value={stats.webhooks_active} duration={1100} /></div>
         <span className="adm-stat__delta adm-stat__delta--flat">
           {stats.webhooks_deliveries_24h} deliveries today
         </span>
@@ -531,7 +342,7 @@ function StatCards({ stats, timeseries }: { stats: AdminStats; timeseries: Admin
       {/* Row 2 */}
       <div className="adm-stat">
         <div className="adm-stat__label">Enterprise orgs</div>
-        <div className="adm-stat__value">{fmtNum(stats.enterprise_orgs ?? 0)}</div>
+        <div className="adm-stat__value"><CountUp value={stats.enterprise_orgs ?? 0} duration={1100} /></div>
         {stats.active_enterprise_orgs !== undefined && (
           <span className="adm-stat__delta adm-stat__delta--up">
             ↑ {stats.active_enterprise_orgs} active 30d
@@ -541,7 +352,7 @@ function StatCards({ stats, timeseries }: { stats: AdminStats; timeseries: Admin
 
       <div className="adm-stat">
         <div className="adm-stat__label">API calls today</div>
-        <div className="adm-stat__value">{fmtNum(stats.api_calls_today ?? 0)}</div>
+        <div className="adm-stat__value"><CountUp value={stats.api_calls_today ?? 0} duration={1100} /></div>
         <span className="adm-stat__delta adm-stat__delta--flat">across all orgs</span>
       </div>
 
