@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { JetBrains_Mono } from 'next/font/google';
+import localFont from 'next/font/local';
 import { PhosphorRace } from './PhosphorRace';
 import { MarketTicker } from './MarketTicker';
 import styles from './next.module.css';
@@ -15,9 +15,8 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-const jb = JetBrains_Mono({
-  subsets: ['latin'],
-  weight: ['400', '500', '700', '800'],
+const jb = localFont({
+  src: [{ path: '../../fonts/JetBrainsMono-normal.woff2', weight: '100 800', style: 'normal' }],
   variable: '--font-jb',
   display: 'swap',
 });
