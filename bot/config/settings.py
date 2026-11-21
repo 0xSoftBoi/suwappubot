@@ -1390,6 +1390,21 @@ class Settings(BaseSettings):
     fee_collector_address: Optional[str] = Field(
         default=None, description="EVM address for fee collection"
     )
+    # x402 v2 facilitator (official `x402` SDK). Same env names as api-ts
+    # (X402ResourceService.ts). DISABLED by default: the tx-hash verify path keeps
+    # working without it; only signed PAYMENT-SIGNATURE payloads need a facilitator.
+    x402_facilitator_enabled: bool = Field(
+        default=False,
+        description="Settle signed x402 payloads via the facilitator (v2 exact scheme).",
+    )
+    x402_facilitator_url: str = Field(
+        default="https://x402.org/facilitator",
+        description="x402 facilitator base URL.",
+    )
+    x402_facilitator_api_key: Optional[SecretStr] = Field(
+        default=None,
+        description="Bearer token for the x402 facilitator (verify/settle/supported).",
+    )
     # Gasless membership relayer. SuwappuMembership.subscribeWithAuthorization
     # credits the SIGNER, never msg.sender, so a relayer submitting someone's
     # authorization pays gas and the signer gets the term — there is nothing to

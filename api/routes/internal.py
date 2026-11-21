@@ -11,11 +11,12 @@ from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional, Union
 
 from bot.config.settings import settings
 from bot.services.wallet import WalletService
 from bot.services.x402_service import x402_service
+from bot.services.x402_protocol import normalize_network, to_caip2
 from bot.models.user import Wallet
 from database.db import get_session
 
@@ -163,7 +164,16 @@ async def tempo_tip20_info(
 
 
 class VerifyPaymentRequest(BaseModel):
-    tx_hash: str
+    """Contract with api-ts ``lib/x402Verify.ts``. ADDITIVE ONLY.
+
+    Legacy shape (unchanged): ``tx_hash`` + short ``chain`` ("base", "tempo").
+    x402 v2 additions: ``chain`` may be a CAIP-2 id ("eip155:8453"), and a signed
+    ``payment_payload`` (PAYMENT-SIGNATURE value: base64 or JSON) may be sent
+    instead of ``tx_hash`` — it is verified AND settled via the facilitator.
+    """
+
+    tx_hash: Optional[str] = None
+    payment_payload: Optional[Union[str, Dict[str, Any]]] = None
     chain: str = "tempo"
     expected_amount: str
     expected_token: str = "pathUSD"
@@ -177,6 +187,13 @@ class VerifyPaymentResponse(BaseModel):
     # a wallet bound to the authenticated agent/user (sender-spoof defense) before
     # crediting. May be None if the tx could not be resolved.
     sender: Optional[str] = None
+    # Additive (v2). `tx_hash` is the settlement tx for the signed-payload path
+    # (echo of the input otherwise) — the replay-ledger key. `chain` is the
+    # canonical short name to consume under, so "eip155:8453" and "base" never
+    # key the same tx twice. `network` is the CAIP-2 id.
+    tx_hash: Optional[str] = None
+    chain: Optional[str] = None
+    network: Optional[str] = None
 
 
 @router.post("/x402/verify", response_model=VerifyPaymentResponse)
@@ -188,57 +205,85 @@ async def verify_x402_payment(
     Verify an on-chain payment for MPP/x402 402 flow.
 
     Called by the TS API mppAuth middleware to confirm that a payment
-    transaction matches the expected amount, token, and recipient.
+    transaction matches the expected amount, token, and recipient. Accepts
+    either a ``tx_hash`` (legacy) or a signed x402 v2/v1 ``payment_payload``.
     """
     _verify_internal_key(x_internal_key)
 
-    # Resolve token address from symbol
-    chain_tokens = x402_service.payment_tokens.get(request.chain, {})
-    token_address = chain_tokens.get(request.expected_token)
+    chain = normalize_network(request.chain)
+    if not chain:
+        return VerifyPaymentResponse(verified=False, error=f"Unsupported chain: {request.chain}")
+    network = to_caip2(chain)
 
-    if not token_address and request.expected_token:
-        # Try case-insensitive lookup
-        for sym, addr in chain_tokens.items():
-            if sym.lower() == request.expected_token.lower():
-                token_address = addr
-                break
+    has_tx = bool(request.tx_hash and request.tx_hash.strip())
+    has_payload = request.payment_payload not in (None, "", {})
+    if has_tx == has_payload:
+        return VerifyPaymentResponse(
+            verified=False,
+            error="Provide exactly one of tx_hash or payment_payload",
+            chain=chain,
+            network=network,
+        )
 
+    # Resolve token address from symbol (case-insensitive). Unknown/unlisted
+    # token: refuse. Passing an empty address through made
+    # _verify_transaction_on_chain treat it as a *native* transfer. Listed
+    # native coins map to the zero address and still verify as native.
+    token_address = x402_service.resolve_payment_token(chain, request.expected_token)
     if not token_address:
-        # Unknown/unlisted token: refuse. Passing an empty address through made
-        # _verify_transaction_on_chain treat it as a *native* transfer. Listed
-        # native coins map to the zero address and still verify as native.
         return VerifyPaymentResponse(
             verified=False,
             error=f"Unsupported payment token {request.expected_token!r} on {request.chain}",
+            chain=chain,
+            network=network,
         )
 
     try:
         amount = float(request.expected_amount)
+        if not amount > 0:
+            raise ValueError
     except (ValueError, TypeError):
         return VerifyPaymentResponse(
             verified=False,
             error=f"Invalid amount: {request.expected_amount}",
+            chain=chain,
+            network=network,
         )
 
     try:
-        success, message, sender = await x402_service._verify_transaction_on_chain(
-            tx_hash=request.tx_hash,
-            chain=request.chain,
-            expected_recipient=request.expected_recipient,
-            expected_amount=amount,
-            token_address=token_address,
-        )
+        if has_payload:
+            success, message, sender, tx_hash = await x402_service.settle_signed_payment(
+                request.payment_payload,
+                chain=chain,
+                expected_amount=request.expected_amount,
+                token_address=token_address,
+                expected_recipient=request.expected_recipient,
+            )
+        else:
+            tx_hash = request.tx_hash
+            success, message, sender = await x402_service._verify_transaction_on_chain(
+                tx_hash=tx_hash,
+                chain=chain,
+                expected_recipient=request.expected_recipient,
+                expected_amount=amount,
+                token_address=token_address,
+            )
 
         return VerifyPaymentResponse(
             verified=success,
             error=message if not success else None,
             sender=sender,
+            tx_hash=tx_hash,
+            chain=chain,
+            network=network,
         )
     except Exception as e:
         logger.error(f"x402 verification error: {e}")
         return VerifyPaymentResponse(
             verified=False,
             error=f"Verification error: {str(e)}",
+            chain=chain,
+            network=network,
         )
 
 

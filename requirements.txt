@@ -223,6 +223,8 @@ multidict==6.9.1
     #   yarl
 mypy-extensions==1.1.0
     # via typing-inspect
+nest-asyncio==1.6.0
+    # via x402
 openai==2.53.0
     # via -r requirements.in
 orjson==3.11.9
@@ -418,5 +420,7 @@ websockets==15.0.1
     #   starknet-py
     #   uvicorn
     #   web3
+x402[evm,httpx]==2.29.0
+    # via -r requirements.in
 yarl==1.25.1
     # via aiohttp

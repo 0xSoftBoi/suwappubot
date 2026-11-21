@@ -22,6 +22,14 @@ from bot.models.subscription import (
 )
 from bot.services.fee_service import TIER_FEE_RATES
 from bot.services.wallet import WalletService
+from bot.services.x402_protocol import (
+    ExpectedPayment,
+    normalize_network,
+    payload_payer,
+    to_atomic_amount,
+    to_caip2,
+    x402_resource_server,
+)
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -143,6 +151,44 @@ class X402PaymentRequest:
     recipient: str
     memo: str
     expires_at: int  # Unix timestamp
+
+    @property
+    def network(self) -> Optional[str]:
+        """CAIP-2 id for ``chain`` (``eip155:8453``) — the x402 v2 wire format."""
+        return to_caip2(self.chain)
+
+    def to_payment_required(self, decimals: int, resource: str = "") -> Dict[str, Any]:
+        """x402 v2 ``PaymentRequired`` body (camelCase wire shape) for this request.
+
+        Native-coin requests have no EIP-3009 rail, so they get no ``accepts``
+        entry; clients pay those by plain transfer + tx hash.
+        """
+        accepts: List[Dict[str, Any]] = []
+        is_native = self.token_address.lower() == "0x" + "0" * 40
+        if self.network and not is_native:
+            extra: Dict[str, Any] = {"paymentId": self.payment_id}
+            domain = X402_EIP712_DOMAINS.get(self.chain)
+            if domain and domain["symbol"] == self.token_symbol:
+                extra.update({"name": domain["name"], "version": domain["version"]})
+            accepts.append(
+                {
+                    "scheme": "exact",
+                    "network": self.network,
+                    "asset": self.token_address,
+                    "amount": to_atomic_amount(self.amount, decimals),
+                    "payTo": self.recipient,
+                    "maxTimeoutSeconds": max(0, self.expires_at - int(time.time())),
+                    "extra": extra,
+                }
+            )
+        return {
+            "x402Version": 2,
+            "resource": {
+                "url": resource or f"suwappu://x402/{self.payment_id}",
+                "description": self.memo,
+            },
+            "accepts": accepts,
+        }
 
 
 @dataclass
@@ -439,6 +485,8 @@ class X402Service:
         """Create an x402 payment request."""
         payment_id = f"x402_{secrets.token_hex(16)}"
 
+        # Accept CAIP-2 (eip155:8453) or a v1 short name; store the short name.
+        chain = normalize_network(chain) or chain
         token_address = self.payment_tokens.get(chain, {}).get(token_symbol)
         if not token_address:
             # An empty address would later verify as a *native* transfer. Refuse
@@ -464,6 +512,7 @@ class X402Service:
     ) -> X402PaymentRequest:
         """Create payment request for subscription upgrade."""
         price = TIER_LIMITS[tier]["price_usd"]
+        chain = normalize_network(chain) or chain
 
         payment = self.create_payment_request(
             amount=price,
@@ -636,9 +685,15 @@ class X402Service:
     ) -> tuple[bool, str, Optional[str]]:
         """Verify a transaction on-chain without blocking the event loop.
 
-        Returns (verified, message, sender) — see the sync variant.
+        Returns (verified, message, sender) — see the sync variant. ``chain`` may
+        be a CAIP-2 id (``eip155:8453``) or a short name; unknown ids fail closed.
         """
         import asyncio
+
+        short = normalize_network(chain)
+        if not short:
+            return False, f"Unsupported chain: {chain}", None
+        chain = short
 
         return await asyncio.to_thread(
             self._verify_transaction_on_chain_sync,
@@ -648,6 +703,91 @@ class X402Service:
             expected_amount,
             token_address,
         )
+
+    # =========================================================================
+    # x402 v2 (official SDK) — signed payloads settled via the facilitator
+    # =========================================================================
+
+    def resolve_payment_token(self, chain: str, symbol: Optional[str]) -> Optional[str]:
+        """Token address for ``symbol`` on ``chain`` (CAIP-2 or short name).
+
+        Case-insensitive on the symbol. Returns None for unlisted tokens — callers
+        MUST refuse those (an empty address would verify as a native transfer).
+        """
+        short = normalize_network(chain)
+        if not short or not symbol:
+            return None
+        tokens = self.payment_tokens.get(short, {})
+        if symbol in tokens:
+            return tokens[symbol]
+        for sym, addr in tokens.items():
+            if sym.lower() == symbol.lower():
+                return addr
+        return None
+
+    @staticmethod
+    def token_decimals(chain: str, token_address: str) -> int:
+        """On-chain decimals for an x402 payment token (pinned table first)."""
+        short = normalize_network(chain) or (chain or "").lower()
+        decimals = _X402_TOKEN_DECIMALS.get((short, (token_address or "").lower()))
+        if decimals is not None:
+            return decimals
+        from bot.config.tokens import get_decimals_by_address
+
+        return get_decimals_by_address(token_address, short)
+
+    async def settle_signed_payment(
+        self,
+        payment_payload: Any,
+        chain: str,
+        expected_amount: Any,
+        token_address: str,
+        expected_recipient: str,
+    ) -> tuple[bool, str, Optional[str], Optional[str]]:
+        """Verify + settle a signed x402 ``exact`` payload (v2 or v1).
+
+        Returns (success, message, payer, settlement_tx_hash). Requirements are
+        built from OUR expected amount/asset/recipient (server-authoritative);
+        the payload's ``accepted`` block is only cross-checked against them.
+        Native coins have no EIP-3009 rail and are refused.
+        """
+        short = normalize_network(chain)
+        if not short:
+            return False, f"Unsupported chain: {chain}", None, None
+        if not token_address or token_address.lower() == "0x" + "0" * 40:
+            return False, "Signed x402 payments require an EIP-3009 token", None, None
+        if not expected_recipient:
+            return False, "No payment recipient configured", None, None
+        try:
+            decimals = self.token_decimals(short, token_address)
+            amount_atomic = to_atomic_amount(expected_amount, decimals)
+        except Exception as e:
+            return False, f"Invalid amount: {e}", None, None
+
+        domain = X402_EIP712_DOMAINS.get(short)
+        tokens = self.payment_tokens.get(short, {})
+        if domain and (tokens.get(domain["symbol"]) or "").lower() != token_address.lower():
+            domain = None  # domain table only describes the chain's x402 stablecoin
+
+        result = await x402_resource_server.settle_exact(
+            payment_payload,
+            ExpectedPayment(
+                chain=short,
+                asset=token_address,
+                amount_atomic=amount_atomic,
+                pay_to=expected_recipient,
+                eip712_name=domain["name"] if domain else None,
+                eip712_version=domain["version"] if domain else None,
+            ),
+        )
+        if not result.success:
+            return False, result.error or "Settlement failed", result.payer, None
+        payer = result.payer
+        try:
+            payer = Web3.to_checksum_address(payer) if payer else None
+        except Exception:
+            pass
+        return True, f"x402 v{result.x402_version} exact settled", payer, result.tx_hash
 
     def _user_bound_evm_wallets(self, user_id: int) -> List[str]:
         """Lowercased EVM wallet addresses bound to ``user_id`` (sender-spoof set)."""
@@ -686,7 +826,9 @@ class X402Service:
         Returns False → already consumed (replay / cross-path double-redeem) →
                         the caller MUST NOT credit.
         """
-        norm_chain = (chain or "").strip().lower()
+        # Canonical short name so "eip155:8453" and "base" can't both consume the
+        # same tx (cross-format double redeem). Unknown ids keep the raw value.
+        norm_chain = (normalize_network(chain) or chain or "").strip().lower()
         norm_tx = (tx_hash or "").strip().lower()
         try:
             with session.begin_nested():
@@ -706,9 +848,18 @@ class X402Service:
     async def verify_payment(
         self,
         payment_id: str,
-        tx_hash: str,
+        tx_hash: Optional[str] = None,
+        payment_payload: Optional[Any] = None,
     ) -> tuple[bool, str]:
-        """Verify an x402 payment transaction."""
+        """Verify an x402 payment.
+
+        Either ``tx_hash`` (an on-chain transfer the user already sent) or
+        ``payment_payload`` (a signed x402 v2/v1 ``exact`` authorization, e.g. a
+        ``PAYMENT-SIGNATURE`` header value) which is settled via the facilitator.
+        Both paths then run the same sender-binding + shared replay-ledger checks.
+        """
+        if not tx_hash and payment_payload is None:
+            return False, "Provide a transaction hash or a signed x402 payment"
         with get_session() as session:
             payment = (
                 session.query(X402Payment).filter(X402Payment.payment_id == payment_id).first()
@@ -733,14 +884,44 @@ class X402Service:
 
             # Verify transaction on-chain
             try:
-                # Verify the transaction matches payment parameters
-                success, message, sender = await self._verify_transaction_on_chain(
-                    tx_hash=tx_hash,
-                    chain=payment.chain,
-                    expected_recipient=self.payment_recipient,
-                    expected_amount=payment.amount,
-                    token_address=expected_token,
-                )
+                if payment_payload is not None:
+                    # Sender binding BEFORE settlement: settling moves the user's
+                    # funds, so an unbound signer must be refused while it is still
+                    # free to do so (an intercepted payload must not buy someone
+                    # else's order). Fail closed if the signer can't be read.
+                    signer = payload_payer(payment_payload)
+                    if not self._sender_is_bound(
+                        signer, self._user_bound_evm_wallets(payment.user_id)
+                    ):
+                        payment.status = PaymentStatus.FAILED
+                        logger.warning(
+                            f"Payment {payment_id} signed-payload rejected pre-settle: "
+                            f"signer {signer} is not bound to user {payment.user_id}"
+                        )
+                        return (
+                            False,
+                            "Payment signer does not match your wallet (sender-spoof rejected).",
+                        )
+                    # x402 v2: settle the signed authorization; the settlement tx
+                    # hash becomes the replay-ledger key below.
+                    success, message, sender, settled_tx = await self.settle_signed_payment(
+                        payment_payload,
+                        chain=payment.chain,
+                        expected_amount=payment.amount,
+                        token_address=expected_token,
+                        expected_recipient=self.payment_recipient,
+                    )
+                    if success:
+                        tx_hash = settled_tx
+                else:
+                    # Verify the transaction matches payment parameters
+                    success, message, sender = await self._verify_transaction_on_chain(
+                        tx_hash=tx_hash,
+                        chain=payment.chain,
+                        expected_recipient=self.payment_recipient,
+                        expected_amount=payment.amount,
+                        token_address=expected_token,
+                    )
 
                 if not success:
                     payment.status = PaymentStatus.FAILED

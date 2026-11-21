@@ -68,6 +68,7 @@ web3==7.16.0
 eth-account==0.13.7
 eth-abi==5.2.0
 eth-utils==5.3.1
+x402[evm,httpx]==2.29.0                # official x402 v2 SDK (resource server + facilitator client)
 pytempo==0.5.1                        # Tempo type-0x76 gasless fee-payer SDK
 
 # ---- Solana ----

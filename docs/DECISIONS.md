@@ -259,3 +259,22 @@ ADRs 0001–0005.
   rejects). A `[skip ci]` journal commit must never be the head of a push that
   also carries code commits: GitHub reads the head commit and skips the whole
   push, so the code is never tested.
+
+## 2026-11-21 — Python x402 moves to the official `x402` SDK (v2); short names stay internal
+
+- **Context**: api-ts speaks x402 v2 on `@x402/core`; the Python verifier
+  (`bot/services/x402_service.py`, `POST /internal/x402/verify`) was tx-hash +
+  v1 short names only.
+- **Decision**: `bot/services/x402_protocol.py` wraps `x402.server.x402ResourceServer`
+  + `x402.http.HTTPFacilitatorClient` (exact EVM scheme). CAIP-2 ids
+  (`eip155:8453`) are accepted at every boundary and normalized to the short
+  chain name (`base`) internally via `normalize_network()`. The internal verify
+  contract is additive only: `tx_hash` still works; `payment_payload` is the new
+  alternative and is verified **and settled**.
+- **Gotchas**: requirements are server-built, never taken from the payload's
+  `accepted`. The replay ledger keys on the canonical short name, so the same tx
+  can't be consumed once as `eip155:8453` and again as `base` — api-ts must
+  consume under the `chain` the verify response returns. Bot-side signed payloads
+  are sender-bound **before** settlement (settling moves funds). `batch-settlement`
+  vouchers are refused here; api-ts's channel manager owns them. Facilitator is
+  off by default (`X402_FACILITATOR_ENABLED`).
