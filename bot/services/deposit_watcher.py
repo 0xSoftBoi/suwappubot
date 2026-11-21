@@ -84,6 +84,9 @@ ADDRESS_CHUNK = 100
 # something to silently sweep up on first boot.
 COLD_START_LOOKBACK = 500
 
+# Endpoint attempts per scan before giving up until the next poll.
+RPC_ATTEMPTS = 3
+
 
 def _topic_for_address(address: str) -> str:
     """Left-pad an address to a 32-byte topic."""
@@ -230,50 +233,79 @@ class DepositWatcher:
             logger.debug("No allowlisted tokens resolved for %s — skipping", chain)
             return 0
 
-        web3 = rpc_manager.get_web3(chain)
-        head = await asyncio.to_thread(lambda: web3.eth.block_number)
-        safe_head = head - CONFIRMATIONS.get(chain, 12)
-        if safe_head <= 0:
-            return 0
-
         cursor = self._get_cursor(chain)
-        if cursor is None:
-            cursor = max(0, safe_head - COLD_START_LOOKBACK)
-            logger.info("Cold start for %s at block %s", chain, cursor)
-
-        if cursor >= safe_head:
-            return 0
-
-        from_block = cursor + 1
-        to_block = min(safe_head, cursor + MAX_BLOCK_RANGE)
         addresses = list(by_address.keys())
+
+        # Fetch the WHOLE range before crediting or moving the cursor, retrying on
+        # the next healthy endpoint if a read fails. One dropped connection used
+        # to fail the chain's entire scan because a single cached client was used.
+        fetched = await self._fetch_range_with_failover(chain, cursor, addresses)
+        if fetched is None:
+            return 0
+        to_block, logs = fetched
+
         credited = 0
+        for log in logs:
+            credited += 1 if self._handle_log(log, chain, tokens, by_address) else 0
 
-        for i in range(0, len(addresses), ADDRESS_CHUNK):
-            chunk_end = i + ADDRESS_CHUNK
-            chunk = addresses[i:chunk_end]
-            topics = [TRANSFER_TOPIC0, None, [_topic_for_address(a) for a in chunk]]
-            try:
-                logs = await asyncio.to_thread(
-                    lambda: web3.eth.get_logs(
-                        {
-                            "fromBlock": from_block,
-                            "toBlock": to_block,
-                            "topics": topics,
-                        }
-                    )
-                )
-            except Exception as exc:
-                # Do NOT advance the cursor past a range we failed to read —
-                # that is how a deposit goes missing permanently.
-                logger.warning("get_logs failed on %s %s-%s: %s", chain, from_block, to_block, exc)
-                return credited
-
-            for log in logs:
-                credited += 1 if self._handle_log(log, chain, tokens, by_address) else 0
-
+        # Only reached when every chunk of [cursor+1, to_block] was read, so the
+        # cursor never passes a block that was not scanned. Re-scans after a
+        # failure are safe: _credit is idempotent on (chain, tx_hash, log_index).
         self._set_cursor(chain, to_block)
         return credited
+
+    async def _fetch_range_with_failover(
+        self, chain: str, cursor: Optional[int], addresses: list
+    ) -> Optional[Tuple[int, list]]:
+        """Read head + all Transfer logs for the next range, failing over endpoints.
+
+        Returns (to_block, logs), or None if there is nothing to scan yet. Raises
+        the last error if every attempt fails (cursor untouched by the caller).
+        """
+        from bot.services.rpc_manager import rpc_manager
+
+        last_exc: Optional[BaseException] = None
+        for attempt in range(1, RPC_ATTEMPTS + 1):
+            url = None
+            try:
+                web3, url = rpc_manager.get_web3_with_url(chain)
+                head = await asyncio.to_thread(lambda: web3.eth.block_number)
+                safe_head = head - CONFIRMATIONS.get(chain, 12)
+                if safe_head <= 0:
+                    return None
+
+                start = cursor
+                if start is None:
+                    start = max(0, safe_head - COLD_START_LOOKBACK)
+                    logger.info("Cold start for %s at block %s", chain, start)
+                if start >= safe_head:
+                    return None
+
+                from_block = start + 1
+                to_block = min(safe_head, start + MAX_BLOCK_RANGE)
+                logs: list = []
+                for i in range(0, len(addresses), ADDRESS_CHUNK):
+                    chunk = addresses[i : i + ADDRESS_CHUNK]
+                    topics = [TRANSFER_TOPIC0, None, [_topic_for_address(a) for a in chunk]]
+                    logs.extend(
+                        await asyncio.to_thread(
+                            lambda t=topics: web3.eth.get_logs(
+                                {"fromBlock": from_block, "toBlock": to_block, "topics": t}
+                            )
+                        )
+                    )
+                return to_block, logs
+            except Exception as exc:
+                last_exc = exc
+                if url is not None:
+                    rpc_manager.report_failure(chain, url, str(exc)[:200])
+                logger.warning(
+                    "Deposit scan %s attempt %d/%d failed: %s", chain, attempt, RPC_ATTEMPTS, exc
+                )
+                if attempt < RPC_ATTEMPTS:
+                    await asyncio.sleep(0.5 * attempt)
+        assert last_exc is not None
+        raise last_exc
 
     def _handle_log(
         self, log, chain: str, tokens: Dict[str, str], by_address: Dict[str, int]
