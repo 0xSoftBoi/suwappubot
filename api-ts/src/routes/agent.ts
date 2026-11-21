@@ -129,6 +129,10 @@ export function stopAgentCleanup() {}
 // otherwise any agent can claim ownership of an arbitrary address and bypass
 // checkEvmWalletOwnership. See sanitizeUserMetadata below.
 const RESERVED_METADATA_KEYS = new Set([
+	// Legacy camelCase aliases once read by routes/predict.ts for signing. Never
+	// user-settable, so a stale value can't be planted or trusted again.
+	'walletAddress',
+	'subOrgId',
 	'wallet_address',
 	'wallet_sub_org_id',
 	'wallet_id',
