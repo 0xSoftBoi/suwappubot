@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import styles from './StatusBoard.module.css';
+import '../content-v3.css';
 
 type Service = { id: string; label: string; url: string; ok: boolean; status: number; ms: number };
 type StatusData = { checkedAt: string; allUp: boolean; services: Service[] };
@@ -44,33 +44,53 @@ export default function StatusBoard() {
         ? { cls: 'is-up', text: 'All monitored API origins operational' }
         : { cls: 'is-down', text: 'A monitored API origin is degraded' };
 
+  const state = error ? 'unknown' : loading && !data ? 'unknown' : data?.allUp ? 'up' : 'down';
+  const hasData = !!data && !error;
+
   return (
-    <div className="status-live">
-      <div className={`status-banner ${banner.cls}`}>
-        <span className="status-dot" aria-hidden="true" />
-        <strong>{banner.text}</strong>
-        <button type="button" className="status-refresh" onClick={load} disabled={loading}>
-          {loading ? 'Checking…' : 'Refresh'}
-        </button>
+    <div className={`cv3-gauge-wrap is-${state}`}>
+      <div className="cv3-gauge" role="status" aria-live="polite">
+        <svg viewBox="0 0 120 120" className="cv3-gauge__ring" aria-hidden="true" focusable="false">
+          <circle cx="60" cy="60" r="52" className="cv3-gauge__track" />
+          <circle cx="60" cy="60" r="52" className="cv3-gauge__arc" pathLength={100} />
+          <circle cx="60" cy="60" r="38" className="cv3-gauge__inner" />
+          <circle cx="60" cy="60" r="5" className="cv3-gauge__dot" />
+        </svg>
+        <div className="cv3-gauge__text">
+          <strong>{banner.text}</strong>
+          <button type="button" className="cv3-gauge__btn" onClick={load} disabled={loading}>
+            {loading ? 'Checking…' : 'Refresh'}
+          </button>
+        </div>
       </div>
 
-      <div className={`status-list ${styles.list}`}>
-        {(data?.services ?? []).map((s) => (
-          <div key={s.id} className={`status-row ${styles.row}`}>
-            <span className={`status-dot ${s.ok ? 'is-up' : 'is-down'}`} aria-hidden="true" />
-            <div className="status-row__main">
-              <strong>{s.label}</strong>
-              <span className="status-row__url">{s.url}</span>
-            </div>
-            <span className="status-row__meta sw-nums">
-              {s.ok ? `${s.status} · ${s.ms}ms` : s.status ? `HTTP ${s.status}` : 'unreachable'}
-            </span>
-          </div>
-        ))}
+      <div className="cv3-instr">
+        {hasData
+          ? data.services.map((sv) => (
+              <div key={sv.id} className={`cv3-instr__row ${sv.ok ? 'is-up' : 'is-down'}`}>
+                <span className="cv3-instr__dot" aria-hidden="true" />
+                <div className="cv3-instr__main">
+                  <strong>{sv.label}</strong>
+                  <span>{sv.url}</span>
+                </div>
+                <div className="cv3-instr__read">
+                  <span className="sw-nums">
+                    {sv.ok ? `${sv.status} · ${sv.ms}ms` : sv.status ? `HTTP ${sv.status}` : 'unreachable'}
+                  </span>
+                  {sv.ok && <i className="cv3-instr__bar" aria-hidden="true"><b style={{ transform: `scaleX(${Math.min(Math.max(sv.ms / 1000, 0.04), 1)})` }} /></i>}
+                </div>
+              </div>
+            ))
+          : [0, 1].map((n) => (
+              <div key={n} className="cv3-instr__row is-idle" aria-hidden="true">
+                <span className="cv3-instr__dot" />
+                <div className="cv3-instr__main"><b className="cv3-skel" /><b className="cv3-skel cv3-skel--s" /></div>
+              </div>
+            ))}
       </div>
 
-      {data?.checkedAt && (
-        <p className="status-checked">
+      {data?.checkedAt && !error && (
+        <p className="cv3-checked">
           Last checked {new Date(data.checkedAt).toLocaleTimeString()} · auto-refreshes every 30s
         </p>
       )}

@@ -3,7 +3,8 @@ import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import StatusBoard from './StatusBoard';
 import { TELEGRAM_URL, TERMINAL_URL } from '@/lib/links';
-import styles from './status.module.css';
+import { Reveal, V3Section, SectionHead, Backdrop } from '@/components/v3';
+import '../content-v3.css';
 
 export const metadata: Metadata = {
   title: 'Status',
@@ -43,50 +44,53 @@ const SURFACES = [
 
 export default function StatusPage() {
   return (
-    <div className="summer-page docs-shell institutional-page">
+    <div className="summer-page docs-shell institutional-page v3-tone-light cv3-page">
       <SummerNav />
       <main id="main-content">
-        <div className="summer-shell mkt-page">
-          <header className="mkt-hero mkt-hero--center">
-            <p className="summer-kicker">System status</p>
-            <h1>Suwappu Status</h1>
-            <p className="mkt-hero__lead">
-              Live API-origin checks plus an honest map of surfaces that are not independently
-              probed here.
-            </p>
-          </header>
-
-          <StatusBoard />
-
-          <section className="status-surfaces" aria-label="Surfaces">
-            <h2 className="mkt-h2">Surfaces</h2>
-            <div className={`sw-rows ${styles.surfaces}`}>
-              {SURFACES.map((s) => {
-                const external = s.href.startsWith('http');
-                return (
-                  <a
-                    className={`sw-row ${styles.row}`}
-                    href={s.href}
-                    key={s.name}
-                    target={external ? '_blank' : undefined}
-                    rel={external ? 'noopener noreferrer' : undefined}
-                  >
-                    <h3>
-                      {s.name}
-                      {external && (
-                        <>
-                          <span className={styles.external} aria-hidden="true"> ↗</span>
-                          <span className="sr-only"> (opens in a new tab)</span>
-                        </>
-                      )}
-                    </h3>
-                    <p>{s.desc}</p>
-                  </a>
-                );
-              })}
-            </div>
-          </section>
+        <div className="cv3-hero cv3-hero--solo">
+          <Backdrop kind="mesh" />
+          <Backdrop kind="grid" />
+          <div className="v3-wrap">
+            <header>
+              <p className="v3-kicker">System status</p>
+              <h1>Suwappu Status</h1>
+              <p className="cv3-lead">
+                Live API-origin checks plus an honest map of surfaces that are not independently
+                probed here.
+              </p>
+            </header>
+            <div className="cv3-status-board"><StatusBoard /></div>
+          </div>
         </div>
+
+        <V3Section tone="light" className="cv3-sec cv3-pad-bottom" labelledBy="status-surfaces">
+          <SectionHead title="Surfaces" id="status-surfaces" />
+          <Reveal stagger className="cv3-num-grid cv3-num-grid--5">
+            {SURFACES.map((s) => {
+              const external = s.href.startsWith('http');
+              return (
+                <a
+                  className="cv3-num cv3-num--link"
+                  href={s.href}
+                  key={s.name}
+                  target={external ? '_blank' : undefined}
+                  rel={external ? 'noopener noreferrer' : undefined}
+                >
+                  <h3>
+                    {s.name}
+                    {external && (
+                      <>
+                        <span aria-hidden="true"> ↗</span>
+                        <span className="sr-only"> (opens in a new tab)</span>
+                      </>
+                    )}
+                  </h3>
+                  <p>{s.desc}</p>
+                </a>
+              );
+            })}
+          </Reveal>
+        </V3Section>
       </main>
       <SummerFooter />
     </div>
