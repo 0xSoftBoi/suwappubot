@@ -3660,6 +3660,25 @@ agentRoutes.post('/wallet/policy', async (c) => {
 
 	const { type, params } = parsed.data
 
+	// MONEY-PATH: the Turnkey condition below is a PER-TRANSACTION cap
+	// (eth.value <= N). Nothing sums spend across a window, so accepting
+	// timeWindowSeconds would give a false sense of safety. Reject it.
+	if (params.timeWindowSeconds !== undefined) {
+		return agentError(
+			c,
+			400,
+			'VALIDATION_ERROR',
+			'timeWindowSeconds is not supported: spending_limit is a per-transaction cap only (native value in wei). Aggregate per-window limits are not enforced.',
+			{ hint: 'Omit timeWindowSeconds and set maxAmountWei as the per-transaction maximum.' },
+		)
+	}
+	if (type === 'spending_limit' && !params.maxAmountWei) {
+		return agentError(c, 400, 'VALIDATION_ERROR', 'maxAmountWei is required for spending_limit')
+	}
+	if (type === 'whitelist' && (!params.allowedAddresses || params.allowedAddresses.length === 0)) {
+		return agentError(c, 400, 'VALIDATION_ERROR', 'allowedAddresses is required for whitelist')
+	}
+
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const turnkeyService = yield* TurnkeyService
@@ -3668,7 +3687,7 @@ agentRoutes.post('/wallet/policy', async (c) => {
 				const condition = `eth.value <= ${params.maxAmountWei}`
 				const policyId = yield* turnkeyService.createPolicy(
 					subOrgId,
-					`${AGENT_POLICY_PREFIX}spending-limit-${params.timeWindowSeconds}s`,
+					`${AGENT_POLICY_PREFIX}spending-limit`,
 					'EFFECT_DENY',
 					condition,
 				)

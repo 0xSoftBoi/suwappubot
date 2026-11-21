@@ -209,10 +209,10 @@ const SCHEMA_MAP: Record<
 				params: {
 					properties: {
 						maxAmountWei: {
-							description: 'Required for spending_limit. Max value in wei.',
+							description: 'Required for spending_limit. Per-transaction max native value in wei (not an aggregate).',
 						},
 						timeWindowSeconds: {
-							description: 'Time window for spending_limit.',
+							description: 'Not supported: aggregate time-window limits are not enforced, so any value is rejected with 400.',
 						},
 						allowedAddresses: {
 							description: 'Required for whitelist.',

@@ -1398,7 +1398,7 @@
       "post": {
         "summary": "Create wallet policy",
         "operationId": "createWalletPolicy",
-        "description": "Create a Turnkey policy (spending limit or address whitelist) on the agent's managed wallet sub-org. Requires a wallet created via POST /wallets. Rate-limited by tier.",
+        "description": "Create a Turnkey policy (per-transaction spending limit or address whitelist) on the agent's managed wallet sub-org. spending_limit is a per-transaction cap on native value only; aggregate time-window limits are NOT supported and timeWindowSeconds is rejected with 400. Requires a wallet created via POST /wallets. Rate-limited by tier.",
         "requestBody": {
           "required": true,
           "content": {
@@ -1409,8 +1409,7 @@
               "example": {
                 "type": "spending_limit",
                 "params": {
-                  "maxAmountWei": "1000000000000000000",
-                  "timeWindowSeconds": 86400
+                  "maxAmountWei": "1000000000000000000"
                 }
               }
             }
@@ -4499,11 +4498,11 @@
               "maxAmountWei": {
                 "type": "string",
                 "pattern": "^\\d+$",
-                "description": "Required for spending_limit. Max value in wei."
+                "description": "Required for spending_limit. Per-transaction max native value in wei (not an aggregate)."
               },
               "timeWindowSeconds": {
                 "type": "number",
-                "description": "Time window for spending_limit."
+                "description": "Not supported: aggregate time-window limits are not enforced, so any value is rejected with 400."
               },
               "allowedAddresses": {
                 "type": "array",
