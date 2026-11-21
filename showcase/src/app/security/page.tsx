@@ -90,15 +90,21 @@ export default function SecurityPage() {
           ))}
         </Reveal>
 
-        <Reveal as="section" className={styles.disclose}>
+        <Reveal as="section" id="disclosure" className={styles.disclose}>
           <div>
-            <p className="summer-kicker">Responsible disclosure</p>
+            <p className="summer-kicker">Report a vulnerability</p>
             <h2 className="mkt-h2">Found something? Tell us.</h2>
             <p>
               We welcome reports from security researchers. Email{' '}
               <code>security@suwappu.bot</code> with details and reproduction steps. Please
               give us a reasonable window to remediate before public disclosure; we do not
               pursue good-faith researchers.
+            </p>
+            <p>
+              To report: email <a href="mailto:security@suwappu.bot">security@suwappu.bot</a>,
+              say what you found, which URL or endpoint it affects, and the steps to reproduce
+              it. The same contact, policy link and expiry are machine-readable in{' '}
+              <a href="/.well-known/security.txt">security.txt</a>.
             </p>
           </div>
           <div className={styles.honesty}>

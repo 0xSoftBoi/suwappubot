@@ -26,8 +26,6 @@
       "grpMarkets": "Mercados",
       "grpBuild": "Construir",
       "grpReference": "Referencia",
-      "grpWhy": "El argumento",
-      "grpMore": "Más",
       "terminalTitle": "Terminal",
       "terminalDesc": "La mesa de trading completa",
       "botTitle": "Bot de Telegram",
@@ -76,7 +74,6 @@
       "autopilotDesc": "Observa al agente autónomo operar y verifica sus decisiones",
       "signalsTitle": "Signal Intelligence",
       "signalsDesc": "Señales on-chain explicables, con su evidencia",
-      "grpTrust": "Confianza de agentes",
       "passportTitle": "Agent Passport",
       "passportDesc": "Prueba de que un humano respalda al agente",
       "arbiterTitle": "Arbiter",
@@ -85,7 +82,6 @@
       "label": "Principal",
       "open": "Abrir menú",
       "close": "Cerrar menú",
-      "mobileTitle": "Menú",
       "startTitle": "Obtener una clave API",
       "startDesc": "Una llamada, sin formulario",
       "solveTitle": "Problemas resueltos",
@@ -113,7 +109,8 @@
       "careersDesc": "Puestos abiertos",
       "contactTitle": "Contacto",
       "contactDesc": "Habla con el equipo",
-      "language": "Idioma"
+      "language": "Idioma",
+      "mobileTitle": "Menú"
     }
   },
   "hero": {
