@@ -173,7 +173,7 @@ export function isDemoUnmeteredCall(params: {
 	return demoIds.has(agentUuid.trim().toLowerCase())
 }
 
-function costForEndpoint(endpoint: string): number {
+export function costForEndpoint(endpoint: string): number {
 	return COST_WEIGHTS[endpoint] ?? 1
 }
 
@@ -353,7 +353,7 @@ function markCleared(addr: string) {
 	cleanPayers.set(addr.toLowerCase(), Date.now())
 }
 
-function extractPayerAddress(payload: {
+export function extractPayerAddress(payload: {
 	payload: Record<string, unknown>
 	accepted?: { scheme?: string }
 }): string | undefined {
@@ -731,6 +731,16 @@ export function meteredPayment(endpoint: string) {
 		}
 
 		if (result.kind === 'settled') {
+			// Keyless x402 caller (middleware/x402Keyless): the payment settled, so
+			// now — and only now — persist a real wallet agent and swap it in for the
+			// ephemeral identity. Bound to the VERIFIED payer, not the claimed one.
+			const keyless = c.get('x402Keyless' as never) as { payer: string } | undefined
+			if (keyless && result.payer && result.payer.toLowerCase() === keyless.payer) {
+				const { materializeWalletAgent } = await import('./x402Keyless')
+				const row = await materializeWalletAgent(keyless.payer)
+				if (row) c.set('agent', row as never)
+				c.header('X-Agent-Wallet', keyless.payer)
+			}
 			c.header('X-Metering-Cost', String(result.cost))
 			if (result.paymentResponse) c.header('PAYMENT-RESPONSE', result.paymentResponse)
 			if (result.txHash) c.header('X-Payment-Response', result.txHash)

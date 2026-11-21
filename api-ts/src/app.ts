@@ -315,6 +315,7 @@ export function createApp(config: AppConfig) {
 
 	// x402 v2 discovery: every paid resource + its exact/batch-settlement accepts[].
 	app.use('/.well-known/x402', ipRateLimit(60))
+	app.use('/.well-known/x402/*', ipRateLimit(30))
 	app.route('/.well-known/x402', x402DiscoveryRoutes)
 
 	// security.txt — RFC 9116 responsible-disclosure contact (procurement/security

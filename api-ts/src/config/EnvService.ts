@@ -229,7 +229,13 @@ export const EnvSchema = Schema.Struct({
 	X402_BATCH_SETTLE_INTERVAL_SECS: Schema.optionalWith(Schema.String, { default: () => '300' }),
 	X402_BATCH_REFUND_IDLE_SECS: Schema.optionalWith(Schema.String, { default: () => '86400' }),
 	// Public origin used for x402 v2 `resource.url` (absolute URL per spec).
-	X402_PUBLIC_ORIGIN: Schema.optionalWith(Schema.String, { default: () => 'https://api.suwappu.bot' }),
+	X402_PUBLIC_ORIGIN: Schema.optionalWith(Schema.String, {
+		default: () => 'https://api.suwappu.bot',
+	}),
+	// ERC-8021 builder code (mint at base.dev, ^[a-z0-9_]{1,32}$) — on-chain attribution of x402 settlements.
+	X402_BUILDER_CODE: Schema.optional(Schema.String),
+	// Dedicated EOA key that signs x402 offers + receipts (offer-receipt extension). Holds no funds.
+	X402_RECEIPT_SIGNER_PK: Schema.optional(Schema.String),
 
 	// Recurring crypto billing via Base Spend Permissions (true auto-renew). OFF by
 	// default — needs a funded operator (spender) key on Base. SPEND_OPERATOR_PK is

@@ -827,6 +827,7 @@ def _ensure_schema(db_engine) -> None:
     _create_lend_metrics_table(db_engine, inspector, is_sqlite)
     _create_autopilot_tables(db_engine, inspector, is_sqlite)
     _create_x402_channels_table(db_engine, inspector, is_sqlite)
+    _create_x402_payment_ids_table(db_engine, inspector, is_sqlite)
 
     # --- swap_transactions: execution-savings receipts (best-vs-runner-up) ---
     if "swap_transactions" in tables:
@@ -5029,6 +5030,39 @@ def _create_lend_metrics_table(db_engine, inspector, is_sqlite: bool) -> None:
         "CREATE INDEX IF NOT EXISTS ix_lend_metrics_venue_market_id_ts "
         "ON lend_metrics(venue, market_id, ts DESC)",
     )
+
+
+def _create_x402_payment_ids_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create x402_payment_ids idempotently (x402 v2 payment-identifier extension).
+
+    Mirrors api-ts db/schema/x402Channels.ts `x402PaymentIds` (ADR 0003). Maps a
+    client payment id to the request fingerprint and the settlement it produced,
+    so a retried request returns the original settlement instead of paying (or
+    failing) twice. MONEY-PATH.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+    if "x402_payment_ids" in tables:
+        return
+    ts = "DATETIME DEFAULT CURRENT_TIMESTAMP" if is_sqlite else "TIMESTAMP DEFAULT NOW()"
+    json_type = "TEXT" if is_sqlite else "JSONB"
+    with db_engine.begin() as conn:
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS x402_payment_ids (
+                    payment_id VARCHAR(160) PRIMARY KEY,
+                    fingerprint VARCHAR(64) NOT NULL,
+                    payer VARCHAR(64),
+                    settle {json_type} NOT NULL,
+                    uses INTEGER NOT NULL DEFAULT 1,
+                    created_at {ts}
+                )
+                """
+            )
+        )
 
 
 def _create_x402_channels_table(db_engine, inspector, is_sqlite: bool) -> None:

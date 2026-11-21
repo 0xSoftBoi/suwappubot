@@ -26,6 +26,8 @@ import { agentBearerAuth, scanValueObserveOnly } from '../middleware'
 import { type AgentErrorCode } from '../lib/agentError'
 import { checkEvmWalletOwnership, enforcePolicyGateForFreshQuote, agentIdentifierOf, quoteBoundToWallet } from './agent'
 import type { Context } from 'hono'
+import { decodePaymentResponseHeader, encodePaymentSignatureHeader } from '@x402/core/http'
+import { extractPaymentFromMeta, MCP_PAYMENT_RESPONSE_META_KEY } from '@x402/mcp'
 import { chargeAgentForCall, costForTool, refundChargedCall, setX402Headers } from '../middleware/x402Payment'
 import { EnvService } from '../config/EnvService'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
@@ -181,6 +183,49 @@ function validateToolArgs(name: string, args: Record<string, unknown>): string |
 // ---------------------------------------------------------------
 // JSON-RPC helpers
 // ---------------------------------------------------------------
+
+/** Encode an x402 MCP `_meta["x402/payment"]` object as a PAYMENT-SIGNATURE value. */
+function mcpPaymentHeader(params: unknown): string | undefined {
+	try {
+		const p = extractPaymentFromMeta(params as Parameters<typeof extractPaymentFromMeta>[0])
+		return p ? encodePaymentSignatureHeader(p) : undefined
+	} catch {
+		return undefined
+	}
+}
+
+/** x402 MCP transport payment-required tool result. */
+function mcpPaymentRequiredResult(challenge: Record<string, unknown>) {
+	const paymentRequired = {
+		x402Version: challenge.x402Version,
+		error: challenge.error,
+		resource: challenge.resource,
+		accepts: challenge.accepts,
+		...(challenge.extensions ? { extensions: challenge.extensions } : {}),
+	}
+	return {
+		isError: true,
+		structuredContent: { ...paymentRequired, cost_credits: challenge.cost_credits, topup: challenge.topup },
+		content: [{ type: 'text', text: JSON.stringify(paymentRequired) }],
+	}
+}
+
+/** Attach the x402 SettlementResponse to a paid tool result's `_meta`. */
+function withX402Receipt<T>(result: T, charge: { kind: string; paymentResponse?: string }): T {
+	if (charge.kind !== 'settled' || !charge.paymentResponse) return result
+	try {
+		const r = result as Record<string, unknown>
+		return {
+			...r,
+			_meta: {
+				...((r._meta as Record<string, unknown>) ?? {}),
+				[MCP_PAYMENT_RESPONSE_META_KEY]: decodePaymentResponseHeader(charge.paymentResponse),
+			},
+		} as T
+	} catch {
+		return result
+	}
+}
 
 function rpcOk(id: string | number | null, result: unknown) {
 	return { jsonrpc: '2.0' as const, id, result }
@@ -1627,7 +1672,11 @@ mcpRoutes.post('/', async (c) => {
 				cost: costForTool(name),
 				resource: `mcp://tools/${name}`,
 				description: `Suwappu MCP tool: ${name} (${costForTool(name)} credit${costForTool(name) === 1 ? '' : 's'})`,
-				paymentHeader: c.req.header('PAYMENT-SIGNATURE') ?? c.req.header('X-PAYMENT'),
+				// x402 MCP transport: the PaymentPayload rides in
+				// params._meta["x402/payment"] (an object, not base64). HTTP headers are
+				// still honoured for HTTP-level x402 middleware.
+				paymentHeader:
+					c.req.header('PAYMENT-SIGNATURE') ?? c.req.header('X-PAYMENT') ?? mcpPaymentHeader(req.params),
 			})
 			if (charge.kind === 'insufficient') {
 				const cenv = await runEffectEither(Effect.gen(function* () { return yield* EnvService }))
@@ -1645,7 +1694,12 @@ mcpRoutes.post('/', async (c) => {
 				if (acceptsX402) {
 					return c.json(charge.challenge, 402)
 				}
-				return c.json(rpcErr(req.id, -32002, 'Payment required', { x402: charge.challenge }), 200)
+				// x402 MCP transport spec: a payment-required TOOL RESULT with
+				// isError:true, the PaymentRequired in structuredContent (preferred) and
+				// JSON-encoded in content[0].text (required). @x402/mcp's
+				// wrapMCPClientWithPayment parses this, pays, and retries with
+				// _meta["x402/payment"] automatically.
+				return c.json(rpcOk(req.id, mcpPaymentRequiredResult(charge.challenge)), 200)
 			}
 			if (charge.kind === 'blocked') {
 				// Intercepta rejected the counterparty (or screening was unavailable) —
@@ -1785,7 +1839,10 @@ mcpRoutes.post('/', async (c) => {
 				})
 			}
 
-			return c.json(rpcOk(req.id, resultForMcpEra(withStructuredContent(name, result), modern)), 200)
+			return c.json(
+				rpcOk(req.id, withX402Receipt(resultForMcpEra(withStructuredContent(name, result), modern), charge)),
+				200,
+			)
 		}
 
 		case 'notifications/initialized':

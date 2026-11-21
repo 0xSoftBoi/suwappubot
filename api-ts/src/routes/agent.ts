@@ -1,3 +1,4 @@
+import { withX402Keyless } from '../middleware/x402Keyless'
 import crypto from 'crypto'
 import { randomBytes, createHash } from 'node:crypto'
 import { and, desc, eq, gte, isNull, or, sql } from 'drizzle-orm'
@@ -591,15 +592,18 @@ agentRoutes.get('/chains', async (c) => {
 
 agentRoutes.use('/me', agentFlexAuth())
 agentRoutes.use('/me/*', agentFlexAuth())
-agentRoutes.use('/quote', agentOrMppAuth())
+agentRoutes.use('/quote', withX402Keyless(agentOrMppAuth(), () => 'quote'))
 agentRoutes.use('/swap', agentOrMppAuth())
 agentRoutes.use('/execute', agentFlexAuth())
-agentRoutes.use('/portfolio', agentFlexAuth())
+agentRoutes.use('/portfolio', withX402Keyless(agentFlexAuth(), () => 'portfolio'))
 agentRoutes.use('/wallets', agentFlexAuth())
 agentRoutes.use('/wallets/*', agentFlexAuth())
-agentRoutes.use('/swap/*', agentFlexAuth())
+agentRoutes.use(
+	'/swap/*',
+	withX402Keyless(agentFlexAuth(), (p) => (p.endsWith('/swap/simulate') ? 'swap/simulate' : null)),
+)
 agentRoutes.use('/swaps', agentFlexAuth())
-agentRoutes.use('/prices', agentFlexAuth())
+agentRoutes.use('/prices', withX402Keyless(agentFlexAuth(), () => 'prices'))
 agentRoutes.use('/tokens', agentFlexAuth())
 agentRoutes.use('/webhooks', agentFlexAuth())
 agentRoutes.use('/webhooks/*', agentFlexAuth())

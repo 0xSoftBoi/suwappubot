@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import { decodePaymentSignatureHeader, encodePaymentResponseHeader } from '@x402/core/http'
 import { HTTPFacilitatorClient, x402ResourceServer } from '@x402/core/server'
 import type {
@@ -13,10 +14,31 @@ import {
 } from '@x402/evm/batch-settlement/server'
 import { ExactEvmScheme } from '@x402/evm/exact/server'
 import { bazaarResourceServerExtension, declareDiscoveryExtension } from '@x402/extensions/bazaar'
+import {
+	BUILDER_CODE,
+	builderCodeResourceServerExtension,
+	declareBuilderCodeExtension,
+} from '@x402/extensions/builder-code'
+import {
+	createEIP712OfferReceiptIssuer,
+	createOfferReceiptExtension,
+	declareOfferReceiptExtension,
+} from '@x402/extensions/offer-receipt'
+import {
+	declarePaymentIdentifierExtension,
+	extractPaymentIdentifier,
+	PAYMENT_IDENTIFIER,
+	paymentIdentifierResourceServerExtension,
+} from '@x402/extensions/payment-identifier'
+import { and, eq, lt, sql } from 'drizzle-orm'
+import { Effect } from 'effect'
 import { privateKeyToAccount } from 'viem/accounts'
 import { findX402Network, resolveX402Networks, type X402Network } from '../config/x402Networks'
+import { requireDb } from '../db/DrizzleService'
+import { x402PaymentIds } from '../db/schema'
 import { logger } from '../lib/logger'
 import { holdSettlementLease, PostgresChannelStorage } from '../lib/x402ChannelStorage'
+import { runEffect } from '../runtime'
 import { crossCheckSignedRequirements, resolveFacilitatorConfig } from './FacilitatorService'
 
 /**
@@ -61,6 +83,10 @@ export type X402ServiceEnv = {
 	X402_BATCH_SETTLE_INTERVAL_SECS?: string
 	X402_BATCH_REFUND_IDLE_SECS?: string
 	X402_PUBLIC_ORIGIN?: string
+	/** ERC-8021 builder code (base.dev) appended to settlement calldata. */
+	X402_BUILDER_CODE?: string
+	/** Dedicated EOA key that signs x402 offers + receipts (offer-receipt ext). */
+	X402_RECEIPT_SIGNER_PK?: string
 }
 
 export const X402_VERSION = 2 as const
@@ -139,6 +165,22 @@ async function build(env: X402ServiceEnv): Promise<Runtime> {
 	}
 
 	server.registerExtension(bazaarResourceServerExtension)
+	server.registerExtension(paymentIdentifierResourceServerExtension)
+	if (validBuilderCode(env)) server.registerExtension(builderCodeResourceServerExtension)
+	const receiptPk = env.X402_RECEIPT_SIGNER_PK?.trim()
+	if (receiptPk) {
+		// Signed offers on every 402 + signed receipts in PAYMENT-RESPONSE: portable
+		// proof-of-payment agents can keep for bookkeeping / disputes. Dedicated
+		// key — never the collector or receiver-authorizer key.
+		const acct = privateKeyToAccount(receiptPk as `0x${string}`)
+		const primary = networks[0]
+		const kid = `did:pkh:eip155:${primary?.chainId ?? 8453}:${acct.address}#key-1`
+		server.registerExtension(
+			createOfferReceiptExtension(
+				createEIP712OfferReceiptIssuer(kid, (args) => acct.signTypedData(args as never)),
+			),
+		)
+	}
 
 	const rt: Runtime = {
 		server,
@@ -221,7 +263,8 @@ export async function shutdownX402(): Promise<void> {
 
 /** Absolute resource URL (v2 requires `resource.url`). */
 export function resourceUrl(env: X402ServiceEnv, path: string): string {
-	if (/^https?:\/\//.test(path)) return path
+	// Already absolute (https://, mcp://, …) — keep as-is.
+	if (/^[a-z][a-z0-9+.-]*:\/\//i.test(path)) return path
 	const origin = (env.X402_PUBLIC_ORIGIN || 'https://api.suwappu.bot').replace(/\/+$/, '')
 	return `${origin}${path.startsWith('/') ? '' : '/'}${path}`
 }
@@ -233,6 +276,7 @@ export type ChallengeOpts = {
 	error?: string
 	/** Present when we are answering a failed/corrective payment attempt. */
 	paymentPayload?: PaymentPayload
+	discovery?: DiscoveryHints
 }
 
 /**
@@ -270,16 +314,65 @@ export function staticRequirements(env: X402ServiceEnv, amount: string): Payment
 }
 
 /** Bazaar discovery metadata for the metered agent surface. */
-export function discoveryExtensionFor(resource: string): Record<string, unknown> {
-	try {
-		return declareDiscoveryExtension({
-			input: {},
-			output: { example: { success: true } },
-		}) as Record<string, unknown>
-	} catch {
-		return {}
-	}
+const validBuilderCode = (env: X402ServiceEnv) =>
+	/^[a-z0-9_]{1,32}$/.test(env.X402_BUILDER_CODE?.trim() ?? '')
+
+export type DiscoveryHints = {
+	/** MCP tool metadata → Bazaar lists it as type "mcp" keyed by (resource, toolName). */
+	mcpTool?: { name: string; description?: string; inputSchema?: Record<string, unknown> }
+	/** HTTP input schema / example for the Bazaar catalog. */
+	inputSchema?: Record<string, unknown>
+	example?: Record<string, unknown>
 }
+
+/**
+ * Declared extensions for a paid resource: Bazaar discovery (http or mcp),
+ * payment-identifier (optional idempotency key), and — when configured —
+ * builder-code attribution and signed offer/receipts.
+ */
+export function extensionsFor(
+	env: X402ServiceEnv,
+	_resource: string,
+	hints: DiscoveryHints = {},
+): Record<string, unknown> {
+	const out: Record<string, unknown> = {}
+	try {
+		Object.assign(
+			out,
+			hints.mcpTool
+				? declareDiscoveryExtension({
+						toolName: hints.mcpTool.name,
+						description: hints.mcpTool.description,
+						transport: 'streamable-http',
+						inputSchema: hints.mcpTool.inputSchema ?? { type: 'object' },
+					})
+				: declareDiscoveryExtension({
+						input: hints.example ?? {},
+						...(hints.inputSchema ? { inputSchema: hints.inputSchema } : {}),
+						output: { example: { success: true } },
+					}),
+		)
+	} catch {
+		/* discovery metadata is best-effort */
+	}
+	out[PAYMENT_IDENTIFIER] = declarePaymentIdentifierExtension(false)
+	if (validBuilderCode(env))
+		out[BUILDER_CODE] = declareBuilderCodeExtension(env.X402_BUILDER_CODE!.trim())
+	if (env.X402_RECEIPT_SIGNER_PK?.trim()) {
+		Object.assign(out, declareOfferReceiptExtension({ includeTxHash: true }))
+	}
+	return out
+}
+
+/** MCP resources (`mcp://tools/<name>`) are listed in Bazaar as MCP tools. */
+function hintsFromResource(resource: string, description?: string): DiscoveryHints {
+	const m = /^mcp:\/\/tools?\/([A-Za-z0-9_.-]+)/.exec(resource)
+	return m?.[1] ? { mcpTool: { name: m[1], description } } : {}
+}
+
+/** @deprecated use extensionsFor */
+export const discoveryExtensionFor = (resource: string) =>
+	extensionsFor({} as X402ServiceEnv, resource)
 
 /**
  * Build the full v2 PaymentRequired. Goes through the SDK so each scheme can
@@ -329,7 +422,11 @@ export async function buildPaymentRequired(
 			reqs,
 			resource,
 			opts.error,
-			discoveryExtensionFor(opts.resource),
+			extensionsFor(
+				env,
+				opts.resource,
+				opts.discovery ?? hintsFromResource(opts.resource, opts.description),
+			),
 			undefined,
 			opts.paymentPayload,
 		)
@@ -352,6 +449,8 @@ export type X402SettleResult =
 			/** base64 PAYMENT-RESPONSE header value. */
 			responseHeader: string
 			settle: SettleResponse
+			/** True when served from the payment-identifier ledger (no new settle). */
+			idempotentReplay?: boolean
 	  }
 	| { ok: false; error: string; payload?: PaymentPayload }
 
@@ -428,6 +527,35 @@ export async function verifyAndSettle(
 		return { ok: false, error: 'refund_not_a_payment', payload }
 	}
 
+	// payment-identifier idempotency: a retried request (same id, same signed
+	// payload, same resource) gets the ORIGINAL settlement back instead of a
+	// second settle (which would double-charge a batch voucher or fail an
+	// already-used EIP-3009 nonce). Same id + different fingerprint → conflict.
+	// Retries are capped (uses/age) so a captured payload is not a free pass.
+	const paymentId = safePaymentId(payload)
+	const fingerprint = paymentId
+		? crypto
+				.createHash('sha256')
+				.update(JSON.stringify([payload.accepted, payload.payload, payload.resource?.url ?? null]))
+				.digest('hex')
+		: ''
+	if (paymentId) {
+		const hit = await idemLookup(paymentId, fingerprint)
+		if (hit === 'conflict') return { ok: false, error: 'payment_identifier_conflict', payload }
+		if (hit) {
+			return {
+				ok: true,
+				scheme: requirements.scheme,
+				network: String(hit.network || requirements.network),
+				payer: hit.payer,
+				txHash: hit.transaction || undefined,
+				responseHeader: encodePaymentResponseHeader(hit),
+				settle: hit,
+				idempotentReplay: true,
+			}
+		}
+	}
+
 	const release = async () => {
 		try {
 			await rt.batchScheme?.clearPendingRequest(payload)
@@ -452,6 +580,7 @@ export async function verifyAndSettle(
 
 		const s = await rt.server.settlePayment(payload, requirements)
 		if (!s.success) return { ok: false, error: s.errorReason || 'settle_failed', payload }
+		if (paymentId) await idemRecord(paymentId, fingerprint, s)
 
 		return {
 			ok: true,
@@ -495,5 +624,80 @@ export async function x402Status(env: X402ServiceEnv) {
 				workerRunning: !!rt?.managers.length,
 			})),
 		},
+	}
+}
+
+// ── payment-identifier ledger ────────────────────────────────────────────
+const IDEM_MAX_USES = 3
+const IDEM_TTL_MS = 15 * 60 * 1000
+
+function safePaymentId(payload: PaymentPayload): string | null {
+	try {
+		const id = extractPaymentIdentifier(payload)
+		return id && id.length <= 160 ? id : null
+	} catch {
+		return null
+	}
+}
+
+async function idemLookup(
+	id: string,
+	fingerprint: string,
+): Promise<SettleResponse | 'conflict' | null> {
+	try {
+		return await runEffect(
+			Effect.gen(function* () {
+				const db = yield* requireDb
+				const rows = yield* Effect.tryPromise({
+					try: () =>
+						db.select().from(x402PaymentIds).where(eq(x402PaymentIds.paymentId, id)).limit(1),
+					catch: (e) => new Error(String(e)),
+				})
+				const row = rows[0]
+				if (!row) return null
+				if (row.fingerprint !== fingerprint) return 'conflict' as const
+				const fresh = row.createdAt && Date.now() - row.createdAt.getTime() < IDEM_TTL_MS
+				if (!fresh || row.uses >= IDEM_MAX_USES) return 'conflict' as const
+				// Atomic bump guarded on the observed count (no unbounded replays).
+				const bumped = yield* Effect.tryPromise({
+					try: () =>
+						db
+							.update(x402PaymentIds)
+							.set({ uses: sql`${x402PaymentIds.uses} + 1` })
+							.where(and(eq(x402PaymentIds.paymentId, id), lt(x402PaymentIds.uses, IDEM_MAX_USES)))
+							.returning({ id: x402PaymentIds.paymentId }),
+					catch: (e) => new Error(String(e)),
+				})
+				return bumped.length > 0 ? (row.settle as SettleResponse) : ('conflict' as const)
+			}),
+		)
+	} catch {
+		// Ledger unavailable → behave as if no id was sent (normal settle path).
+		return null
+	}
+}
+
+async function idemRecord(id: string, fingerprint: string, s: SettleResponse): Promise<void> {
+	try {
+		await runEffect(
+			Effect.gen(function* () {
+				const db = yield* requireDb
+				yield* Effect.tryPromise({
+					try: () =>
+						db
+							.insert(x402PaymentIds)
+							.values({
+								paymentId: id,
+								fingerprint,
+								payer: s.payer?.toLowerCase() ?? null,
+								settle: s,
+							})
+							.onConflictDoNothing(),
+					catch: (e) => new Error(String(e)),
+				})
+			}),
+		)
+	} catch {
+		/* best effort — settlement already succeeded */
 	}
 }

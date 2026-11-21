@@ -139,6 +139,56 @@ const pay = wrapFetchWithPayment(fetch, client)
 
 Both on-chain options need the facilitator enabled on the deploy. Batch settlement also needs the receiver-authorizer key. If either is off, the 402 omits that entry, so fall back to Option A.
 
+### Keyless: your wallet is your API key
+
+No sign-up is needed for read endpoints. Call them with no `Authorization` header. You get a v2 402, pay it, and get the data:
+
+| Endpoint | Credits | USD |
+|---|---|---|
+| `POST /v1/agent/quote` | 1 | $0.001 |
+| `GET /v1/agent/prices` | 1 | $0.001 |
+| `GET /v1/agent/portfolio` | 1 | $0.001 |
+| `POST /v1/agent/swap/simulate` | 1 | $0.001 |
+
+```ts
+const pay = wrapFetchWithPayment(fetch, client) // no API key anywhere
+const quote = await pay('https://api.suwappu.bot/v1/agent/quote', {
+  method: 'POST',
+  body: JSON.stringify({ from_token: 'ETH', to_token: 'USDC', amount: '0.1', chain: 'base' }),
+})
+```
+
+Your first paid call creates a wallet agent tied to the paying address (`X-Agent-Wallet` response header). Quotes and limits are scoped to that wallet. Executing swaps still needs an API key, because moving funds stays behind scopes and approvals.
+
+### MCP tools (x402 MCP transport)
+
+`https://api.suwappu.bot/mcp` follows the x402 MCP transport spec:
+
+- An unpaid metered tool call returns a tool result with `isError: true`. The `PaymentRequired` object is in `structuredContent` and also JSON-encoded in `content[0].text`.
+- Retry with the payment in `params._meta["x402/payment"]`.
+- The settlement receipt comes back in `result._meta["x402/payment-response"]`.
+
+`@x402/mcp` does all of this for you:
+
+```ts
+import { wrapMCPClientWithPayment } from '@x402/mcp'
+const paid = wrapMCPClientWithPayment(mcpClient, client)
+await paid.callTool({ name: 'get_quote', arguments: { from_token: 'ETH', to_token: 'USDC', amount: '0.1' } })
+```
+
+### Extensions we support
+
+| Extension | What you get |
+|---|---|
+| `bazaar` | Every paid endpoint and MCP tool is described for the x402 Bazaar catalog (MCP tools are listed with `toolName`). |
+| `payment-identifier` | Send an id with your payment. A retry with the same id and the same signed payload returns the original settlement instead of charging again. Retries are capped at 3 within 15 min. The same id with a different payload returns `payment_identifier_conflict`. |
+| `offer-receipt` | Signed offers on every 402 and signed EIP-712 receipts on settlement (when enabled), usable as portable proof of payment. |
+| `builder-code` | ERC-8021 attribution on settlement transactions (when enabled). |
+
+### Discover other x402 services
+
+`GET https://api.suwappu.bot/.well-known/x402/bazaar?q=price+feed&type=http` searches the x402 ecosystem catalog (CDP Bazaar), so your agent can find and pay other services with the same client. `GET /.well-known/x402` lists all of Suwappu's paid resources and prices.
+
 ## Subscriptions (bypass metering entirely)
 
 Instead of paying per call, buy a prepaid 30-day access window on `pro`, `premium`, or `enterprise` and every metered call is free for the window's duration.

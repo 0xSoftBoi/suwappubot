@@ -27,3 +27,19 @@ export const x402Channels = pgTable(
 	},
 	(t) => [index('ix_x402_channels_network').on(t.network)],
 )
+
+/**
+ * x402 v2 `payment-identifier` idempotency ledger. A client payment id maps to
+ * the request fingerprint and the settlement it produced, so a retry (lost
+ * response, timeout) returns the original settlement instead of paying twice
+ * or failing on an already-used nonce. Mirrors database/db.py
+ * `_create_x402_payment_ids_table`. MONEY-PATH.
+ */
+export const x402PaymentIds = pgTable('x402_payment_ids', {
+	paymentId: varchar('payment_id', { length: 160 }).primaryKey(),
+	fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
+	payer: varchar('payer', { length: 64 }),
+	settle: jsonb('settle').notNull(),
+	uses: integer('uses').notNull().default(1),
+	createdAt: timestamp('created_at').defaultNow(),
+})

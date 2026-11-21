@@ -70,3 +70,72 @@ x402DiscoveryRoutes.get('/', async (c) => {
 		resources: [...rest, ...mcp],
 	})
 })
+
+/**
+ * GET /.well-known/x402/bazaar?q=&type=http|mcp&limit= — buyer-side discovery.
+ *
+ * Proxies the CDP Bazaar (the x402 ecosystem catalog) so Suwappu agents — and
+ * anyone using our MCP/REST surface — can find OTHER paid x402 services
+ * (data, signals, inference) with one call. Public catalog data only; cached
+ * 60s; upstream failures return 502, never our internals.
+ */
+const BAZAAR_BASE = 'https://api.cdp.coinbase.com/platform/v2/x402'
+const bazaarCache = new Map<string, { at: number; body: unknown }>()
+
+x402DiscoveryRoutes.get('/bazaar', async (c) => {
+	const q = (c.req.query('q') ?? '').trim().slice(0, 200)
+	const type = c.req.query('type')
+	const limit = Math.min(Math.max(Number(c.req.query('limit') ?? 20) || 20, 1), 50)
+	if (type && type !== 'http' && type !== 'mcp')
+		return c.json({ error: 'type must be http or mcp' }, 400)
+
+	const params = new URLSearchParams({ limit: String(limit) })
+	if (type) params.set('type', type)
+	const url = q
+		? `${BAZAAR_BASE}/discovery/search?${new URLSearchParams({ ...Object.fromEntries(params), query: q })}`
+		: `${BAZAAR_BASE}/discovery/resources?${params}`
+
+	const hit = bazaarCache.get(url)
+	if (hit && Date.now() - hit.at < 60_000) return c.json(hit.body)
+	try {
+		const r = await fetch(url, {
+			signal: AbortSignal.timeout(10_000),
+			headers: { accept: 'application/json' },
+		})
+		if (!r.ok) return c.json({ error: 'bazaar_unavailable', status: r.status }, 502)
+		const raw = (await r.json()) as {
+			items?: unknown[]
+			resources?: unknown[]
+			partialResults?: boolean
+		}
+		const items = (raw.items ?? raw.resources ?? []) as Array<Record<string, unknown>>
+		const body = {
+			source: 'cdp-bazaar',
+			query: q || null,
+			count: items.length,
+			partial: raw.partialResults ?? false,
+			resources: items.map((it) => {
+				const accepts = (it.accepts as Array<Record<string, unknown>> | undefined) ?? []
+				return {
+					resource: it.resource ?? accepts[0]?.resource ?? null,
+					type: it.type ?? null,
+					description: it.description ?? accepts[0]?.description ?? null,
+					accepts: accepts.map((a) => ({
+						scheme: a.scheme,
+						network: a.network,
+						amount: a.amount ?? a.maxAmountRequired,
+						asset: a.asset,
+						payTo: a.payTo,
+					})),
+				}
+			}),
+			howToPay: '@x402/fetch wrapFetchWithPayment(fetch, x402Client) — pays the 402 automatically.',
+		}
+		if (bazaarCache.size > 500) bazaarCache.clear()
+		bazaarCache.set(url, { at: Date.now(), body })
+		c.header('Cache-Control', 'public, max-age=60')
+		return c.json(body)
+	} catch {
+		return c.json({ error: 'bazaar_unavailable' }, 502)
+	}
+})
