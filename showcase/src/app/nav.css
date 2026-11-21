@@ -533,7 +533,7 @@
   cursor: pointer;
 }
 .site-nav__langmenu [data-slot='menu-radio-item']::before { content: ''; width: 14px; }
-.site-nav__langmenu [data-slot='menu-item-indicator'] { width: 14px; margin-right: -22px; color: #f6a93c; }
+.site-nav__langmenu [data-slot='menu-item-indicator'] { width: 14px; margin-left: -22px; color: #f6a93c; }
 .site-nav__langmenu [data-slot='menu-radio-item']:hover,
 .site-nav__langmenu [data-slot='menu-radio-item'][data-highlighted] { background: rgba(255, 255, 255, 0.09); outline: none; }
 
