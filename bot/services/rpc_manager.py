@@ -429,11 +429,15 @@ class RPCEndpoint:
         self.last_error = error
         self.consecutive_failures += 1
         was_open = self.is_circuit_open
+        # Chainlist-discovered endpoints are optional by design (and candidates
+        # that fail the entry probe are dropped, never used). Their failures are
+        # DEBUG; a WARNING here was a dozen dead public nodes per boot.
+        warn = logger.warning if self.tier != RPCTier.DISCOVERED else logger.debug
         if _QUOTA_ERROR.search(error):
             # Log only on the transition, or a 6h cooldown still produces a wall
             # of identical lines every time a caller retries mid-cooldown.
             if not was_open:
-                logger.warning(
+                warn(
                     "RPC circuit OPEN (quota exhausted) %s (%ss, reason=%s)",
                     _safe_url(self.url),
                     self.QUOTA_COOLDOWN_SECONDS,
@@ -443,7 +447,7 @@ class RPCEndpoint:
             return
         if _UNRECOVERABLE_ERROR.search(error):
             if not was_open:
-                logger.warning(
+                warn(
                     "RPC circuit OPEN (endpoint gone or gated) %s (%ss, reason=%s)",
                     _safe_url(self.url),
                     self.QUOTA_COOLDOWN_SECONDS,
@@ -456,7 +460,7 @@ class RPCEndpoint:
             # Same transition guard as above. Without it a fatal endpoint logged
             # on every single call for the whole cooldown.
             if not was_open:
-                logger.warning(
+                warn(
                     "RPC circuit OPEN (fatal) %s (600s, reason=%s)",
                     _safe_url(self.url),
                     error[:120],
