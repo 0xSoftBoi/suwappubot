@@ -367,6 +367,11 @@ class ApiClient {
     return this.fetch<SwapExecuteResult>('/webapp/swap/execute', {
       method: 'POST',
       body: JSON.stringify(request),
+      // Not the 15s default: execution signs, may broadcast + wait on an
+      // approval, then broadcasts with endpoint failover (15s per endpoint).
+      // Timing out client-side while the server is still sending shows an
+      // error for a swap that then lands, and invites a duplicate retry.
+      signal: AbortSignal.timeout(60000),
     })
   }
 

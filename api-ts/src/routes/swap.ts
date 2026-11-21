@@ -392,6 +392,11 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 			}
 
 			let approvalUrl: string | undefined
+			// Nonce the approval was signed with, once its broadcast succeeded. The
+			// swap must use a strictly higher nonce whichever endpoint answers the
+			// nonce read — a lagging node returning the approval's own nonce would
+			// make the swap collide with (or replace) the approval.
+			let approvalNonceSent: number | undefined
 			// ERC20 approval if fromToken is not native
 			const NATIVE_ZERO = '0x0000000000000000000000000000000000000000'
 			const fromTokenAddr = quote.fromToken.address.toLowerCase()
@@ -481,6 +486,7 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 							try: async () => {
 								const sent = await broadcastRawTx(rpcUrlForChain, approvalSignResult.signedTransaction)
 								approvalUrl = sent.url
+								approvalNonceSent = parseInt(approvalNonce, 16)
 								const data = { result: sent.hash }
 								logger.info('[SwapRoute] Approval tx broadcast: %s', data.result)
 
@@ -510,7 +516,14 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 
 			// Fetch nonce for the swap tx (after potential approval)
 			const swapNonce = yield* Effect.tryPromise({
-				try: () => fetchNonce(wallet.address, approvalUrl ? 'pending' : 'latest', approvalUrl),
+				try: async () => {
+					const read = await fetchNonce(wallet.address, approvalUrl ? 'pending' : 'latest', approvalUrl)
+					if (approvalNonceSent === undefined) return read
+					const floor = approvalNonceSent + 1
+					if (parseInt(read, 16) >= floor) return read
+					logger.warn('[SwapRoute] nonce read %s below approval nonce + 1, clamping to %d', read, floor)
+					return `0x${floor.toString(16)}`
+				},
 				catch: (e) => new Error(`Failed to get nonce: ${e}`),
 			})
 

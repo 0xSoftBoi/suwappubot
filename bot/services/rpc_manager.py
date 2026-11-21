@@ -683,14 +683,16 @@ class RPCManager:
                         chain=chain_name,
                         tier=RPCTier.DISCOVERED,
                     )
-                    self._endpoints.setdefault(chain_name, []).append(discovered)
+                    # NOT published to self._endpoints yet: the health loop walks
+                    # that table and could record a success for an endpoint on the
+                    # wrong chain before its entry probe rejects it.
                     newly_added.append(discovered)
                     existing_urls.add(rpc_url)
                     added += 1
 
             self._chainlist_last_fetch = time.monotonic()
             total = sum(len(v) for v in self._endpoints.values())
-            logger.info(f"Chainlist: added {added} endpoints ({total} total)")
+            logger.info(f"Chainlist: {added} candidate endpoints to probe ({total} live)")
 
         except Exception as e:
             logger.warning(f"Chainlist fetch failed (using defaults): {e}")
@@ -702,24 +704,21 @@ class RPCManager:
         # rotation on dev.
         if newly_added:
             sem = asyncio.Semaphore(20)
-            await asyncio.gather(
+            results = await asyncio.gather(
                 *(self._probe_discovered(sem, ep) for ep in newly_added),
                 return_exceptions=True,
             )
-            # Discovered endpoints are optional by design: one that fails its
-            # entry probe (wrong chain id, dead host, 4xx/5xx, no eth_call) is
-            # dropped rather than parked, so it neither sits in the table for a
-            # 6h cooldown nor is retried by the health loop. The next chainlist
-            # refresh may re-admit it and re-probe it.
-            dead = {id(ep) for ep in newly_added if ep.successful_requests == 0}
-            if dead:
-                for chain_name in {ep.chain for ep in newly_added if id(ep) in dead}:
-                    self._endpoints[chain_name] = [
-                        e for e in self._endpoints.get(chain_name, []) if id(e) not in dead
-                    ]
+            # Admission is decided by each probe's own return value, never by
+            # mutable health stats. Discovered endpoints are optional by design:
+            # one that fails (wrong chain id, dead host, 4xx/5xx, no eth_call) is
+            # simply never published. The next chainlist refresh may re-probe it.
+            passed = [ep for ep, ok in zip(newly_added, results) if ok is True]
+            for ep in passed:
+                self._endpoints.setdefault(ep.chain, []).append(ep)
+            if len(passed) < len(newly_added):
                 logger.info(
                     "Chainlist: dropped %d/%d discovered endpoints that failed the entry probe",
-                    len(dead),
+                    len(newly_added) - len(passed),
                     len(newly_added),
                 )
 
@@ -957,9 +956,11 @@ class RPCManager:
 
         await asyncio.gather(*tasks, return_exceptions=True)
 
-    async def _probe_discovered(self, sem: asyncio.Semaphore, ep: RPCEndpoint) -> None:
+    async def _probe_discovered(self, sem: asyncio.Semaphore, ep: RPCEndpoint) -> bool:
         """Entry probe for a chainlist endpoint: chain id must match, then the
-        normal liveness + eth_call probe must succeed (records >=1 success)."""
+        normal liveness + eth_call probe must succeed. Returns admission.
+
+        Runs before `ep` is published, so nothing else touches its stats."""
         expected = CHAINLIST_IDS.get(ep.chain)
         if expected is not None:
             try:
@@ -974,16 +975,17 @@ class RPCManager:
                         ) as resp:
                             if resp.status != 200:
                                 ep.record_failure(f"http_{resp.status}")
-                                return
+                                return False
                             data = await resp.json()
                 result = data.get("result") if isinstance(data, dict) else None
                 if not isinstance(result, str) or int(result, 16) != expected:
                     ep.record_failure(f"chain id mismatch: {str(result)[:20]}")
-                    return
+                    return False
             except Exception as e:
                 ep.record_failure(_classify_exc(e))
-                return
+                return False
         await self._health_check_one(sem, ep)
+        return ep.successful_requests > 0 and not ep.is_circuit_open
 
     async def _health_check_one(self, sem: asyncio.Semaphore, ep: RPCEndpoint):
         async with sem:

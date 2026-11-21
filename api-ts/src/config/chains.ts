@@ -103,6 +103,16 @@ export const RPC_ENDPOINTS: Record<string, string> = Object.fromEntries(
 // method unsupported, internal) rather than "your request is invalid".
 const FAILOVER_RPC_CODES = new Set([-32005, -32601, -32603, -32046, -32097, 429])
 
+/** Host for logs. Never throws (a malformed override must not abort failover)
+ *  and never echoes the raw value (it can carry an API key). */
+function safeHost(url: string): string {
+	try {
+		return new URL(url).host
+	} catch {
+		return '<invalid-rpc-url>'
+	}
+}
+
 function terse(e: unknown): string {
 	const m = e instanceof Error ? e.message : String(e)
 	return m.split('\n')[0]!.slice(0, 120)
@@ -139,7 +149,7 @@ export async function rpcFetch(
 			return res
 		} catch (e) {
 			lastErr = e
-			if (!last) logger.warn(`[rpc] ${new URL(url).host} failed (${terse(e)}), failing over`)
+			if (!last) logger.warn(`[rpc] ${safeHost(url)} failed (${terse(e)}), failing over`)
 		}
 	}
 	throw new Error(`All ${urls.length} RPC endpoint(s) failed: ${terse(lastErr)}`)
@@ -403,7 +413,7 @@ export async function broadcastRawTx(
 			const isFinal = (lastErr as Error & { final?: boolean }).final
 			if (!isFinal) uncertain = true
 			if (isFinal || i === urls.length - 1) break
-			logger.warn(`[rpc] broadcast via ${new URL(url).host} failed (${terse(e)}), failing over`)
+			logger.warn(`[rpc] broadcast via ${safeHost(url)} failed (${terse(e)}), failing over`)
 		}
 	}
 	// Last resort: an attempt that timed out / dropped may still have landed.
