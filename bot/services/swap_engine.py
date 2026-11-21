@@ -4688,6 +4688,14 @@ class SwapEngine:
                 # The hash may sit a few links down the chain: the Tempo path
                 # raises SwapError(...) from TempoSponsorSubmittedError, so walk
                 # __cause__/__context__ rather than inspecting only `e`.
+                # Only a hash whose leg IS the swap may be adopted. An approval
+                # or permit leg carries its own label: stamping its hash here
+                # would have tx_poller watch the approval mine (status 0x1) and
+                # write the row COMPLETED — a swap reported successful that was
+                # never broadcast, with the idempotency key poisoned so no
+                # retry can ever happen. Those legs correctly leave the row
+                # FAILED + NULL (retryable), because the swap never sent and
+                # approve()/permit set an absolute allowance.
                 if broadcast_tx_hash is None:
                     seen = set()
                     cursor = e
@@ -4695,13 +4703,26 @@ class SwapEngine:
                         seen.add(id(cursor))
                         candidate = getattr(cursor, "tx_hash", None)
                         if candidate:
-                            broadcast_tx_hash = candidate
-                            logger.error(
-                                "Swap %s failed ambiguously after broadcast — adopting tx "
-                                "%s so the row is reconciled from the chain, NOT retried.",
-                                swap_id,
-                                candidate,
-                            )
+                            leg = getattr(cursor, "leg", "swap")
+                            if leg == "swap":
+                                broadcast_tx_hash = candidate
+                                logger.error(
+                                    "Swap %s failed ambiguously after broadcast — adopting "
+                                    "tx %s so the row is reconciled from the chain, NOT "
+                                    "retried.",
+                                    swap_id,
+                                    candidate,
+                                )
+                            else:
+                                logger.error(
+                                    "Swap %s failed ambiguously on its %s leg (tx %s). NOT "
+                                    "adopting that hash as the swap's own — the swap leg "
+                                    "never broadcast, so the row stays retryable (re-running "
+                                    "an approval/permit is safe).",
+                                    swap_id,
+                                    leg,
+                                    candidate,
+                                )
                             break
                         cursor = cursor.__cause__ or cursor.__context__
 
@@ -4992,6 +5013,51 @@ class SwapEngine:
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
         return await self._broadcast_evm_tx(web3, signed_tx_hex, chain)
 
+    async def _send_raw_swap_tx(self, web3: Web3, signed_tx_hex: str):
+        """Broadcast the SWAP leg of a signed EVM transaction.
+
+        Use this for every swap-leg broadcast instead of calling
+        ``web3.eth.send_raw_transaction`` directly. A bare call leaves no hash
+        behind when it raises, so the row is written FAILED with ``tx_hash``
+        NULL — which ``execute_swap``'s idempotency guard reads as "safe to
+        retry", and the next request (user retry, DCA, limit order) broadcasts
+        a second swap while the first one mines.
+
+        This recovers the hash locally first (keccak of the signed payload) and
+        raises ``PostBroadcastAmbiguous`` carrying it with ``leg="swap"``, so
+        the row becomes UNKNOWN + hash and is reconciled from the chain rather
+        than re-sent. ``already known`` is returned as success, since the node
+        is telling us it holds this exact tx under this exact hash.
+
+        Returns the same ``HexBytes`` the node returns, so callers keep calling
+        ``.hex()`` on the result unchanged. Approval and permit legs must NOT
+        use this — they are a different leg and need their own label (see
+        ``PostBroadcastAmbiguous``), or an approval's hash gets stamped onto
+        the swap row and tx_poller false-completes it.
+        """
+        from hexbytes import HexBytes
+
+        raw_bytes = bytes.fromhex(signed_tx_hex.replace("0x", ""))
+        precomputed = HexBytes(Web3.keccak(raw_bytes))
+        precomputed_hex = precomputed.hex()
+        if not precomputed_hex.startswith("0x"):
+            precomputed_hex = "0x" + precomputed_hex
+        try:
+            return await asyncio.to_thread(lambda: web3.eth.send_raw_transaction(raw_bytes))
+        except Exception as e:
+            message = str(e).lower()
+            if "already known" in message or "already in the pool" in message:
+                logger.info(
+                    "Swap tx %s already known to the node — treating as broadcast.",
+                    precomputed_hex,
+                )
+                return precomputed
+            raise PostBroadcastAmbiguous(
+                f"Swap broadcast failed ambiguously (the tx may already be propagated): {e}",
+                tx_hash=precomputed_hex,
+                leg="swap",
+            ) from e
+
     async def _broadcast_evm_tx(self, web3: Web3, signed_tx_hex: str, chain) -> str:
         """Broadcast a signed EVM tx, routing privately when configured.
 
@@ -5010,7 +5076,6 @@ class SwapEngine:
 
         Returns the 0x-prefixed transaction hash.
         """
-        raw_bytes = bytes.fromhex(signed_tx_hex.replace("0x", ""))
         chain_id = getattr(chain, "chain_id", None)
 
         if isinstance(chain_id, int) and flashbots_relay.should_route(chain_id):
@@ -5028,39 +5093,14 @@ class SwapEngine:
                 result.error,
             )
 
-        # Recover the hash locally first (keccak of the signed payload) so an
-        # ambiguous failure still carries an identifier to reconcile against.
-        precomputed_hash = Web3.keccak(raw_bytes).hex()
-        if not precomputed_hash.startswith("0x"):
-            precomputed_hash = "0x" + precomputed_hash
-        try:
-            tx_hash = await asyncio.to_thread(lambda: web3.eth.send_raw_transaction(raw_bytes))
-        except Exception as e:
-            # "Already known" is not a failure — it is the node telling us it
-            # already holds THIS tx, under this exact hash. It is the expected
-            # answer when the private relay above submitted the same signed
-            # bytes first, so treating it as ambiguous would report a swap that
-            # is sitting in the mempool as failed. The locally-derived hash is
-            # authoritative here (same signed payload, deterministic keccak).
-            #
-            # Deliberately NOT included: "nonce too low". That can mean some
-            # OTHER tx took this nonce, in which case this one will never mine,
-            # so returning its hash would be a lie. It stays ambiguous.
-            message = str(e).lower()
-            if "already known" in message or "already in the pool" in message:
-                logger.info(
-                    "Swap tx %s already known to the node (expected after private "
-                    "relay submission) — treating as broadcast.",
-                    precomputed_hash,
-                )
-                return precomputed_hash
-            raise PostBroadcastAmbiguous(
-                f"send_raw_transaction failed ambiguously (the swap tx may already be "
-                f"broadcast): {e}",
-                tx_hash=precomputed_hash,
-            ) from e
-        broadcast_hex = tx_hash.hex()
-        return broadcast_hex if broadcast_hex.startswith("0x") else "0x" + broadcast_hex
+        # Same ambiguity contract as every other swap-leg broadcast, including
+        # the "already known" case that the private-relay fallback above makes
+        # expected rather than exceptional.
+        tx_hash = await self._send_raw_swap_tx(web3, signed_tx_hex)
+        # .hex() exactly as before: hexbytes 1.3.1 returns it bare, and every
+        # other provider in this file stores the same form. Normalizing only
+        # here would make the LI.FI rows differ from all the rest.
+        return tx_hash.hex()
 
     @staticmethod
     def _is_retryable_rpc_error(error: Exception) -> bool:
@@ -5301,9 +5341,7 @@ class SwapEngine:
         }
 
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
-        tx_hash = await asyncio.to_thread(
-            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
-        )
+        tx_hash = await self._send_raw_swap_tx(web3, signed_tx_hex)
 
         logger.info(f"Socket swap tx: {tx_hash.hex()}")
         return tx_hash.hex()
@@ -5465,9 +5503,7 @@ class SwapEngine:
 
         # Sign and send
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
-        tx_hash = await asyncio.to_thread(
-            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
-        )
+        tx_hash = await self._send_raw_swap_tx(web3, signed_tx_hex)
 
         logger.info(f"CCIP transfer tx: {tx_hash.hex()}")
         return tx_hash.hex()
@@ -5596,9 +5632,7 @@ class SwapEngine:
         )
 
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, swap_tx)
-        tx_hash = await asyncio.to_thread(
-            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
-        )
+        tx_hash = await self._send_raw_swap_tx(web3, signed_tx_hex)
 
         logger.info(
             f"{venue.display_name} exactInputSingle: {tx_hash.hex()} "
@@ -5784,10 +5818,16 @@ class SwapEngine:
             try:
                 sent = await asyncio.to_thread(lambda: web3.eth.send_raw_transaction(raw_signed))
             except Exception as e:
+                # leg=label, NOT "swap": this helper only ever sends the permit
+                # and approval legs. Letting an approval hash be adopted as the
+                # swap's tx_hash would have tx_poller see it mine with status
+                # 0x1 and write the row COMPLETED — a swap reported successful
+                # that was never broadcast.
                 raise PostBroadcastAmbiguous(
                     f"Tempo {label} broadcast failed ambiguously (the tx may already be "
                     f"propagated): {e}",
                     tx_hash=leg_hash,
+                    leg=label,
                 ) from e
             logger.info(f"Tempo {label} tx: {sent.hex()}")
 
@@ -5812,6 +5852,7 @@ class SwapEngine:
                     f"Tempo {label} was broadcast but its receipt could not be read "
                     f"({e}) — it may still confirm.",
                     tx_hash=leg_hash,
+                    leg=label,
                 ) from e
             if rcpt["status"] != 1:
                 # Definitively on-chain and reverted: not ambiguous, and the
@@ -5898,9 +5939,7 @@ class SwapEngine:
         )
 
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, swap_tx)
-        tx_hash = await asyncio.to_thread(
-            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
-        )
+        tx_hash = await self._send_raw_swap_tx(web3, signed_tx_hex)
         logger.info(
             f"Tempo DEX swapExactAmountIn: {tx_hash.hex()} "
             f"({quote.from_token}→{quote.to_token}) — fire-and-monitor: swap receipt "
@@ -6087,8 +6126,6 @@ class SwapEngine:
         # would move the user's funds twice, so this is reported as ambiguous.
         try:
             tx_hash = await asyncio.to_thread(lambda: web3.eth.send_raw_transaction(raw).hex())
-            if not tx_hash.startswith("0x"):
-                tx_hash = "0x" + tx_hash
             logger.info(
                 f"Tempo gasless swap (type-0x76, fee payer {sponsor_address[:10]}…): "
                 f"{tx_hash} ({token_in}→{token_out}) — fire-and-monitor: receipt NOT "
@@ -6222,9 +6259,7 @@ class SwapEngine:
         }
 
         signed_send = await self.wallet_service.sign_evm_transaction(wallet, send_tx)
-        tx_hash = await asyncio.to_thread(
-            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_send.replace("0x", "")))
-        )
+        tx_hash = await self._send_raw_swap_tx(web3, signed_send)
 
         logger.info(
             f"USDT0 send: {tx_hash.hex()} "
@@ -6337,9 +6372,7 @@ class SwapEngine:
         }
 
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, send_tx)
-        tx_hash = await asyncio.to_thread(
-            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
-        )
+        tx_hash = await self._send_raw_swap_tx(web3, signed_tx_hex)
 
         logger.info(
             f"Stargate V2 sendToken: {tx_hash.hex()} "
@@ -6647,11 +6680,7 @@ class SwapEngine:
         deposit_tx["chainId"] = chain.chain_id
 
         signed_deposit_hex = await self.wallet_service.sign_evm_transaction(wallet, deposit_tx)
-        deposit_hash = await asyncio.to_thread(
-            lambda: web3.eth.send_raw_transaction(
-                bytes.fromhex(signed_deposit_hex.replace("0x", ""))
-            )
-        )
+        deposit_hash = await self._send_raw_swap_tx(web3, signed_deposit_hex)
 
         logger.info(f"Across deposit tx: {deposit_hash.hex()}")
         return deposit_hash.hex()
@@ -6749,11 +6778,7 @@ class SwapEngine:
         transfer_tx["chainId"] = chain.chain_id
 
         signed_transfer_hex = await self.wallet_service.sign_evm_transaction(wallet, transfer_tx)
-        transfer_hash = await asyncio.to_thread(
-            lambda: web3.eth.send_raw_transaction(
-                bytes.fromhex(signed_transfer_hex.replace("0x", ""))
-            )
-        )
+        transfer_hash = await self._send_raw_swap_tx(web3, signed_transfer_hex)
 
         logger.info(f"Wormhole transfer tx: {transfer_hash.hex()}")
         return transfer_hash.hex()
@@ -7198,11 +7223,7 @@ class SwapEngine:
             }
 
             signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
-            tx_hash = await asyncio.to_thread(
-                lambda: web3.eth.send_raw_transaction(
-                    bytes.fromhex(signed_tx_hex.replace("0x", ""))
-                )
-            )
+            tx_hash = await self._send_raw_swap_tx(web3, signed_tx_hex)
 
             logger.info(f"OKX DEX swap tx: {tx_hash.hex()}")
             return tx_hash.hex()
@@ -7341,9 +7362,7 @@ class SwapEngine:
         }
 
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
-        tx_hash = await asyncio.to_thread(
-            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
-        )
+        tx_hash = await self._send_raw_swap_tx(web3, signed_tx_hex)
 
         logger.info(f"1inch swap tx: {tx_hash.hex()}")
         return tx_hash.hex()
@@ -7501,9 +7520,7 @@ class SwapEngine:
         }
 
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
-        tx_hash = await asyncio.to_thread(
-            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
-        )
+        tx_hash = await self._send_raw_swap_tx(web3, signed_tx_hex)
 
         logger.info(f"0x swap tx: {tx_hash.hex()}")
         return tx_hash.hex()
@@ -7834,9 +7851,7 @@ class SwapEngine:
         await self._persist_0x_crosschain_route_data(swap_id, swap_result.quote_id, nonce)
 
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
-        tx_hash = await asyncio.to_thread(
-            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
-        )
+        tx_hash = await self._send_raw_swap_tx(web3, signed_tx_hex)
 
         logger.info("0x Cross-Chain swap tx: %s", tx_hash.hex())
         return tx_hash.hex()
@@ -7978,9 +7993,7 @@ class SwapEngine:
         }
 
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
-        tx_hash = await asyncio.to_thread(
-            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
-        )
+        tx_hash = await self._send_raw_swap_tx(web3, signed_tx_hex)
 
         logger.info(f"KyberSwap swap tx: {tx_hash.hex()}")
         return tx_hash.hex()
@@ -8229,9 +8242,7 @@ class SwapEngine:
         tx = build_fn.build_transaction({**tx_params, "gas": gas_limit})
 
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
-        tx_hash = await asyncio.to_thread(
-            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
-        )
+        tx_hash = await self._send_raw_swap_tx(web3, signed_tx_hex)
 
         logger.info(f"PropAMM (Titan) swap tx: {tx_hash.hex()}")
         return tx_hash.hex()

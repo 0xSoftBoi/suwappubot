@@ -84,15 +84,30 @@ class PostBroadcastAmbiguous(RuntimeError):
     the broadcast, so it is known even when the RPC returned nothing and can
     always be reconciled against the chain.
 
+    ``leg`` says WHICH transaction that hash belongs to, and it is what makes
+    the hash safe to conclude from. Only ``leg == "swap"`` may be adopted as a
+    swap row's ``tx_hash``. An approval or permit leg gets its own label
+    ("approval", "permit", …), because stamping an approval's hash onto the
+    swap row would be read by tx_poller as the swap itself: the approval mines
+    with status 0x1 and the row is written COMPLETED, telling the user a swap
+    succeeded when no swap was ever broadcast. A non-swap leg must instead
+    leave the row FAILED with tx_hash NULL — retryable, which is correct there,
+    since the swap leg never sent and approve()/permit set an absolute
+    allowance, so re-running is safe.
+
+    (This is the same distinction the ``intended_tx_leg`` marker exists for on
+    the intended-hash branch; the vocabulary is kept deliberately identical.)
+
     Lives here (a leaf module) rather than in bot/services/hot_wallet.py so
     both the withdrawal and swap paths share ONE class — hot_wallet re-exports
     it for the existing ``from bot.services.hot_wallet import
     PostBroadcastAmbiguous`` import sites.
     """
 
-    def __init__(self, message: str, tx_hash: Optional[str] = None):
+    def __init__(self, message: str, tx_hash: Optional[str] = None, leg: str = "swap"):
         super().__init__(message)
         self.tx_hash = tx_hash
+        self.leg = leg
 
 
 class ValidationError(Exception):
