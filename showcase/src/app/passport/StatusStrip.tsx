@@ -39,8 +39,8 @@ export default function StatusStrip({
   if (error && !status) {
     return (
       <div className={`${styles.statusStrip} ${styles.statusStripError}`} role="status">
-        <span className={styles.dot} data-state="down" />
-        Status endpoint unreachable — {error}
+        <span className={styles.dot} data-state="idle" />
+        Status endpoint not live in this environment
       </div>
     );
   }

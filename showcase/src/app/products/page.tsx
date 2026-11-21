@@ -74,7 +74,7 @@ const badgeCls = (b: string) =>
 const ext = (item: Item) => ('external' in item && item.external ? { external: true } : {});
 
 const tradeViz: MiniKind[] = ['book', 'swap', 'agent', 'route', 'perps', 'predict', 'curve'];
-const tradeSpan = ['pv3-span-2 pv3-tile--lead', '', '', '', '', 'pv3-span-2', ''];
+const tradeSpan = ['v3-span-2 pv3-tile--lead', '', '', '', '', '', ''];
 
 function Card({ item, visual, className = '', i }: { item: Item; visual?: React.ReactNode; className?: string; i: number }) {
   return (
