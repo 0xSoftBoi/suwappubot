@@ -43,7 +43,7 @@ const buckets = [
   },
   {
     title: 'Rate limits & agent metering',
-    body: 'Every key is rate-limited by a sliding-window limiter scoped to your tier, so no single caller can starve the API. Pay-per-call (x402) credit balances are metered per agent and deducted atomically: one agent’s usage or balance can never draw against another’s.',
+    body: 'Every key is rate-limited by a sliding-window limiter scoped to your tier, so no single caller can starve the API. Prepaid credit balances are metered per agent and deducted atomically: one agent’s usage or balance can never draw against another’s.',
   },
 ];
 
@@ -53,15 +53,17 @@ export default function SecurityPage() {
       <SummerNav />
       <main id="main-content">
       <div className="summer-shell mkt-page">
-        <div className="sv3-heroband"><Backdrop kind="grid" /><header className="mkt-hero mkt-hero--center">
-          <p className="summer-kicker">Security &amp; Trust</p>
+        <div className="sv3-heroband"><Backdrop kind="grid" /><header className="mkt-hero">
           <h1>Built to move money safely.</h1>
           <p className="mkt-hero__lead">
-            Suwappu routes real funds across {stats.platformChains} chains for humans and autonomous agents.
-            Here is exactly how keys, funds, and data are protected, and what we have not
-            yet certified.
+            How keys, funds and data are protected across {stats.platformChains} chains, and what we
+            have not yet certified.
           </p>
-        </header></div>
+          <div className="summer-actions">
+            <a className="summer-button summer-button--primary" href="/contact">Talk to the team</a>
+            <a className="summer-button summer-button--secondary" href="#disclosure">Report a vulnerability</a>
+          </div>
+</header></div>
 
         {/* Authority model, drawn: two custody lanes through a policy gate, and the
             rings of controls around a single key. Decorative; the practices below

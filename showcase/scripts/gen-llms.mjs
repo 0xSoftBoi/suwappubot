@@ -40,7 +40,7 @@ const INSTRUCTIONS = `## Instructions for LLM Agents
 - Errors return a JSON envelope with an error code and message; rate-limited requests return HTTP 429. Always read the error body and back off on 429.
 - Do not hardcode chains or token symbols — call \`GET /chains\` and \`GET /tokens?chain=...\` for the authoritative lists.
 - Machine-readable contracts: OpenAPI 3.1 at https://api.suwappu.bot/v1/agent/openapi, A2A agent card at https://api.suwappu.bot/.well-known/agent-card.json.
-- Payment without a key: pay-per-call over HTTP 402 (x402) is available for reads and swaps — see https://suwappu.bot/pricing#agent-api for credit costs, rate limits, and subscription tiers before assuming a subscription is required.
+- Pay per call: metered calls draw prepaid credits (quote or dry run 1, swap 5; 1 credit is about $0.001), an API key is still required, and HTTP 402 means credits ran out (top up via POST /v1/agent/billing/topup). On-chain per-request x402 payment is built but not enabled. See https://suwappu.bot/pricing#agent-api for credit costs, rate limits, and subscription tiers before assuming a subscription is required.
 - Agent-surface swap fees are route/configuration-specific rather than subscription-tier discounts. Inspect the live quote; do not hardcode an EVM/Solana fee into strategy economics.
 - Every docs page is available as clean Markdown by appending \`.md\` to its URL (or sending \`Accept: text/markdown\`).`;
 

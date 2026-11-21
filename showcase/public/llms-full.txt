@@ -262,40 +262,40 @@ Yes, as the simulate_swap tool, same logic and cost.
 
 ---
 
-# How do agents pay per call for a swap API with x402?
+# How do agents pay per call for a swap API?
 
-> When a free-tier agent runs out of credits, Suwappu answers HTTP 402 with an x402 challenge: USDC on Base, an amount and a payTo address. Pay, then POST the txHash to /v1/agent/billing/topup. 1 credit is about $0.001; a quote costs 1.
+> Metered calls draw prepaid credits, so there is no subscription, but an API key is still required. When credits run out the API answers HTTP 402; pay USDC, then POST the txHash to /v1/agent/billing/topup. 1 credit is about $0.001; a quote costs 1. On-chain per-request payment (an x402 X-PAYMENT header) is built but not enabled yet.
 
 Source: https://suwappu.bot/solve/x402-pay-per-call-api (last updated 2026-11-21)
 
 ## The problem
 
-An agent that hits a paywall mid-task has nowhere to go. A human has to find a card form that the agent cannot fill.
+An agent that runs dry mid-task needs a way to refill without a human filling a card form. Credits make the cost per call explicit and the refill a single API call.
 
 ## How to do it
 
-1. Call a metered endpoint. For example POST /quote. If credits are short you get 402.
-2. Read the challenge. accepts[0] has network, asset, maxAmountRequired and payTo; cost_credits shows the price.
-3. Pay. Send USDC on Base to payTo. Any amount is accepted for top-up.
-4. Credit it. POST /v1/agent/billing/topup with {txHash, chain, amount}. It is idempotent on txHash.
-5. Retry. Retry the original call. Or settle a single call with an X-PAYMENT header if the facilitator is enabled.
+1. Register for a key. Every metered route needs an API key; a keyless call returns 401. Registration grants 100 starter credits (limited to three grants per IP per day).
+2. Call a metered endpoint. A quote or dry run costs 1 credit, a swap 5.
+3. Watch for HTTP 402. When credits run out the API answers 402. Check GET /v1/agent/billing for the balance.
+4. Top up. Send USDC on Base, then POST /v1/agent/billing/topup with {txHash, chain, amount}. It is idempotent on txHash.
+5. Retry. Retry the original call with the same key.
 
-### Credit a payment, then check your balance
+### Check your balance, then credit a payment
 
 ```bash
+curl -s https://api.suwappu.bot/v1/agent/billing \
+  -H "Authorization: Bearer $SUWAPPU_API_KEY"
+
 curl -s -X POST https://api.suwappu.bot/v1/agent/billing/topup \
   -H "Authorization: Bearer $SUWAPPU_API_KEY" -H "Content-Type: application/json" \
   -d '{"txHash":"0xYOUR_PAYMENT_TX","chain":"base","amount":5}'
-
-curl -s https://api.suwappu.bot/v1/agent/billing \
-  -H "Authorization: Bearer $SUWAPPU_API_KEY"
 ```
 
 ## What this does not do
 
-- x402 applies to the free tier only; Pro, Premium and Enterprise bypass metering.
-- Per-call settlement needs the facilitator enabled on the deployment; otherwise use top-up.
-- Per-call metering is a server setting; read GET /v1/agent/billing for live weights.
+- An API key is required on every metered route; there is no keyless path.
+- Paying on-chain per request with an x402 X-PAYMENT header is in the code but off by default.
+- Pro, Premium and Enterprise windows bypass per-call metering.
 - Credits are USD-denominated at about $0.001; $5 buys about 5,000.
 
 ## FAQ
@@ -312,9 +312,9 @@ Yes. Pro $9.99, Premium $29.99 or Enterprise $99.99 for a prepaid 30-day window;
 
 No. It is idempotent on chain and txHash.
 
-### Which chain and asset?
+### Do I need an API key?
 
-The challenge names USDC on Base.
+Yes. A keyless call returns 401, not a payment challenge.
 
 
 ---

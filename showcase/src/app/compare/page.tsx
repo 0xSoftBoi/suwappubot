@@ -170,7 +170,7 @@ const AGENT_GROUPS: { category: string; rows: { label: string; cells: Record<str
         cells: { suwappu: 'yes', dune: 'unclear', agentkit: 'unclear', bankr: 'unclear', onefi: 'unclear' },
       },
       {
-        label: 'x402 pay-per-call',
+        label: 'Prepaid pay-per-call credits',
         cells: { suwappu: 'yes', dune: 'unclear', agentkit: 'partial', bankr: 'unclear', onefi: 'unclear' },
       },
       {
@@ -220,14 +220,17 @@ export default function ComparePage() {
       <SummerNav />
       <main id="main-content">
       <div className="summer-shell mkt-page">
-        <div className="sv3-heroband"><Backdrop kind="grid" /><header className="mkt-hero mkt-hero--center">
+        <div className="sv3-heroband"><Backdrop kind="grid" /><header className="mkt-hero">
           <h1>One product where the others pick a lane.</h1>
           <p className="mkt-hero__lead">
-            Telegram bots, trading terminals, and cross-chain infrastructure each do one part well.
-            Suwappu is the only one that unifies cross-chain spot, HyperLiquid perps, and gasless
-            swaps: in a bot, a terminal, and an SDK.
+            Bots, terminals and infrastructure each do one part well. Suwappu unifies cross-chain
+            spot, HyperLiquid perps and gasless swaps.
           </p>
-        </header></div>
+          <div className="summer-actions">
+            <a className="summer-button summer-button--primary" href="/contact">Talk to the team</a>
+            <a className="summer-button summer-button--secondary" href="/pricing">See pricing</a>
+          </div>
+</header></div>
 
         <Reveal as="section" className={`compare ${styles.matrix}`}>
           <h2 id="compare-matrix" className="compare__title">
@@ -332,7 +335,7 @@ export default function ComparePage() {
           <p className="mkt-hero__lead" style={{ margin: '0 0 1.5rem', textAlign: 'left' }}>
             Analytics platforms, wallet frameworks, and single-purpose swap MCPs each cover part
             of what an onchain agent needs. Suwappu is the only one that pairs execution: swaps,
-            perps, predictions, lending, with managed wallets, MCP, A2A, and x402 in one API.
+            perps, predictions, lending, with managed wallets, MCP, A2A, and prepaid-credit billing in one API.
           </p>
           <div className="compare__scroll" role="region" aria-label="Agent infrastructure comparison table" tabIndex={0}>
             <table className="compare-table">

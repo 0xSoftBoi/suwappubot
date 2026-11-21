@@ -16,7 +16,7 @@ const visuals: Record<string, React.ReactNode> = {
       <span className="sv3-ringlabel">chains</span>
     </ChainRing>
   ),
-  payments: <AuthorityFlow lanes={[['Endpoint', 'HTTP 402', 'Pay USDC'], ['Retry', 'Proof', 'Result']]} />,
+  payments: <AuthorityFlow lanes={[['Call', 'Credits', 'Result'], ['Empty', 'HTTP 402', 'Top up']]} />,
   wallets: (
     <AuthorityFlow lanes={[['App', 'Policy', 'Signer'], ['Signer', 'Signature', 'Chain']]} />
   ),
@@ -75,16 +75,18 @@ curl https://api.suwappu.bot/v1/agent/prices?tokens=ETH,SOL,BTC \\
     id: 'payments',
     eyebrow: 'For pay-per-call & micropayments',
     title: 'Payment & commerce agents',
-    body: 'Pay per request over HTTP 402 with x402: no signup, no subscription, no API key handshake, or settle in gasless stablecoin micropayments on Tempo for about a tenth of a cent per swap. Built for agents that transact machine-to-machine.',
-    flow: ['Call the endpoint', 'Receive HTTP 402', 'Pay in USDC', 'Get the result'],
-    file: 'x402-call.sh',
-    code: `curl -i https://api.suwappu.bot/v1/agent/quote \\
-  -d '{"from_token":"USDC","to_token":"ETH","chain":"base","amount":"50"}'
-# HTTP/1.1 402 Payment Required
-# X-Payment: { "amount": "0.001", "asset": "USDC", "chain": "base" }
+    body: 'Pay per call with prepaid credits: no subscription, an API key is still required. The API returns HTTP 402 when credits run out, and you top up with a USDC transaction hash. On-chain per-request payment (x402 header) is built but not enabled yet.',
+    flow: ['Register for a key', 'Call with credits', 'Get HTTP 402 when empty', 'Top up'],
+    file: 'credits.sh',
+    code: `# Check your prepaid balance (a quote costs 1 credit, a swap 5)
+curl https://api.suwappu.bot/v1/agent/billing \\
+  -H "Authorization: Bearer $SUWAPPU_API_KEY"
 
-# Pay the invoice, then retry with the payment proof attached: # no registration, no API key, charged per call.`,
-    cta: { label: 'Agentic Payments (x402) docs', href: '/docs/billing/agentic-payments' },
+# Out of credits? Calls return HTTP 402. Pay USDC, then credit the tx hash:
+curl -X POST https://api.suwappu.bot/v1/agent/billing/topup \\
+  -H "Authorization: Bearer $SUWAPPU_API_KEY" -H "Content-Type: application/json" \\
+  -d '{"txHash":"0xYOUR_PAYMENT_TX","chain":"base","amount":5}'`,
+    cta: { label: 'Credits and billing docs', href: '/docs/billing/agentic-payments' },
   },
   {
     id: 'wallets',
@@ -129,14 +131,17 @@ export default function SolutionsPage() {
       <SummerNav />
       <main id="main-content">
       <div className="summer-shell mkt-page">
-        <div className="sv3-heroband"><Backdrop kind="grid" /><header className="mkt-hero mkt-hero--center">
-          <p className="summer-kicker">Solutions</p>
-          <h1>Quote, swap, and settle on {stats.agentApiChains} chains from one API key.</h1>
+        <div className="sv3-heroband"><Backdrop kind="grid" /><header className="mkt-hero">
+          <h1>Quote, swap and settle from one API key.</h1>
           <p className="mkt-hero__lead">
-            Trading, portfolio management, pay-per-call commerce, or a wallet your app never has
-            to secure itself: the same REST API, MCP server, and A2A protocol cover all four.
+            Trading, portfolio, pay-per-call or wallets: one REST API, MCP server and A2A protocol
+            across {stats.agentApiChains} chains.
           </p>
-        </header></div>
+          <div className="summer-actions">
+            <a className="summer-button summer-button--primary" href="/start">Get an API key</a>
+            <a className="summer-button summer-button--secondary" href="/docs/quick-start/overview">Read the quick start</a>
+          </div>
+</header></div>
 
         <div className={styles.rows}>
           {/* Lead row gets the terminal treatment: the trading loop is the
@@ -170,7 +175,7 @@ export default function SolutionsPage() {
 
           {rest.map((s, i) => (
             <section
-              className={`${styles.row} ${styles.rowSplit}${i % 2 ? ` ${styles.codeFirst}` : ''}`}
+              className={`${styles.row} ${styles.rowSplit}${i === 1 ? ` ${styles.rowBand}` : i === 2 ? ` ${styles.rowPanel}` : i % 2 ? ` ${styles.codeFirst}` : ''}`}
               id={s.id}
               key={s.id}
             >

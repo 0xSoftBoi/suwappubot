@@ -405,3 +405,47 @@ html {
 .sw-dark .summer-footer__newsletter-error,
 .summer-page--cosmic .summer-footer__newsletter-error,
 .summer-page--passport .summer-footer__newsletter-error { color: #ff9c94; }
+
+/* ── One-idea interior hero (parity pass 3) ───────────────────────────
+   Every interior hero: headline, one short lead, at most two buttons, left
+   aligned, the same top offset and type scale. Beats the older two-column
+   research hero in institutional.css by order + specificity. */
+.institutional-page .sv3-heroband .mkt-hero,
+.institutional-page .pv3-heroband .mkt-hero {
+  display: flex; flex-direction: column; align-items: flex-start;
+  max-width: none; margin: 0 0 clamp(2.25rem, 4.5vw, 3.75rem); text-align: left; row-gap: 0;
+}
+.institutional-page .sv3-heroband .mkt-hero h1,
+.institutional-page .pv3-heroband .mkt-hero h1,
+.pv3-page .pv3-hero h1,
+.cv3-page .cv3-hero h1 {
+  max-width: 17ch; margin: 0;
+  font-size: clamp(2.35rem, 1.3rem + 3.6vw, 4rem); line-height: 1.04; text-wrap: balance;
+}
+.institutional-page .sv3-heroband .mkt-hero__lead,
+.institutional-page .pv3-heroband .mkt-hero__lead,
+.pv3-page .pv3-hero .pv3-lead,
+.cv3-page .cv3-hero .cv3-lead {
+  max-width: 52ch; margin: 1.1rem 0 0; font-size: clamp(1rem, 0.95rem + 0.35vw, 1.15rem); line-height: 1.55;
+}
+.institutional-page .sv3-heroband .mkt-hero > .summer-actions,
+.institutional-page .pv3-heroband .mkt-hero > .summer-actions,
+.pv3-hero header > .summer-actions,
+.cv3-hero header > .summer-actions {
+  display: flex; flex-flow: row wrap; gap: 0.75rem; margin: 1.6rem 0 0; justify-content: flex-start;
+}
+.pv3-hero header > .summer-actions .summer-button,
+.cv3-hero header > .summer-actions .summer-button { width: auto; }
+.cv3-page .cv3-hero { padding-top: var(--page-top); }
+.pv3-authority { margin-top: clamp(1.5rem, 3vw, 2.5rem); }
+.institutional-page .pv3-heroband { margin-bottom: clamp(2rem, 4vw, 3rem); }
+@media (max-width: 480px) {
+  .institutional-page .sv3-heroband .mkt-hero > .summer-actions .summer-button,
+  .pv3-hero header > .summer-actions .summer-button,
+  .cv3-hero header > .summer-actions .summer-button { flex: 1 1 100%; min-height: 46px; }
+}
+.institutional-page .sv3-heroband .mkt-hero > *,
+.institutional-page .pv3-heroband .mkt-hero > * { align-self: flex-start; }
+@media (max-width: 480px) {
+  .institutional-page .sv3-heroband .mkt-hero > .summer-actions { align-self: stretch; width: 100%; }
+}

@@ -102,12 +102,17 @@ export default function ProductsPage() {
           <Backdrop kind="grid" />
           <div className="v3-wrap pv3-hero__grid">
             <header>
-              <p className="v3-kicker">Everything Suwappu ships</p>
               <h1>One place to discover the entire Suwappu stack.</h1>
               <p className="pv3-lead">
-                Trade, inspect market intelligence, build with APIs and agents, read research,
-                and manage your account without hunting for hidden routes.
+                Trade, read market intelligence, build with APIs and agents, and manage your
+                account.
               </p>
+              <div className="summer-actions">
+            <a className="summer-button summer-button--primary" href={TERMINAL_URL} target="_blank" rel="noopener noreferrer">Launch Terminal</a>
+            <a className="summer-button summer-button--secondary" href="/agents">For agents</a>
+          </div>
+
+
             </header>
             <Reveal className="pv3-hero__art" delay={120}><RouteMap /></Reveal>
           </div>

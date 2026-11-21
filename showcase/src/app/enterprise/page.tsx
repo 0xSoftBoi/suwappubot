@@ -91,14 +91,16 @@ export default function EnterprisePage() {
       <main id="main-content">
       <div className="summer-shell mkt-page">
         <div className="sv3-heroband"><Backdrop kind="grid" /><header className="mkt-hero">
-          <p className="summer-kicker">Enterprise / Evaluation</p>
           <h1>Execution infrastructure you can explain.</h1>
           <p className="mkt-hero__lead">
-            For teams that need more than a fast quote. Evaluate routing, signing authority,
-            controls, operational evidence and integration boundaries before production traffic
+            Evaluate routing, signing authority, controls and evidence before production traffic
             moves through Suwappu.
           </p>
-        </header></div>
+          <div className="summer-actions">
+            <a className="summer-button summer-button--primary" href={ENTERPRISE_CONTACT_PATH}>Talk to the team</a>
+            <a className="summer-button summer-button--secondary" href="/security">Read security</a>
+          </div>
+</header></div>
 
         <Reveal as="section" className="institutional-metrics" aria-label="Platform facts">
           <div className="institutional-metric">

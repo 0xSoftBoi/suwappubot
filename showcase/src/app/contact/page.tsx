@@ -28,29 +28,19 @@ export default function ContactPage() {
       <SummerNav />
       <main id="main-content">
       <div className="summer-shell mkt-page">
-        <div className="sv3-heroband"><Backdrop kind="grid" /><header className="mkt-hero mkt-hero--center">
-          <p className="summer-kicker">Enterprise</p>
+        <div className="sv3-heroband"><Backdrop kind="grid" /><header className="mkt-hero">
           <h1>Talk to the team.</h1>
           <p className="mkt-hero__lead">
-            For trading desks, OTC desks, funds, and teams building agent fleets: a 0.1% swap
-            fee, dedicated rate limits, and priority support. Tell us what you&rsquo;re building and
-            we&rsquo;ll get back to you fast.
+            For trading desks, funds and agent fleets: a 0.1% swap fee, dedicated rate limits and
+            priority support. Book a call or send a note.
           </p>
-        </header></div>
-
-        {/* Saphira-style gate: the fastest path is a 30-min call, not the form. */}
-        <Reveal as="section" className={`${styles.demoCard} sv3-demo`}>
-          <div>
-            <h2 className="mkt-h2">Book a 30-min demo.</h2>
-            <p className={styles.demoBody}>
-              Skip the form: grab time with our team directly and we&rsquo;ll walk through rate
-              limits, custody model, and integration for your desk or agent fleet live.
-            </p>
+          <div className="summer-actions">
+            <DemoCallCta source="contact_page_card" className="summer-button summer-button--primary">
+              Schedule a demo
+            </DemoCallCta>
+            <a className="summer-button summer-button--secondary" href="#contact-form">Send a note</a>
           </div>
-          <DemoCallCta source="contact_page_card" className="summer-button summer-button--primary">
-            Schedule a demo
-          </DemoCallCta>
-        </Reveal>
+        </header></div>
 
         <Reveal as="section" className={`${styles.layout} sv3-contact`}>
           <div className={`${styles.pitch} sv3-next v3-tone-dark`}>
@@ -75,7 +65,9 @@ export default function ContactPage() {
             </ul>
           </div>
 
-          <div className={`${styles.panel} sv3-formpanel`}>
+          {/* The hero's "Send a note" jumps HERE, to the form itself: on a phone the
+              pitch stacks above it, and an anchor on the section landed on the pitch. */}
+          <div id="contact-form" className={`${styles.panel} sv3-formpanel`}>
             <EnterpriseContactForm />
           </div>
         </Reveal>

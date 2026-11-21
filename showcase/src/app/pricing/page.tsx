@@ -233,8 +233,8 @@ const faqs = [
     a: 'Credits are the Agent API’s prepaid unit: 1 credit ≈ $0.001. Metered reads such as quotes, simulation, prices, and portfolio cost 1 credit; chain/token discovery is free; transaction preparation and managed execution cost 5. Top up with USDC on Base when needed.',
   },
   {
-    q: 'x402 pay-per-call vs a subscription, which should my agent use?',
-    a: 'x402 is the zero-setup path: pay per request over HTTP 402 with no signup and no API key, ideal for one-off or low-volume calls. A Pro/Premium/Enterprise window is worth considering when the higher rate limit and unmetered calls beat pay-per-call costs. Agent-surface swap fees are route/configuration-specific, so evaluate them from the live quote rather than assuming a tier discount.',
+    q: 'Prepaid credits vs a subscription, which should my agent use?',
+    a: 'Prepaid credits are the pay-per-call path: no subscription, but an API key is still required, and the API returns HTTP 402 when credits run out. It suits one-off or low-volume calls. On-chain per-request payment (x402 header) is built but not enabled yet. A Pro/Premium/Enterprise window is worth considering when the higher rate limit and unmetered calls beat pay-per-call costs. Agent-surface swap fees are route/configuration-specific, so evaluate them from the live quote rather than assuming a tier discount.',
   },
   {
     q: 'What are the Agent API rate limits?',
@@ -259,8 +259,8 @@ const agentTiers: { tier: string; rateLimit: string; swapFee: string }[] = [
 
 const agentPaymentModes = [
   {
-    title: 'x402 pay-per-call',
-    body: 'Pay per request over HTTP 402: no signup, no API key, no subscription. Fund a wallet and call the endpoint; you’re charged for exactly what you use.',
+    title: 'Prepaid pay-per-call',
+    body: 'Pay per call with prepaid credits: no subscription, an API key is still required. The API returns HTTP 402 when credits run out; top up with a USDC transaction hash.',
   },
   {
     title: 'Prepaid credits',
@@ -304,17 +304,16 @@ export default function PricingPage() {
       <SummerNav />
       <main id="main-content">
       <div className="summer-shell mkt-page">
-        <div className="sv3-heroband"><Backdrop kind="grid" /><header className="mkt-hero mkt-hero--center">
+        <div className="sv3-heroband"><Backdrop kind="grid" /><header className="mkt-hero">
           <h1>One subscription. A lower fee on every swap.</h1>
           <p className="mkt-hero__lead">
-            Every plan carries the same engine: {stats.platformChains} chains, {stats.routerCount}{' '}
-            quote providers, HyperLiquid perps, and the agent API. The tier only changes your swap
-            fee: 1.0% on Free down to 0.1% on Enterprise.
+            Every plan carries the same engine. The tier only changes your swap fee: 1.0% on Free
+            down to 0.1% on Enterprise. Free to start, no card.
           </p>
-          <p className="mkt-hero__clerk">
-            Free to start, no card. Month to month: cancel and you keep the tier until the period
-            ends.
-          </p>
+          <div className="summer-actions">
+            <a className="summer-button summer-button--primary" href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer">Start free</a>
+            <a className="summer-button summer-button--secondary" href="#compare-plans">Compare plans</a>
+          </div>
         </header></div>
 
         <Reveal stagger as="section" className={styles.plans}>
@@ -502,7 +501,7 @@ export default function PricingPage() {
           <h2 className="compare__title">Three ways for an agent to pay.</h2>
           <p className="mkt-hero__lead" style={{ margin: '0 0 1.5rem', textAlign: 'left' }}>
             No human sign-up required. Register at{' '}
-            <code>POST /v1/agent/register</code> (<a href="/start">get a key in one call</a>) and start on pay-per-call, or add credits or a
+            <code>POST /v1/agent/register</code> (<a href="/start">get a key in one call</a>) and start with 100 starter credits, or add credits or a
             subscription when your agent needs a higher rate limit.
           </p>
 
