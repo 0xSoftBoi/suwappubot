@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import { ENTERPRISE_CONTACT_PATH } from '@/lib/links';
+import { Reveal, Backdrop, AuthorityFlow } from '@/components/v3';
+import '../content-v3.css';
 import styles from './government.module.css';
 
 export const metadata: Metadata = {
@@ -190,28 +192,36 @@ const assurance = [
 
 export default function GovernmentPage() {
   return (
-    <div className="summer-page docs-shell institutional-page">
+    <div className="summer-page docs-shell institutional-page v3-tone-light cv3-page">
       <SummerNav />
       <main id="main-content">
+      <div className="cv3-hero">
+        <Backdrop kind="mesh" />
+        <Backdrop kind="grid" />
+        <div className="v3-wrap cv3-hero__grid">
+          <header>
+            <p className="v3-kicker">Government / Lattice Transfer Protocol</p>
+            <h1>Eight novel contributions to post-quantum transfer.</h1>
+            <p className="cv3-lead">
+              LTP is a transfer primitive, not storage. The pipeline is{' '}
+              <strong>Commit &rarr; Lattice &rarr; Materialize</strong>: no payload ever crosses
+              the sender-receiver link. The sender commits, the receiver
+              materializes. The Lattice Transfer Protocol is Suwappu&rsquo;s government arm:
+              post-quantum data transfer with on-chain anchors, built for FedRAMP High
+              environments.
+            </p>
+            <div className="cv3-actions">
+              <a className="institutional-link" href={ENTERPRISE_CONTACT_PATH}>
+                Request the paper &rarr;
+              </a>
+            </div>
+          </header>
+          <Reveal className="cv3-art" delay={120} style={{ maxWidth: 480 }}>
+            <AuthorityFlow lanes={[['Commit', 'Lattice', 'Materialize']]} />
+          </Reveal>
+        </div>
+      </div>
       <div className="summer-shell mkt-page">
-        <header className="mkt-hero">
-          <p className="summer-kicker">Government / Lattice Transfer Protocol</p>
-          <h1>Eight novel contributions to post-quantum transfer.</h1>
-          <p className="mkt-hero__lead">
-            LTP is a transfer primitive, not storage. The pipeline is{' '}
-            <strong>Commit &rarr; Lattice &rarr; Materialize</strong>: no payload ever crosses
-            the sender-receiver link. The sender commits, the receiver
-            materializes. The Lattice Transfer Protocol is Suwappu&rsquo;s government arm:
-            post-quantum data transfer with on-chain anchors, built for FedRAMP High
-            environments.
-          </p>
-          <div className="summer-actions">
-            <a className="institutional-link" href={ENTERPRISE_CONTACT_PATH}>
-              Request the paper &rarr;
-            </a>
-          </div>
-        </header>
-
         <section aria-label="Key specifications">
           <dl className={styles.specTable}>
             {specs.map((spec) => (

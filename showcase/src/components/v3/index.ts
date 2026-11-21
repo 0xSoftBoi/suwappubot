@@ -15,3 +15,4 @@ export { default as BoundaryRings } from './BoundaryRings';
 export { default as ProductFrame } from './ProductFrame';
 export { AuthorityFlow, EvidenceStack, TierLadder } from './Schematics';
 export { default as ExecutionPlane } from './ExecutionPlane';
+export { default as DeadEnd } from './DeadEnd';

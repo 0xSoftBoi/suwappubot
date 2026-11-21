@@ -137,3 +137,15 @@
 .cv3-num-grid--5 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 .cv3-num-grid--5 > * { grid-column: span 2; } .cv3-num-grid--5 > :nth-child(n+4) { grid-column: span 3; }
 @media (max-width: 760px) { .cv3-num-grid--5 { grid-template-columns: minmax(0, 1fr); } .cv3-num-grid--5 > *, .cv3-num-grid--5 > :nth-child(n+4) { grid-column: auto; } }
+
+/* careers empty state + ladder */
+.cv3-empty { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: clamp(1rem, 3vw, 2.4rem); align-items: center; padding: clamp(1.4rem, 4vw, 3rem); border-radius: 24px; border: 1.5px dashed var(--v3-line-strong); background: color-mix(in srgb, var(--v3-surface) 70%, transparent); }
+.cv3-empty h3 { margin: 0 0 0.6rem; font-family: var(--type-display-font, var(--font-serif)); font-weight: 500; font-size: clamp(1.4rem, 1rem + 1.2vw, 2rem); color: var(--v3-ink); }
+.cv3-empty p { margin: 0 0 1.4rem; max-width: 60ch; line-height: 1.65; color: var(--v3-dim); }
+.cv3-empty__mark { position: relative; width: clamp(64px, 12vw, 120px); aspect-ratio: 1; }
+.cv3-empty__mark span { position: absolute; border-radius: 50%; border: 1.5px dashed var(--v3-line-strong); inset: 0; }
+.cv3-empty__mark span:nth-child(2) { inset: 18%; border-color: color-mix(in srgb, var(--v3-accent) 55%, transparent); }
+.cv3-empty__mark span:nth-child(3) { inset: 42%; border-style: solid; border-color: var(--v3-accent); background: color-mix(in srgb, var(--v3-accent) 18%, transparent); }
+@media (max-width: 560px) { .cv3-empty { grid-template-columns: minmax(0, 1fr); } }
+.cv3-ladder { margin-top: 1rem; } .cv3-ladder .v3-schem { max-width: 100%; }
+.cv3-num > p:first-of-type { margin-top: 0; }
