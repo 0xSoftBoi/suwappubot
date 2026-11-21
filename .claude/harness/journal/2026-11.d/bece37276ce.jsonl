@@ -1,0 +1,1 @@
+{"ts": "2026-11-21T00:05:20Z", "session": "bece3727-6ce", "turns": 67, "tool_calls": 37, "tool_errors": 0, "denials": 0, "top_errors": [], "prompt": "MONEY-PATH. A Li.Fi cross-chain swap row that reaches `CONFIRMING` is never re-polled and so never reaches a terminal status. ## The bug `bot/services/tx_poller.py::_check_pending_transactions` sele"}
