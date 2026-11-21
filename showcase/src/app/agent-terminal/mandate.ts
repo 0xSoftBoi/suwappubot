@@ -308,7 +308,6 @@ export interface WalletPolicyPayload {
   mandateVersion: number;
   params: {
     maxAmountWei?: string;
-    timeWindowSeconds?: number;
     allowedAddresses?: string[];
   };
 }
@@ -343,10 +342,10 @@ export function compileToWalletPolicies(
     policies.push({
       type: 'spending_limit',
       mandateVersion: mandate.version,
-      params: { maxAmountWei: toWei(mandate.dailyUsdCap), timeWindowSeconds: 86_400 },
+      params: { maxAmountWei: toWei(mandate.perTradeUsdCap) },
     });
     notes.push(
-      `Daily cap ${mandate.dailyUsdCap} USD converted at ${ethUsd} USD/ETH. Re-compile when the price moves materially: the policy is fixed in wei, the cap you meant is in dollars.`,
+      `Per-transaction cap ${mandate.perTradeUsdCap} USD converted at ${ethUsd} USD/ETH. Re-compile when the price moves materially: the policy is fixed in wei, the cap you meant is in dollars. The wallet policy has no time window, so the daily cap (${mandate.dailyUsdCap} USD) is enforced here in the browser mandate only.`,
     );
   }
 
