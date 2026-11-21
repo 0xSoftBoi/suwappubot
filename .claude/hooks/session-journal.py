@@ -13,6 +13,7 @@ Never blocks the session: any failure exits 0 silently.
 import json
 import os
 import re
+import subprocess
 import sys
 from collections import Counter
 from datetime import datetime, timezone
@@ -119,8 +120,60 @@ def main():
     month_dir = os.path.join(JOURNAL_DIR, datetime.now(timezone.utc).strftime("%Y-%m") + ".d")
     os.makedirs(month_dir, exist_ok=True)
     session_slug = re.sub(r"\W+", "", record["session"]) or "unknown"
-    with open(os.path.join(month_dir, session_slug + ".jsonl"), "w") as fh:
+    shard = os.path.join(month_dir, session_slug + ".jsonl")
+    with open(shard, "w") as fh:
         fh.write(line + "\n")
+    _commit_shard_in_cloud(shard)
+
+
+def _git(*args):
+    return subprocess.run(
+        ["git", *args],
+        cwd=os.environ.get("CLAUDE_PROJECT_DIR", "."),
+        capture_output=True,
+        text=True,
+        timeout=15,
+        env={**os.environ, "HUSKY": "0"},
+    )
+
+
+def _commit_shard_in_cloud(shard):
+    """Cloud sessions only: commit (never push) the shard so the tree stays clean.
+
+    The per-session file stopped merge conflicts but not the other half of the
+    2026-08-31 failure: rewriting it on every Stop still left the tree dirty,
+    so CCR's own stop hook demanded a commit+push after EVERY turn — and each
+    push cancelled the PR's in-flight CI. Committing here satisfies that check
+    without a push; the record rides along with the next real push. Repeat
+    Stops amend the previous journal commit while it is still unpushed, so a
+    long session leaves one journal commit, not hundreds.
+
+    Commits ONLY the shard path, and backs off entirely during a merge/rebase,
+    on a detached HEAD, or when anything else is staged.
+    """
+    if os.environ.get("CLAUDE_CODE_REMOTE") != "true":
+        return
+    git_dir = _git("rev-parse", "--git-dir").stdout.strip()
+    if not git_dir or _git("symbolic-ref", "-q", "HEAD").returncode != 0:
+        return  # not a repo, or detached HEAD
+    root = os.environ.get("CLAUDE_PROJECT_DIR", ".")
+    for marker in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply"):
+        if os.path.exists(os.path.join(root, git_dir, marker)):
+            return
+    if _git("diff", "--cached", "--quiet").returncode != 0:
+        return  # someone else's staged work: don't sweep it into our commit
+    rel = os.path.relpath(shard, root)
+    if not _git("status", "--porcelain", "--", rel).stdout.strip():
+        return  # unchanged
+    _git("add", "--", rel)
+    head_subject = _git("log", "-1", "--format=%s").stdout.strip()
+    head_pushed = bool(_git("branch", "-r", "--contains", "HEAD").stdout.strip())
+    head_files = _git("show", "--name-only", "--format=", "HEAD").stdout.split()
+    if head_subject.startswith("harness(journal)") and not head_pushed and head_files == [rel]:
+        _git("commit", "--amend", "--no-edit", "--no-verify", "-q", "--", rel)
+    else:
+        msg = "harness(journal): session record [skip ci]"
+        _git("commit", "--no-verify", "-q", "-m", msg, "--", rel)
 
 
 if __name__ == "__main__":
