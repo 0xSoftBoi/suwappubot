@@ -2,6 +2,7 @@ import type { MetadataRoute } from 'next';
 import docsData from '../data/docs.json';
 import { publishedPosts } from '../content/research';
 import { SOLVE_PAGES, SOLVE_UPDATED } from '../data/solve';
+import { PRODUCTS, PRODUCTS_UPDATED } from '../data/products';
 
 const SITE = 'https://suwappu.bot';
 
@@ -76,5 +77,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
     })),
   ];
 
-  return [...staticPages, ...solveRoutes, ...researchPages, ...docPages];
+  const productRoutes: MetadataRoute.Sitemap = PRODUCTS.map((p) => ({
+    url: `${SITE}/products/${p.slug}`,
+    lastModified: new Date(PRODUCTS_UPDATED),
+    changeFrequency: 'monthly' as const,
+    priority: 0.8,
+  }));
+
+  return [...staticPages, ...productRoutes, ...solveRoutes, ...researchPages, ...docPages];
 }
