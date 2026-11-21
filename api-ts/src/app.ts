@@ -491,7 +491,7 @@ Authenticated calls use \`Authorization: Bearer suwappu_sk_...\`. Get one from P
 ## Managed Wallets
 - GET /v1/agent/wallets — List managed (Turnkey) wallets
 - POST /v1/agent/wallets — Create a managed wallet
-- POST /v1/agent/wallet/policy — Attach a spending-limit / address-whitelist policy
+- POST /v1/agent/wallet/policy — Attach a spending-limit (enforced: per-tx native value in wei only) / address-whitelist (recorded only, not enforced) policy
 - GET /v1/agent/wallet/policies — List wallet policies
 - DELETE /v1/agent/wallet/policy/:policyId — Remove a wallet policy
 

@@ -209,10 +209,10 @@ const SCHEMA_MAP: Record<
 				params: {
 					properties: {
 						maxAmountWei: {
-							description: 'Required for spending_limit. Per-transaction max native value in wei (not an aggregate).',
+							description: 'Required for spending_limit. Per-transaction max NATIVE value in wei, 1-39 digits (not ERC-20, not an aggregate).',
 						},
 						allowedAddresses: {
-							description: 'Required for whitelist.',
+							description: 'Required for whitelist. Max 50 addresses. Recorded only; not enforced.',
 						},
 					},
 				},
