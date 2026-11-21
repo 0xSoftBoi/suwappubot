@@ -139,3 +139,9 @@
   .tableWrap { max-height: none; }
 }
 @media (prefers-reduced-motion: reduce) { .sk, .rankFill { animation: none; } }
+.sortBtn { all: unset; cursor: pointer; color: inherit; font: inherit; white-space: nowrap; }
+.sortBtn:hover, .sortBtn:focus-visible { color: var(--adm-ink); text-decoration: underline; }
+.rateCell { display: inline-flex; align-items: center; gap: 10px; }
+.rateTrack { display: inline-block; width: 56px; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.rateFill { display: block; height: 100%; border-radius: 2px; background: var(--adm-accent); }
+@media (max-width: 700px) { .rateTrack { width: 40px; } }

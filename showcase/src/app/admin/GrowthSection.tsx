@@ -5,6 +5,7 @@ import styles from './growth.module.css';
 import DailyChart from '@/components/charts/DailyChart';
 import MiniTrend from '@/components/charts/MiniTrend';
 import { CountUp, Reveal } from '@/components/v3';
+import { getSolvePage } from '@/data/solve';
 
 /**
  * Growth: the marketing + sales funnel, written for a non-technical reader.
@@ -43,6 +44,14 @@ export type GrowthReport = {
   topEvents: { name: string; count: number; visitors: number }[];
   leadSources: { source: string; count: number }[];
   recentLeads: Lead[];
+  // Added later on the API: absent on older versions, so always read defensively.
+  landingPages?: LandingPage[];
+  landingPagesTruncated?: boolean;
+  aiReferrals?: { source: string; sessions: number }[];
+};
+type LandingPage = {
+  path: string; slug: string | null; visitors: number; views: number; ctaClicks: number;
+  snippetCopies: number; clickRate: number; topDestination: string | null; entrances: number;
 };
 
 const RANGES = [
@@ -142,6 +151,90 @@ function DailyBars({ title, unit, data, values, format = fmt, mode = 'area' }: {
         formatAxis={format === fmt ? (n) => compact.format(n) : (n) => `$${compact.format(n)}`}
         points={data.map((d, i) => ({ label: d.date, value: values[i] }))} />
     </figure>
+  );
+}
+
+const AI_NAMES: Record<string, string> = {
+  'chatgpt.com': 'ChatGPT', 'chat.openai.com': 'ChatGPT', 'perplexity.ai': 'Perplexity', 'www.perplexity.ai': 'Perplexity',
+  'claude.ai': 'Claude', 'gemini.google.com': 'Gemini', 'copilot.microsoft.com': 'Copilot',
+};
+const aiName = (s: string) => AI_NAMES[s.toLowerCase()] ?? s;
+
+function destinationLabel(d: string | null): string {
+  if (!d) return '—';
+  const x = d.toLowerCase();
+  if (x.includes('t.me')) return 'Telegram';
+  if (x.includes('/start')) return 'Get an API key';
+  if (x.includes('/contact')) return 'Talk to the team';
+  if (x.includes('terminal')) return 'Terminal';
+  return d;
+}
+
+type PageRow = LandingPage & { title: string; href: string };
+type SortKey = 'visitors' | 'entrances' | 'ctaClicks' | 'clickRate' | 'snippetCopies';
+const PAGE_COLS: { key: SortKey; label: string }[] = [
+  { key: 'visitors', label: 'Visitors' }, { key: 'entrances', label: 'Started here' },
+  { key: 'ctaClicks', label: 'Clicked the button' }, { key: 'clickRate', label: 'Click rate' },
+  { key: 'snippetCopies', label: 'Copied code' },
+];
+
+/** Which /solve pages bring people in, and which of them get the button clicked. */
+function ProblemPages({ pages, truncated }: { pages: LandingPage[]; truncated: boolean }) {
+  const [sort, setSort] = useState<SortKey>('visitors');
+  const rows: PageRow[] = useMemo(() => pages.map((p) => {
+    const page = p.slug ? getSolvePage(p.slug) : undefined;
+    return { ...p, title: page?.h1 ?? p.path, href: p.path };
+  }), [pages]);
+  const sorted = useMemo(() => [...rows].sort((a, b) => b[sort] - a[sort] || b.visitors - a.visitors), [rows, sort]);
+  const best = useMemo(() => rows.filter((r) => r.slug && r.visitors > 0).sort((a, b) => b.visitors - a.visitors)[0], [rows]);
+  return (
+    <div className={styles.panel}>
+      <h3 className={styles.panelTitle}>Which problems bring people in — and which get clicked</h3>
+      <p className={styles.panelHint}>
+        {best
+          ? <>“{best.title}” brought the most visitors ({fmt(best.visitors)}) and {(best.clickRate * 100).toFixed(1)}% clicked through.{' '}</>
+          : null}
+        Each row is a page that answers one question. “Started here” is how many people’s visit began on it.
+      </p>
+      {rows.length === 0 ? (
+        <p className={styles.empty}><span className={styles.emptyMark} aria-hidden="true" />No visits to problem pages yet. They appear here as soon as someone lands on one.</p>
+      ) : (
+        <div className={styles.tableWrap}>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th scope="col">Problem page</th>
+                {PAGE_COLS.map((c) => (
+                  <th key={c.key} scope="col" aria-sort={sort === c.key ? 'descending' : undefined}>
+                    <button type="button" className={styles.sortBtn} onClick={() => setSort(c.key)}>{c.label}{sort === c.key ? ' ↓' : ''}</button>
+                  </th>
+                ))}
+                <th scope="col">Where clicks go</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((r) => (
+                <tr key={r.path}>
+                  <td data-label="Page"><a className={styles.link} href={r.href} target="_blank" rel="noreferrer">{r.title}</a></td>
+                  <td data-label="Visitors">{fmt(r.visitors)}</td>
+                  <td data-label="Started here">{fmt(r.entrances)}</td>
+                  <td data-label="Clicked">{fmt(r.ctaClicks)}</td>
+                  <td data-label="Click rate">
+                    <span className={styles.rateCell}>
+                      <span>{(r.clickRate * 100).toFixed(1)}%</span>
+                      <span className={styles.rateTrack} aria-hidden="true"><span className={styles.rateFill} style={{ width: `${Math.min(100, Math.max(0, r.clickRate * 100))}%` }} /></span>
+                    </span>
+                  </td>
+                  <td data-label="Copied code">{fmt(r.snippetCopies)}</td>
+                  <td data-label="Clicks go to">{destinationLabel(r.topDestination)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {truncated ? <p className={styles.panelHint} style={{ margin: '10px 0 0' }}>Capped: only the busiest pages are shown.</p> : null}
+    </div>
   );
 }
 
@@ -345,6 +438,31 @@ export default function GrowthSection({ load }: { load: (path: string) => Promis
               </ol>
             ) : <p className={styles.empty}><span className={styles.emptyMark} aria-hidden="true" />No visits recorded in this period yet.</p>}
           </div>
+
+          {Array.isArray(report.landingPages) ? (
+            <ProblemPages pages={report.landingPages} truncated={!!report.landingPagesTruncated} />
+          ) : null}
+
+          {Array.isArray(report.aiReferrals) ? (
+            <div className={styles.panel}>
+              <h3 className={styles.panelTitle}>Visits sent by AI assistants</h3>
+              <p className={styles.panelHint}>People who arrived from a link inside an AI assistant’s answer.</p>
+              {report.aiReferrals.length === 0 ? (
+                <p className={styles.empty}><span className={styles.emptyMark} aria-hidden="true" />None yet in this period.</p>
+              ) : (
+                <ul className={styles.rank}>
+                  {report.aiReferrals.map((a) => (
+                    <li key={a.source}>
+                      <div className={styles.rankRow}>
+                        <span className={styles.rankLabel} title={a.source}>{aiName(a.source)}</span>
+                        <span className={styles.rankValue}>{fmt(a.sessions)} {a.sessions === 1 ? 'visit' : 'visits'}</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ) : null}
 
           <div className={styles.grid2}>
             <RankList title="Where visitors come from" hint="The site or campaign that sent them. “direct” means they typed the address or used a bookmark."
