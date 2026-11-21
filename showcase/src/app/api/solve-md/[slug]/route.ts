@@ -21,6 +21,7 @@ export async function GET(_req: Request, { params }: { params: Promise<Params> }
     headers: {
       'Content-Type': 'text/markdown; charset=utf-8',
       'Cache-Control': 'public, max-age=3600',
+      Vary: 'Accept',
       Link: '</llms.txt>; rel="llms-txt", </llms-full.txt>; rel="llms-full-txt"',
       'X-Llms-Txt': '/llms.txt',
     },

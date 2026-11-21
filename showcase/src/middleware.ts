@@ -54,6 +54,14 @@ export function middleware(request: NextRequest) {
     response.headers.set('X-Llms-Txt', '/llms.txt');
   }
 
+  // An extensionless doc/problem URL has two representations (HTML, or Markdown
+  // when the client asks for it). Tell caches the response depends on Accept, or
+  // a cached Markdown copy could be served to a browser asking for the page.
+  const path = request.nextUrl.pathname;
+  if (!path.endsWith('.md') && (SOLVE_MD.test(path) || DOC_MD.test(path))) {
+    response.headers.append('Vary', 'Accept');
+  }
+
   return response;
 }
 

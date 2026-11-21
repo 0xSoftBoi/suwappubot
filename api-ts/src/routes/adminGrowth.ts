@@ -485,11 +485,13 @@ adminGrowthRoutes.get('/growth', async (c) => {
 					l.sessions.add(String(r.session_id))
 					continue
 				}
+				// Attribute an interaction to the page it HAPPENED on (the event's
+				// path), exactly like page views. The `slug` prop is not a reliable
+				// source page: /start sends "start", the hub sends "hub" or the tile's
+				// destination, and the strip on other pages sends where it leads.
+				if (!isLandingPath(evPath)) continue
 				const props = parseContext(r.props_json)
-				const slug = field(props, 'slug', 80)
-				const key = slug && SLUG_RE.test(slug) ? `/solve/${slug}` : evPath
-				if (!isLandingPath(key)) continue
-				const l = pageFor(key)
+				const l = pageFor(evPath)
 				if (name === 'cta_clicked') {
 					l.ctaClicks += 1
 					l.clickers.add(String(r.session_id))
