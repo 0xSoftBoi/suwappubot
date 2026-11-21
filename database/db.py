@@ -453,13 +453,17 @@ def _ensure_schema(db_engine) -> None:
     # Per-chain high-water mark for the deposit watcher. Separate table rather
     # than a config blob so an operator can inspect and rewind a single chain.
     with db_engine.begin() as conn:
-        conn.execute(text("""
+        conn.execute(
+            text(
+                """
                 CREATE TABLE IF NOT EXISTS deposit_scan_cursors (
                     chain VARCHAR(50) PRIMARY KEY,
                     last_scanned_block BIGINT NOT NULL,
                     updated_at TIMESTAMP
                 )
-                """))
+                """
+            )
+        )
 
     # --- wallets: envelope encryption columns ---
     if "wallets" in tables:
@@ -1008,7 +1012,9 @@ def _create_waitlist_signups_table(db_engine, inspector, is_sqlite: bool) -> Non
     with db_engine.begin() as conn:
         if "waitlist_signups" not in tables:
             if is_sqlite:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS waitlist_signups (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         handle VARCHAR(32) NOT NULL,
@@ -1021,9 +1027,13 @@ def _create_waitlist_signups_table(db_engine, inspector, is_sqlite: bool) -> Non
                         ip_hash VARCHAR(64),
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """
+                    )
+                )
             else:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS waitlist_signups (
                         id SERIAL PRIMARY KEY,
                         handle VARCHAR(32) NOT NULL,
@@ -1036,7 +1046,9 @@ def _create_waitlist_signups_table(db_engine, inspector, is_sqlite: bool) -> Non
                         ip_hash VARCHAR(64),
                         created_at TIMESTAMP DEFAULT NOW()
                     )
-                """))
+                """
+                    )
+                )
             logger.info("Created waitlist_signups table")
 
         # Unique indexes: one handle, one email, one referral code per row.
@@ -2672,7 +2684,9 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
         # --- daily_quests ---
         if "daily_quests" not in tables:
             if is_sqlite:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS daily_quests (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         date VARCHAR(10) NOT NULL,
@@ -2683,9 +2697,13 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         xp_reward INTEGER DEFAULT 0,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """
+                    )
+                )
             else:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS daily_quests (
                         id SERIAL PRIMARY KEY,
                         date VARCHAR(10) NOT NULL,
@@ -2696,14 +2714,18 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         xp_reward INTEGER DEFAULT 0,
                         created_at TIMESTAMP DEFAULT NOW()
                     )
-                """))
+                """
+                    )
+                )
 
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_quests_date ON daily_quests(date)"))
 
         # --- user_quests ---
         if "user_quests" not in tables:
             if is_sqlite:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS user_quests (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         user_id INTEGER NOT NULL REFERENCES users(id),
@@ -2714,9 +2736,13 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         claimed BOOLEAN DEFAULT FALSE,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """
+                    )
+                )
             else:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS user_quests (
                         id SERIAL PRIMARY KEY,
                         user_id INTEGER NOT NULL REFERENCES users(id),
@@ -2727,7 +2753,9 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         claimed BOOLEAN DEFAULT FALSE,
                         created_at TIMESTAMP DEFAULT NOW()
                     )
-                """))
+                """
+                    )
+                )
 
         conn.execute(
             text("CREATE INDEX IF NOT EXISTS ix_user_quests_user_id ON user_quests(user_id)")
@@ -2741,7 +2769,9 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
         # --- jackpot_pools ---
         if "jackpot_pools" not in tables:
             if is_sqlite:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS jackpot_pools (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         date VARCHAR(10) NOT NULL UNIQUE,
@@ -2752,9 +2782,13 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         drawn_at DATETIME,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """
+                    )
+                )
             else:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS jackpot_pools (
                         id SERIAL PRIMARY KEY,
                         date VARCHAR(10) NOT NULL UNIQUE,
@@ -2765,7 +2799,9 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         drawn_at TIMESTAMP,
                         created_at TIMESTAMP DEFAULT NOW()
                     )
-                """))
+                """
+                    )
+                )
 
         conn.execute(
             text("CREATE INDEX IF NOT EXISTS ix_jackpot_pools_date ON jackpot_pools(date)")
@@ -2790,7 +2826,9 @@ def _create_agent_billing_tables(db_engine, inspector, is_sqlite: bool) -> None:
         # --- agent_credits (prepaid balance; 1 credit ~= $0.001 USD) ---
         if "agent_credits" not in tables:
             if is_sqlite:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS agent_credits (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         agent_id INTEGER NOT NULL UNIQUE,
@@ -2800,9 +2838,13 @@ def _create_agent_billing_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """
+                    )
+                )
             else:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS agent_credits (
                         id SERIAL PRIMARY KEY,
                         agent_id INTEGER NOT NULL UNIQUE,
@@ -2812,12 +2854,16 @@ def _create_agent_billing_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         created_at TIMESTAMP NOT NULL DEFAULT NOW(),
                         updated_at TIMESTAMP NOT NULL DEFAULT NOW()
                     )
-                """))
+                """
+                    )
+                )
 
         # --- agent_credit_topups (on-chain USDC topup ledger; idempotent on tx_hash) ---
         if "agent_credit_topups" not in tables:
             if is_sqlite:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS agent_credit_topups (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         agent_id INTEGER NOT NULL,
@@ -2827,9 +2873,13 @@ def _create_agent_billing_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         credits_added REAL NOT NULL,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """
+                    )
+                )
             else:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS agent_credit_topups (
                         id SERIAL PRIMARY KEY,
                         agent_id INTEGER NOT NULL,
@@ -2839,7 +2889,9 @@ def _create_agent_billing_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         credits_added DOUBLE PRECISION NOT NULL,
                         created_at TIMESTAMP NOT NULL DEFAULT NOW()
                     )
-                """))
+                """
+                    )
+                )
 
         conn.execute(
             text(
@@ -2851,7 +2903,9 @@ def _create_agent_billing_tables(db_engine, inspector, is_sqlite: bool) -> None:
         # --- agent_subscriptions (USDC -> time-bound tier; idempotent on tx_hash) ---
         if "agent_subscriptions" not in tables:
             if is_sqlite:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS agent_subscriptions (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         agent_id INTEGER NOT NULL UNIQUE,
@@ -2863,9 +2917,13 @@ def _create_agent_billing_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         expires_at DATETIME NOT NULL,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """
+                    )
+                )
             else:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS agent_subscriptions (
                         id SERIAL PRIMARY KEY,
                         agent_id INTEGER NOT NULL UNIQUE,
@@ -2877,7 +2935,9 @@ def _create_agent_billing_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         expires_at TIMESTAMP NOT NULL,
                         created_at TIMESTAMP NOT NULL DEFAULT NOW()
                     )
-                """))
+                """
+                    )
+                )
 
         conn.execute(
             text(
@@ -2904,7 +2964,9 @@ def _create_recurring_subscriptions_table(db_engine, inspector, is_sqlite: bool)
     with db_engine.begin() as conn:
         if "recurring_subscriptions" not in tables:
             if is_sqlite:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS recurring_subscriptions (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         user_id INTEGER,
@@ -2927,9 +2989,13 @@ def _create_recurring_subscriptions_table(db_engine, inspector, is_sqlite: bool)
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """
+                    )
+                )
             else:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS recurring_subscriptions (
                         id SERIAL PRIMARY KEY,
                         user_id INTEGER,
@@ -2952,7 +3018,9 @@ def _create_recurring_subscriptions_table(db_engine, inspector, is_sqlite: bool)
                         created_at TIMESTAMP NOT NULL DEFAULT NOW(),
                         updated_at TIMESTAMP NOT NULL DEFAULT NOW()
                     )
-                """))
+                """
+                    )
+                )
 
         # Idempotency: one row per (account, spender, token, salt) permission.
         conn.execute(
@@ -3118,7 +3186,9 @@ def _create_referral_earnings_table(db_engine, inspector, is_sqlite: bool) -> No
     with db_engine.begin() as conn:
         if "referral_earnings" not in tables:
             if is_sqlite:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS referral_earnings (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         referrer_id INTEGER NOT NULL REFERENCES users(id),
@@ -3133,9 +3203,13 @@ def _create_referral_earnings_table(db_engine, inspector, is_sqlite: bool) -> No
                         metadata TEXT,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """
+                    )
+                )
             else:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS referral_earnings (
                         id SERIAL PRIMARY KEY,
                         referrer_id INTEGER NOT NULL REFERENCES users(id),
@@ -3150,7 +3224,9 @@ def _create_referral_earnings_table(db_engine, inspector, is_sqlite: bool) -> No
                         metadata TEXT,
                         created_at TIMESTAMP DEFAULT NOW()
                     )
-                """))
+                """
+                    )
+                )
             logger.info("Created referral_earnings table")
 
         conn.execute(
@@ -3213,7 +3289,9 @@ def _create_referral_milestones_table(db_engine, inspector, is_sqlite: bool) -> 
     with db_engine.begin() as conn:
         if "referral_milestones" not in tables:
             if is_sqlite:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS referral_milestones (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         referrer_id INTEGER NOT NULL REFERENCES users(id),
@@ -3222,9 +3300,13 @@ def _create_referral_milestones_table(db_engine, inspector, is_sqlite: bool) -> 
                         earned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                         earning_id INTEGER REFERENCES referral_earnings(id)
                     )
-                """))
+                """
+                    )
+                )
             else:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS referral_milestones (
                         id SERIAL PRIMARY KEY,
                         referrer_id INTEGER NOT NULL REFERENCES users(id),
@@ -3233,7 +3315,9 @@ def _create_referral_milestones_table(db_engine, inspector, is_sqlite: bool) -> 
                         earned_at TIMESTAMP DEFAULT NOW(),
                         earning_id INTEGER REFERENCES referral_earnings(id)
                     )
-                """))
+                """
+                    )
+                )
             logger.info("Created referral_milestones table")
 
         conn.execute(
@@ -3359,7 +3443,9 @@ def _create_tips_table(db_engine, inspector, is_sqlite: bool) -> None:
     with db_engine.begin() as conn:
         if "tips" not in tables:
             if is_sqlite:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS tips (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         sender_id INTEGER NOT NULL REFERENCES users(id),
@@ -3374,9 +3460,13 @@ def _create_tips_table(db_engine, inspector, is_sqlite: bool) -> None:
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                         claimed_at DATETIME
                     )
-                """))
+                """
+                    )
+                )
             else:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS tips (
                         id SERIAL PRIMARY KEY,
                         sender_id INTEGER NOT NULL REFERENCES users(id),
@@ -3391,7 +3481,9 @@ def _create_tips_table(db_engine, inspector, is_sqlite: bool) -> None:
                         created_at TIMESTAMP DEFAULT NOW(),
                         claimed_at TIMESTAMP
                     )
-                """))
+                """
+                    )
+                )
             logger.info("Created tips table")
 
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_tips_sender_id ON tips(sender_id)"))
@@ -3418,7 +3510,9 @@ def _create_lucky_boxes_tables(db_engine, inspector, is_sqlite: bool) -> None:
     with db_engine.begin() as conn:
         if "lucky_boxes" not in tables:
             if is_sqlite:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS lucky_boxes (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         creator_id INTEGER NOT NULL REFERENCES users(id),
@@ -3434,9 +3528,13 @@ def _create_lucky_boxes_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         expires_at DATETIME NOT NULL,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """
+                    )
+                )
             else:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS lucky_boxes (
                         id SERIAL PRIMARY KEY,
                         creator_id INTEGER NOT NULL REFERENCES users(id),
@@ -3452,7 +3550,9 @@ def _create_lucky_boxes_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         expires_at TIMESTAMP NOT NULL,
                         created_at TIMESTAMP DEFAULT NOW()
                     )
-                """))
+                """
+                    )
+                )
             logger.info("Created lucky_boxes table")
 
         conn.execute(
@@ -3474,7 +3574,9 @@ def _create_lucky_boxes_tables(db_engine, inspector, is_sqlite: bool) -> None:
     with db_engine.begin() as conn:
         if "lucky_box_claims" not in tables:
             if is_sqlite:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS lucky_box_claims (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         lucky_box_id INTEGER NOT NULL REFERENCES lucky_boxes(id),
@@ -3483,9 +3585,13 @@ def _create_lucky_boxes_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         tx_hash VARCHAR(128),
                         claimed_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """
+                    )
+                )
             else:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS lucky_box_claims (
                         id SERIAL PRIMARY KEY,
                         lucky_box_id INTEGER NOT NULL REFERENCES lucky_boxes(id),
@@ -3494,7 +3600,9 @@ def _create_lucky_boxes_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         tx_hash VARCHAR(128),
                         claimed_at TIMESTAMP DEFAULT NOW()
                     )
-                """))
+                """
+                    )
+                )
             logger.info("Created lucky_box_claims table")
 
         conn.execute(
@@ -3532,7 +3640,9 @@ def _create_split_bills_tables(db_engine, inspector, is_sqlite: bool) -> None:
     with db_engine.begin() as conn:
         if "split_bills" not in tables:
             if is_sqlite:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS split_bills (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         creator_id INTEGER NOT NULL REFERENCES users(id),
@@ -3544,9 +3654,13 @@ def _create_split_bills_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         status VARCHAR(20) NOT NULL DEFAULT 'pending',
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """
+                    )
+                )
             else:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS split_bills (
                         id SERIAL PRIMARY KEY,
                         creator_id INTEGER NOT NULL REFERENCES users(id),
@@ -3558,7 +3672,9 @@ def _create_split_bills_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         status VARCHAR(20) NOT NULL DEFAULT 'pending',
                         created_at TIMESTAMP DEFAULT NOW()
                     )
-                """))
+                """
+                    )
+                )
             logger.info("Created split_bills table")
 
         conn.execute(
@@ -3577,7 +3693,9 @@ def _create_split_bills_tables(db_engine, inspector, is_sqlite: bool) -> None:
     with db_engine.begin() as conn:
         if "split_bill_shares" not in tables:
             if is_sqlite:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS split_bill_shares (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         split_bill_id INTEGER NOT NULL REFERENCES split_bills(id),
@@ -3586,9 +3704,13 @@ def _create_split_bills_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         status VARCHAR(20) NOT NULL DEFAULT 'pending',
                         paid_at DATETIME
                     )
-                """))
+                """
+                    )
+                )
             else:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS split_bill_shares (
                         id SERIAL PRIMARY KEY,
                         split_bill_id INTEGER NOT NULL REFERENCES split_bills(id),
@@ -3597,7 +3719,9 @@ def _create_split_bills_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         status VARCHAR(20) NOT NULL DEFAULT 'pending',
                         paid_at TIMESTAMP
                     )
-                """))
+                """
+                    )
+                )
             logger.info("Created split_bill_shares table")
 
         conn.execute(
@@ -3641,7 +3765,9 @@ def _create_airdrop_tables(db_engine, inspector, is_sqlite: bool) -> None:
     with db_engine.begin() as conn:
         if "airdrop_campaigns" not in tables:
             if is_sqlite:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS airdrop_campaigns (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         creator_id INTEGER NOT NULL REFERENCES users(id),
@@ -3655,9 +3781,13 @@ def _create_airdrop_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         expires_at DATETIME,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """
+                    )
+                )
             else:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS airdrop_campaigns (
                         id SERIAL PRIMARY KEY,
                         creator_id INTEGER NOT NULL REFERENCES users(id),
@@ -3671,7 +3801,9 @@ def _create_airdrop_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         expires_at TIMESTAMP,
                         created_at TIMESTAMP DEFAULT NOW()
                     )
-                """))
+                """
+                    )
+                )
             logger.info("Created airdrop_campaigns table")
 
         conn.execute(
@@ -3696,7 +3828,9 @@ def _create_airdrop_tables(db_engine, inspector, is_sqlite: bool) -> None:
     with db_engine.begin() as conn:
         if "airdrop_claims" not in tables:
             if is_sqlite:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS airdrop_claims (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         campaign_id INTEGER NOT NULL REFERENCES airdrop_campaigns(id),
@@ -3705,9 +3839,13 @@ def _create_airdrop_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         tx_hash VARCHAR(128),
                         claimed_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """
+                    )
+                )
             else:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS airdrop_claims (
                         id SERIAL PRIMARY KEY,
                         campaign_id INTEGER NOT NULL REFERENCES airdrop_campaigns(id),
@@ -3716,7 +3854,9 @@ def _create_airdrop_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         tx_hash VARCHAR(128),
                         claimed_at TIMESTAMP DEFAULT NOW()
                     )
-                """))
+                """
+                    )
+                )
             logger.info("Created airdrop_claims table")
 
         conn.execute(
@@ -3762,7 +3902,9 @@ def _create_battles_table(db_engine, inspector, is_sqlite: bool) -> None:
     with db_engine.begin() as conn:
         if "battles" not in tables:
             if is_sqlite:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS battles (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         user_id INTEGER NOT NULL,
@@ -3781,9 +3923,13 @@ def _create_battles_table(db_engine, inspector, is_sqlite: bool) -> None:
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                         settled_at DATETIME
                     )
-                """))
+                """
+                    )
+                )
             else:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS battles (
                         id SERIAL PRIMARY KEY,
                         user_id INTEGER NOT NULL,
@@ -3802,7 +3948,9 @@ def _create_battles_table(db_engine, inspector, is_sqlite: bool) -> None:
                         created_at TIMESTAMP DEFAULT NOW(),
                         settled_at TIMESTAMP
                     )
-                """))
+                """
+                    )
+                )
             logger.info("Created battles table")
 
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_battles_user_id ON battles(user_id)"))
@@ -3834,7 +3982,9 @@ def _create_onchain_rewards_tables(db_engine, inspector, is_sqlite: bool) -> Non
     with db_engine.begin() as conn:
         if "reward_epochs" not in tables:
             if is_sqlite:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS reward_epochs (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         epoch_index INTEGER NOT NULL UNIQUE,
@@ -3850,9 +4000,13 @@ def _create_onchain_rewards_tables(db_engine, inspector, is_sqlite: bool) -> Non
                         finalized_at DATETIME,
                         published_at DATETIME
                     )
-                """))
+                """
+                    )
+                )
             else:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS reward_epochs (
                         id SERIAL PRIMARY KEY,
                         epoch_index INTEGER NOT NULL UNIQUE,
@@ -3868,12 +4022,16 @@ def _create_onchain_rewards_tables(db_engine, inspector, is_sqlite: bool) -> Non
                         finalized_at TIMESTAMP,
                         published_at TIMESTAMP
                     )
-                """))
+                """
+                    )
+                )
             logger.info("Created reward_epochs table")
 
         if "reward_entries" not in tables:
             if is_sqlite:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS reward_entries (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         epoch_id INTEGER NOT NULL REFERENCES reward_epochs(id),
@@ -3892,9 +4050,13 @@ def _create_onchain_rewards_tables(db_engine, inspector, is_sqlite: bool) -> Non
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                         UNIQUE (epoch_id, user_id)
                     )
-                """))
+                """
+                    )
+                )
             else:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS reward_entries (
                         id SERIAL PRIMARY KEY,
                         epoch_id INTEGER NOT NULL REFERENCES reward_epochs(id),
@@ -3913,7 +4075,9 @@ def _create_onchain_rewards_tables(db_engine, inspector, is_sqlite: bool) -> Non
                         created_at TIMESTAMP DEFAULT NOW(),
                         CONSTRAINT uq_reward_entries_epoch_user UNIQUE (epoch_id, user_id)
                     )
-                """))
+                """
+                    )
+                )
             logger.info("Created reward_entries table")
 
         conn.execute(
@@ -3954,7 +4118,9 @@ def _create_swap_route_candidates_table(db_engine, inspector, is_sqlite: bool) -
     bool_default = "0" if is_sqlite else "FALSE"
 
     with db_engine.begin() as conn:
-        conn.execute(text(f"""
+        conn.execute(
+            text(
+                f"""
                 CREATE TABLE IF NOT EXISTS swap_route_candidates (
                     {pk},
                     quote_id VARCHAR(128) NOT NULL,
@@ -3981,7 +4147,11 @@ def _create_swap_route_candidates_table(db_engine, inspector, is_sqlite: bool) -
                     FOREIGN KEY (swap_id) REFERENCES swap_transactions (id),
                     FOREIGN KEY (user_id) REFERENCES users (id)
                 )
-                """.replace("DOUBLE PRECISION", "REAL" if is_sqlite else "DOUBLE PRECISION")))
+                """.replace(
+                    "DOUBLE PRECISION", "REAL" if is_sqlite else "DOUBLE PRECISION"
+                )
+            )
+        )
 
         for idx, cols in (
             ("ix_swap_route_candidates_quote_id", "quote_id"),
@@ -4026,7 +4196,9 @@ def _create_swap_execution_marks_table(db_engine, inspector, is_sqlite: bool) ->
     float_type = "REAL" if is_sqlite else "DOUBLE PRECISION"
 
     with db_engine.begin() as conn:
-        conn.execute(text(f"""
+        conn.execute(
+            text(
+                f"""
                 CREATE TABLE IF NOT EXISTS swap_execution_marks (
                     {pk},
                     swap_id INTEGER NOT NULL,
@@ -4045,7 +4217,9 @@ def _create_swap_execution_marks_table(db_engine, inspector, is_sqlite: bool) ->
                     -- it does, the schema would silently lack the constraint.
                     FOREIGN KEY (swap_id) REFERENCES swap_transactions (id)
                 )
-                """))
+                """
+            )
+        )
         conn.execute(
             text(
                 "CREATE INDEX IF NOT EXISTS ix_swap_execution_marks_swap_id "
@@ -4119,7 +4293,9 @@ def _create_token_intel_tables(db_engine, inspector, is_sqlite: bool) -> None:
 
     with db_engine.begin() as conn:
         if "deployer_watches" not in tables:
-            conn.execute(text(f"""
+            conn.execute(
+                text(
+                    f"""
                 CREATE TABLE IF NOT EXISTS deployer_watches (
                     {pk},
                     user_id INTEGER NOT NULL REFERENCES users(id),
@@ -4130,7 +4306,9 @@ def _create_token_intel_tables(db_engine, inspector, is_sqlite: bool) -> None:
                     CONSTRAINT uq_deployer_watch_user_addr_chain
                         UNIQUE (user_id, deployer_address, chain)
                 )
-            """))
+            """
+                )
+            )
 
         conn.execute(
             text(
@@ -4146,7 +4324,9 @@ def _create_token_intel_tables(db_engine, inspector, is_sqlite: bool) -> None:
         )
 
         if "deployer_watch_hits" not in tables:
-            conn.execute(text(f"""
+            conn.execute(
+                text(
+                    f"""
                 CREATE TABLE IF NOT EXISTS deployer_watch_hits (
                     {pk},
                     watch_id INTEGER NOT NULL REFERENCES deployer_watches(id),
@@ -4154,7 +4334,9 @@ def _create_token_intel_tables(db_engine, inspector, is_sqlite: bool) -> None:
                     chain VARCHAR(50) NOT NULL DEFAULT 'ethereum',
                     detected_at {ts_type} DEFAULT {ts_default}
                 )
-            """))
+            """
+                )
+            )
 
         conn.execute(
             text(
@@ -4264,7 +4446,9 @@ def _create_agent_webhook_deliveries_table(db_engine, inspector, is_sqlite: bool
 
     try:
         with db_engine.begin() as conn:
-            conn.execute(text(f"""
+            conn.execute(
+                text(
+                    f"""
                     CREATE TABLE IF NOT EXISTS agent_webhook_deliveries (
                         id VARCHAR(36) PRIMARY KEY,
                         approval_id VARCHAR(36) NOT NULL,
@@ -4280,7 +4464,9 @@ def _create_agent_webhook_deliveries_table(db_engine, inspector, is_sqlite: bool
                         created_at {ts_type} NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         delivered_at {ts_type}
                     )
-                    """))
+                    """
+                )
+            )
             for idx, cols in (
                 ("ix_agent_webhook_deliveries_status_next", "status, next_attempt_at"),
                 ("ix_agent_webhook_deliveries_approval_id", "approval_id"),
@@ -4485,7 +4671,9 @@ def _create_market_candles_table(db_engine, inspector, is_sqlite: bool) -> None:
     with db_engine.begin() as conn:
         if "market_candles" not in tables:
             if is_sqlite:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS market_candles (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         symbol VARCHAR(20) NOT NULL,
@@ -4501,9 +4689,13 @@ def _create_market_candles_table(db_engine, inspector, is_sqlite: bool) -> None:
                         source VARCHAR(20) NOT NULL,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """
+                    )
+                )
             else:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS market_candles (
                         id SERIAL PRIMARY KEY,
                         symbol VARCHAR(20) NOT NULL,
@@ -4519,7 +4711,9 @@ def _create_market_candles_table(db_engine, inspector, is_sqlite: bool) -> None:
                         source VARCHAR(20) NOT NULL,
                         created_at TIMESTAMP DEFAULT NOW()
                     )
-                """))
+                """
+                    )
+                )
             logger.info("Created market_candles table")
 
     _ensure_index_lock_safe(
@@ -4556,7 +4750,9 @@ def _create_api_usage_daily_table(db_engine, inspector, is_sqlite: bool) -> None
     with db_engine.begin() as conn:
         if "api_usage_daily" not in tables:
             if is_sqlite:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS api_usage_daily (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         api_key_id TEXT NOT NULL,
@@ -4565,9 +4761,13 @@ def _create_api_usage_daily_table(db_engine, inspector, is_sqlite: bool) -> None
                         count INTEGER NOT NULL DEFAULT 0,
                         last_used_at DATETIME
                     )
-                """))
+                """
+                    )
+                )
             else:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS api_usage_daily (
                         id BIGSERIAL PRIMARY KEY,
                         api_key_id TEXT NOT NULL,
@@ -4576,7 +4776,9 @@ def _create_api_usage_daily_table(db_engine, inspector, is_sqlite: bool) -> None
                         count BIGINT NOT NULL DEFAULT 0,
                         last_used_at TIMESTAMPTZ
                     )
-                """))
+                """
+                    )
+                )
             logger.info("Created api_usage_daily table")
 
     _ensure_index_lock_safe(
@@ -4619,7 +4821,9 @@ def _create_perp_metrics_table(db_engine, inspector, is_sqlite: bool) -> None:
     with db_engine.begin() as conn:
         if "perp_metrics" not in tables:
             if is_sqlite:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS perp_metrics (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         venue TEXT NOT NULL,
@@ -4632,9 +4836,13 @@ def _create_perp_metrics_table(db_engine, inspector, is_sqlite: bool) -> None:
                         volume_24h NUMERIC(38,18),
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """
+                    )
+                )
             else:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS perp_metrics (
                         id BIGSERIAL PRIMARY KEY,
                         venue TEXT NOT NULL,
@@ -4647,7 +4855,9 @@ def _create_perp_metrics_table(db_engine, inspector, is_sqlite: bool) -> None:
                         volume_24h NUMERIC(38,18),
                         created_at TIMESTAMP DEFAULT NOW()
                     )
-                """))
+                """
+                    )
+                )
             logger.info("Created perp_metrics table")
 
     _ensure_index_lock_safe(
@@ -4684,7 +4894,9 @@ def _create_prediction_snapshots_table(db_engine, inspector, is_sqlite: bool) ->
     with db_engine.begin() as conn:
         if "prediction_snapshots" not in tables:
             if is_sqlite:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS prediction_snapshots (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         venue TEXT NOT NULL,
@@ -4699,9 +4911,13 @@ def _create_prediction_snapshots_table(db_engine, inspector, is_sqlite: bool) ->
                         end_date DATETIME,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """
+                    )
+                )
             else:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS prediction_snapshots (
                         id BIGSERIAL PRIMARY KEY,
                         venue TEXT NOT NULL,
@@ -4716,7 +4932,9 @@ def _create_prediction_snapshots_table(db_engine, inspector, is_sqlite: bool) ->
                         end_date TIMESTAMPTZ,
                         created_at TIMESTAMP DEFAULT NOW()
                     )
-                """))
+                """
+                    )
+                )
             logger.info("Created prediction_snapshots table")
 
     _ensure_index_lock_safe(
@@ -4754,7 +4972,9 @@ def _create_lend_metrics_table(db_engine, inspector, is_sqlite: bool) -> None:
     with db_engine.begin() as conn:
         if "lend_metrics" not in tables:
             if is_sqlite:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS lend_metrics (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         venue TEXT NOT NULL,
@@ -4769,9 +4989,13 @@ def _create_lend_metrics_table(db_engine, inspector, is_sqlite: bool) -> None:
                         utilization NUMERIC(38,18),
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """
+                    )
+                )
             else:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS lend_metrics (
                         id BIGSERIAL PRIMARY KEY,
                         venue TEXT NOT NULL,
@@ -4786,7 +5010,9 @@ def _create_lend_metrics_table(db_engine, inspector, is_sqlite: bool) -> None:
                         utilization NUMERIC(38,18),
                         created_at TIMESTAMP DEFAULT NOW()
                     )
-                """))
+                """
+                    )
+                )
             logger.info("Created lend_metrics table")
 
     _ensure_index_lock_safe(
@@ -4865,7 +5091,9 @@ def _create_autopilot_tables(db_engine, inspector, is_sqlite: bool) -> None:
     real = "REAL" if is_sqlite else "REAL"
 
     with db_engine.begin() as conn:
-        conn.execute(text(f"""
+        conn.execute(
+            text(
+                f"""
                 CREATE TABLE IF NOT EXISTS autopilot_agents (
                     id {pk},
                     slug VARCHAR(64) NOT NULL UNIQUE,
@@ -4885,8 +5113,12 @@ def _create_autopilot_tables(db_engine, inspector, is_sqlite: bool) -> None:
                     created_at {ts} NOT NULL,
                     updated_at {ts} NOT NULL
                 )
-            """))
-        conn.execute(text(f"""
+            """
+            )
+        )
+        conn.execute(
+            text(
+                f"""
                 CREATE TABLE IF NOT EXISTS autopilot_cycles (
                     id {pk},
                     agent_id INTEGER NOT NULL,
@@ -4901,8 +5133,12 @@ def _create_autopilot_tables(db_engine, inspector, is_sqlite: bool) -> None:
                     started_at {ts} NOT NULL,
                     finished_at {dt}
                 )
-            """))
-        conn.execute(text(f"""
+            """
+            )
+        )
+        conn.execute(
+            text(
+                f"""
                 CREATE TABLE IF NOT EXISTS autopilot_decisions (
                     id {pk},
                     agent_id INTEGER NOT NULL,
@@ -4935,8 +5171,12 @@ def _create_autopilot_tables(db_engine, inspector, is_sqlite: bool) -> None:
                     revealed_at {dt},
                     created_at {ts} NOT NULL
                 )
-            """))
-        conn.execute(text(f"""
+            """
+            )
+        )
+        conn.execute(
+            text(
+                f"""
                 CREATE TABLE IF NOT EXISTS autopilot_positions (
                     id {pk},
                     agent_id INTEGER NOT NULL,
@@ -4959,8 +5199,12 @@ def _create_autopilot_tables(db_engine, inspector, is_sqlite: bool) -> None:
                     closed_at {dt},
                     updated_at {ts} NOT NULL
                 )
-            """))
-        conn.execute(text(f"""
+            """
+            )
+        )
+        conn.execute(
+            text(
+                f"""
                 CREATE TABLE IF NOT EXISTS autopilot_journal (
                     id {pk},
                     agent_id INTEGER NOT NULL,
@@ -4972,7 +5216,9 @@ def _create_autopilot_tables(db_engine, inspector, is_sqlite: bool) -> None:
                     data {json_type},
                     created_at {ts} NOT NULL
                 )
-            """))
+            """
+            )
+        )
         for stmt in (
             "CREATE INDEX IF NOT EXISTS autopilot_agents_status_idx ON autopilot_agents(status)",
             "CREATE INDEX IF NOT EXISTS autopilot_cycles_agent_idx "

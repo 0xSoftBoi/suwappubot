@@ -3,7 +3,7 @@ import type {
 	ChannelStorage,
 	ChannelUpdateResult,
 } from '@x402/evm/batch-settlement/server'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, like, not } from 'drizzle-orm'
 import { Effect } from 'effect'
 import { requireDb } from '../db/DrizzleService'
 import { x402Channels } from '../db/schema'
@@ -63,7 +63,12 @@ export class PostgresChannelStorage implements ChannelStorage {
 	}
 
 	async list(): Promise<Channel[]> {
-		const rows = await db((d) => d.select({ data: x402Channels.data }).from(x402Channels))
+		const rows = await db((d) =>
+			d
+				.select({ data: x402Channels.data })
+				.from(x402Channels)
+				.where(not(like(x402Channels.channelId, '\\_\\_%'))),
+		)
 		return rows.map((r) => r.data as Channel)
 	}
 
@@ -137,5 +142,53 @@ export class PostgresChannelStorage implements ChannelStorage {
 			if (upd.length > 0) return { channel: next, status: 'updated' }
 		}
 		return { channel: undefined, status: 'conflict' }
+	}
+}
+
+/**
+ * Settlement-worker leader lease. Every api-ts replica runs the channel
+ * managers' timers, but only the lease holder actually claims/settles/refunds —
+ * otherwise each replica submits the same claims and all but one revert,
+ * burning gas. The lease is a sentinel row in x402_channels (ids starting with
+ * "__" are hidden from list()), taken/renewed with the same version CAS.
+ */
+const LEASE_ID = '__x402_settlement_leader__'
+const LEASE_MS = 180_000
+const HOLDER = `${process.env.RAILWAY_REPLICA_ID ?? 'local'}:${process.pid}:${Math.random().toString(36).slice(2, 8)}`
+
+export async function holdSettlementLease(): Promise<boolean> {
+	try {
+		const rows = await db((d) =>
+			d
+				.select({ data: x402Channels.data, version: x402Channels.version })
+				.from(x402Channels)
+				.where(eq(x402Channels.channelId, LEASE_ID))
+				.limit(1),
+		)
+		const now = Date.now()
+		const row = rows[0]
+		const cur = row?.data as { holder?: string; until?: number } | undefined
+		if (cur && cur.holder !== HOLDER && (cur.until ?? 0) > now) return false
+		const data = { holder: HOLDER, until: now + LEASE_MS }
+		if (!row) {
+			const ins = await db((d) =>
+				d
+					.insert(x402Channels)
+					.values({ channelId: LEASE_ID, data, version: 1 })
+					.onConflictDoNothing()
+					.returning({ id: x402Channels.channelId }),
+			)
+			return ins.length > 0
+		}
+		const upd = await db((d) =>
+			d
+				.update(x402Channels)
+				.set({ data, version: row.version + 1, updatedAt: new Date() })
+				.where(and(eq(x402Channels.channelId, LEASE_ID), eq(x402Channels.version, row.version)))
+				.returning({ id: x402Channels.channelId }),
+		)
+		return upd.length > 0
+	} catch {
+		return false
 	}
 }

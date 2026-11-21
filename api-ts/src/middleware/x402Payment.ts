@@ -353,18 +353,23 @@ function markCleared(addr: string) {
 	cleanPayers.set(addr.toLowerCase(), Date.now())
 }
 
-function extractPayerAddress(payload: { payload: Record<string, unknown> }): string | undefined {
+function extractPayerAddress(payload: {
+	payload: Record<string, unknown>
+	accepted?: { scheme?: string }
+}): string | undefined {
 	const inner = payload.payload
+	const str = (v: unknown) => (typeof v === 'string' ? v : undefined)
+	// SECURITY: pick the field by the SIGNED scheme. On `exact`, channelConfig is
+	// an unsigned extra a client could set to a clean address while signing the
+	// transfer from a toxic one. On batch-settlement, channelConfig.payer is the
+	// payer committed into the channel id. verifyAndSettle additionally requires
+	// the verified payer to equal whatever we screen here.
+	if (payload.accepted?.scheme === 'batch-settlement') {
+		const channelConfig = inner?.channelConfig as Record<string, unknown> | undefined
+		return str(channelConfig?.payer)
+	}
 	const authorization = inner?.authorization as Record<string, unknown> | undefined
-	// batch-settlement (x402 v2): deposit/voucher/refund payloads all carry the
-	// channel's committed payer in channelConfig.payer.
-	const channelConfig = inner?.channelConfig as Record<string, unknown> | undefined
-	const candidate =
-		(typeof channelConfig?.payer === 'string' ? channelConfig.payer : undefined) ??
-		(typeof authorization?.from === 'string' ? authorization.from : undefined) ??
-		(typeof inner?.from === 'string' ? (inner.from as string) : undefined) ??
-		(typeof inner?.sender === 'string' ? (inner.sender as string) : undefined)
-	return candidate
+	return str(authorization?.from) ?? str(inner?.from) ?? str(inner?.sender)
 }
 
 /**
@@ -530,7 +535,7 @@ export async function chargeAgentForCall(params: {
 			try {
 				const decoded = decodedPayment ?? decodePaymentSignatureHeader(paymentHeader)
 				payerAddress = extractPayerAddress(
-					decoded as unknown as { payload: Record<string, unknown> },
+					decoded as unknown as Parameters<typeof extractPayerAddress>[0],
 				)
 			} catch {
 				payerAddress = undefined
@@ -590,7 +595,9 @@ export async function chargeAgentForCall(params: {
 					}
 				}
 
-			const settle = await verifyAndSettle(svcEnv, paymentHeader, challenge.accepts)
+			const settle = await verifyAndSettle(svcEnv, paymentHeader, challenge.accepts, {
+				expectedPayer: payerAddress,
+			})
 			if (settle.ok) {
 				return {
 					kind: 'settled',

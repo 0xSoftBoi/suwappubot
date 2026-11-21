@@ -6,6 +6,7 @@ import type {
 	PaymentRequirements,
 	SettleResponse,
 } from '@x402/core/types'
+import { isBatchSettlementRefundPayload } from '@x402/evm'
 import {
 	type BatchSettlementChannelManager,
 	BatchSettlementEvmScheme,
@@ -15,7 +16,7 @@ import { bazaarResourceServerExtension, declareDiscoveryExtension } from '@x402/
 import { privateKeyToAccount } from 'viem/accounts'
 import { findX402Network, resolveX402Networks, type X402Network } from '../config/x402Networks'
 import { logger } from '../lib/logger'
-import { PostgresChannelStorage } from '../lib/x402ChannelStorage'
+import { holdSettlementLease, PostgresChannelStorage } from '../lib/x402ChannelStorage'
 import { crossCheckSignedRequirements, resolveFacilitatorConfig } from './FacilitatorService'
 
 /**
@@ -172,7 +173,11 @@ async function build(env: X402ServiceEnv): Promise<Runtime> {
 					settleIntervalSecs: Number(env.X402_BATCH_SETTLE_INTERVAL_SECS || 300),
 					refundIntervalSecs: 3600,
 					maxClaimsPerBatch: 100,
-					selectRefundChannels: (chs, ctx) => {
+					// Only the lease holder submits on-chain claim/settle/refund txs.
+					selectClaimChannels: async (chs) => ((await holdSettlementLease()) ? chs : []),
+					shouldSettle: () => holdSettlementLease(),
+					selectRefundChannels: async (chs, ctx) => {
+						if (!(await holdSettlementLease())) return []
 						const idleMs = Number(env.X402_BATCH_REFUND_IDLE_SECS || 86400) * 1000
 						return chs.filter((c) => ctx.now - c.lastRequestTimestamp >= idleMs)
 					},
@@ -374,6 +379,14 @@ export async function verifyAndSettle(
 	env: X402ServiceEnv,
 	header: string,
 	accepts: PaymentRequirements[],
+	opts: {
+		/**
+		 * The address risk screening cleared. When set, the facilitator/scheme-
+		 * verified payer MUST equal it (case-insensitive) or we refuse to settle —
+		 * otherwise a client could get one address screened and pay from another.
+		 */
+		expectedPayer?: string
+	} = {},
 ): Promise<X402SettleResult> {
 	if (env.X402_FACILITATOR_ENABLED !== 'true') return { ok: false, error: 'facilitator_disabled' }
 	const payload = decodePayment(header)
@@ -404,9 +417,38 @@ export async function verifyAndSettle(
 	})
 	if (!check.ok) return { ok: false, error: check.error, payload }
 
+	// SECURITY: a batch-settlement *refund* payload is not a payment. The SDK
+	// marks it skipHandler and would execute an on-chain refund on settle; if we
+	// treated that as "paid" a client could loop 1-wei refunds into free calls
+	// (and burn facilitator gas). Refunds never ride a metered request.
+	if (
+		requirements.scheme === 'batch-settlement' &&
+		isBatchSettlementRefundPayload(payload.payload)
+	) {
+		return { ok: false, error: 'refund_not_a_payment', payload }
+	}
+
+	const release = async () => {
+		try {
+			await rt.batchScheme?.clearPendingRequest(payload)
+		} catch {
+			/* best effort — lock TTL expires anyway */
+		}
+	}
+
 	try {
 		const v = await rt.server.verifyPayment(payload, requirements)
 		if (!v.isValid) return { ok: false, error: v.invalidReason || 'payment_invalid', payload }
+		if (v.skipHandler) {
+			await release()
+			return { ok: false, error: 'not_a_payment', payload }
+		}
+		if (opts.expectedPayer) {
+			if (!v.payer || v.payer.toLowerCase() !== opts.expectedPayer.toLowerCase()) {
+				await release()
+				return { ok: false, error: 'payer_mismatch', payload }
+			}
+		}
 
 		const s = await rt.server.settlePayment(payload, requirements)
 		if (!s.success) return { ok: false, error: s.errorReason || 'settle_failed', payload }
@@ -439,7 +481,6 @@ export async function x402Status(env: X402ServiceEnv) {
 		payTo: collectorOf(env),
 		facilitator: env.X402_FACILITATOR_ENABLED === 'true',
 		initialized: rt?.initialized ?? false,
-		initError: rt?.initError,
 		headers: {
 			required: 'PAYMENT-REQUIRED',
 			signature: 'PAYMENT-SIGNATURE',
