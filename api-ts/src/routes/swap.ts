@@ -1,11 +1,10 @@
 import { Turnkey } from '@turnkey/sdk-server'
 import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
-import { isStarknet } from '../config/chains'
+import { getRpcUrls, isStarknet, rpcFetch } from '../config/chains'
 import { EnvService } from '../config/EnvService'
 import { logger } from '../lib/logger'
 import { DatabaseError, mapErrorToResponse, NotFoundError, ValidationError } from '../errors'
-import { fetchWithRetry } from '../lib/retry'
 import { telegramAuth } from '../middleware'
 import { ipRateLimit } from '../middleware/ipRateLimit'
 import { runEffectEither } from '../runtime'
@@ -32,38 +31,9 @@ const swapRoutes = new Hono()
 // Protected routes use the telegramAuth middleware explicitly
 
 // Chain ID to RPC endpoint mapping for broadcasting transactions
-const alchemyKey = process.env.ALCHEMY_API_KEY || ''
-const CHAIN_RPC_ENDPOINTS: Record<number, string> = {
-	1:
-		process.env.ETH_RPC_URL ||
-		(alchemyKey
-			? `https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}`
-			: 'https://eth.llamarpc.com'),
-	10:
-		process.env.OPTIMISM_RPC_URL ||
-		(alchemyKey
-			? `https://opt-mainnet.g.alchemy.com/v2/${alchemyKey}`
-			: 'https://optimism.llamarpc.com'),
-	56: process.env.BSC_RPC_URL || 'https://bsc.llamarpc.com',
-	137:
-		process.env.POLYGON_RPC_URL ||
-		(alchemyKey
-			? `https://polygon-mainnet.g.alchemy.com/v2/${alchemyKey}`
-			: 'https://polygon.llamarpc.com'),
-	8453:
-		process.env.BASE_RPC_URL ||
-		(alchemyKey
-			? `https://base-mainnet.g.alchemy.com/v2/${alchemyKey}`
-			: 'https://base.llamarpc.com'),
-	42161:
-		process.env.ARBITRUM_RPC_URL ||
-		(alchemyKey
-			? `https://arb-mainnet.g.alchemy.com/v2/${alchemyKey}`
-			: 'https://arbitrum.llamarpc.com'),
-	43114: process.env.AVALANCHE_RPC_URL || 'https://api.avax.network/ext/bc/C/rpc',
-	59144: process.env.LINEA_RPC_URL || 'https://rpc.linea.build',
-	324: process.env.ZKSYNC_RPC_URL || 'https://mainnet.era.zksync.io',
-}
+const CHAIN_RPC_ENDPOINTS: Record<number, string[]> = Object.fromEntries(
+	[1, 10, 56, 137, 8453, 42161, 43114, 59144, 324].map((id) => [id, getRpcUrls(id)]),
+)
 
 // Parse the USD value of the source amount for storage. Never falls back to
 // quote.fromAmount, which is a token quantity in wei (not a USD value) — doing
@@ -403,7 +373,7 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 
 			// Fetch current nonce from RPC
 			const fetchNonce = async (addr: string): Promise<string> => {
-				const res = await fetch(rpcUrlForChain, {
+				const res = await rpcFetch(rpcUrlForChain, {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify({
@@ -433,7 +403,7 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 
 					const allowanceResult = yield* Effect.tryPromise({
 						try: async () => {
-							const res = await fetch(rpcUrlForChain, {
+							const res = await rpcFetch(rpcUrlForChain, {
 								method: 'POST',
 								headers: { 'Content-Type': 'application/json' },
 								body: JSON.stringify({
@@ -505,7 +475,7 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 						// Broadcast approval tx and poll for nonce increment in parallel
 						yield* Effect.tryPromise({
 							try: async () => {
-								const res = await fetch(rpcUrlForChain, {
+								const res = await rpcFetch(rpcUrlForChain, {
 									method: 'POST',
 									headers: { 'Content-Type': 'application/json' },
 									body: JSON.stringify({
@@ -595,7 +565,7 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 			if (rpcUrlForChain) {
 				const broadcastResult = yield* Effect.tryPromise({
 					try: async () => {
-						const res = await fetchWithRetry(rpcUrlForChain, {
+						const res = await rpcFetch(rpcUrlForChain, {
 							method: 'POST',
 							headers: { 'Content-Type': 'application/json' },
 							body: JSON.stringify({
@@ -860,7 +830,7 @@ async function fetchNativeBalance(address: string, chainId: string): Promise<str
 	if (!rpcUrl) return null
 
 	try {
-		const res = await fetch(rpcUrl, {
+		const res = await rpcFetch(rpcUrl, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({

@@ -2,7 +2,7 @@ import { Context, Effect, Layer } from 'effect'
 import type { Wallet } from '../db'
 import { logger } from '../lib/logger'
 import { fetchTokenPrices } from '../lib/prices'
-import { RPC_ENDPOINTS, NATIVE_TOKENS } from '../config/chains'
+import { RPC_ENDPOINTS, RPC_ENDPOINT_LISTS, NATIVE_TOKENS, rpcFetch } from '../config/chains'
 
 // Token balance with USD value
 export interface TokenBalance {
@@ -27,23 +27,25 @@ export class BalanceService extends Context.Tag('BalanceService')<
 
 // Fetch native balance for EVM chains (1 retry, 5s timeout per attempt)
 async function fetchEvmNativeBalance(address: string, chain: string): Promise<string> {
+	const rpcUrls = RPC_ENDPOINT_LISTS[chain] ?? []
 	const rpcUrl = RPC_ENDPOINTS[chain]
-	if (!rpcUrl) return '0'
+	if (rpcUrls.length === 0) return '0'
 
 	const maxAttempts = 2
 	for (let attempt = 1; attempt <= maxAttempts; attempt++) {
 		try {
-			const response = await fetch(rpcUrl, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					jsonrpc: '2.0',
-					method: 'eth_getBalance',
-					params: [address, 'latest'],
-					id: 1,
-				}),
-				signal: AbortSignal.timeout(5000),
-			})
+			const response = await rpcFetch(
+				rpcUrls,
+				{
+					body: JSON.stringify({
+						jsonrpc: '2.0',
+						method: 'eth_getBalance',
+						params: [address, 'latest'],
+						id: 1,
+					}),
+				},
+				5000,
+			)
 
 			const data = (await response.json()) as { result?: string }
 			if (data.result) {
@@ -66,13 +68,11 @@ async function fetchEvmNativeBalance(address: string, chain: string): Promise<st
 
 // Fetch SOL balance
 async function fetchSolanaBalance(address: string): Promise<string> {
-	const rpcUrl = RPC_ENDPOINTS.solana
-	if (!rpcUrl) return '0'
+	const rpcUrls = RPC_ENDPOINT_LISTS.solana ?? []
+	if (rpcUrls.length === 0) return '0'
 
 	try {
-		const response = await fetch(rpcUrl, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
+		const response = await rpcFetch(rpcUrls, {
 			body: JSON.stringify({
 				jsonrpc: '2.0',
 				method: 'getBalance',

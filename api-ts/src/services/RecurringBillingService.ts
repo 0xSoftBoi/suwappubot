@@ -12,10 +12,10 @@
  * Sepolia dry-run first. Keep gated until proven end-to-end on testnet.
  */
 
-import { type Address, type Hex, createPublicClient, createWalletClient, http } from 'viem'
+import { type Address, type Hex, createPublicClient, createWalletClient } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { base } from 'viem/chains'
-import { getRpcUrl } from '../config/chains'
+import { getEvmTransport, getRpcUrl } from '../config/chains'
 import {
 	SPEND_PERMISSION_MANAGER_ABI,
 	SPEND_PERMISSION_MANAGER_BASE,
@@ -49,7 +49,7 @@ function clients(env: RecurringEnv) {
 	const account = privateKeyToAccount(env.SPEND_OPERATOR_PK as Hex)
 	const rpcUrl = getRpcUrl(8453)
 	if (!rpcUrl) throw new Error('No Base RPC configured')
-	const transport = http(rpcUrl)
+	const transport = getEvmTransport(8453)
 	return {
 		account,
 		manager: (env.SPEND_PERMISSION_MANAGER_ADDRESS as Address) || SPEND_PERMISSION_MANAGER_BASE,

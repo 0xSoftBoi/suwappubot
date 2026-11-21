@@ -13,7 +13,7 @@
 import { type Address, createWalletClient, type Hex, hexToString, http, stringToHex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { arbitrum, base, optimism } from 'viem/chains'
-import { getRpcUrl } from '../../config/chains'
+import { getEvmTransport, getRpcUrl } from '../../config/chains'
 import { logger } from '../../lib/logger'
 import { parseSealMemo, sealMemo } from '../../lib/seal'
 
@@ -52,9 +52,9 @@ export type MemoSender = (params: {
 }) => Promise<string>
 
 /** The real sender: a zero-value self-send carrying the memo as calldata. */
-export const viemMemoSender: MemoSender = async ({ chain, rpcUrl, privateKey, data }) => {
+export const viemMemoSender: MemoSender = async ({ chain, privateKey, data }) => {
 	const account = privateKeyToAccount(privateKey)
-	const wallet = createWalletClient({ account, chain: CHAINS[chain], transport: http(rpcUrl) })
+	const wallet = createWalletClient({ account, chain: CHAINS[chain], transport: getEvmTransport(CHAINS[chain].id) })
 	return wallet.sendTransaction({ to: account.address as Address, value: 0n, data })
 }
 

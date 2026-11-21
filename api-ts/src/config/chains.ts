@@ -1,68 +1,164 @@
 // Shared chain configuration for RPC endpoints, broadcasting, and explorers
+//
+// RPC_ENDPOINT_LISTS is the single source of truth for RPC URLs. Every chain has
+// an ordered list: an env override (comma-separated, e.g. LISK_RPC_URL="a,b")
+// wins outright; otherwise Alchemy (if ALCHEMY_API_KEY is set and the chain is
+// supported) goes first, followed by public defaults. Defaults were probed live
+// (eth_chainId + eth_blockNumber + eth_call) — do not re-add dead hosts:
+// llamarpc (525), blockpi, meowrpc, 1rpc.io, fantom-rpc.publicnode.com,
+// *.gateway.tenderly.co for worldchain, developer-access-mainnet.base.org,
+// rpc.api.lisk.com, swell-mainnet.alt.technology, rpc.starknet.lava.build.
+//
+// Consumers: use rpcFetch()/getRpcUrls() (raw JSON-RPC) or getEvmTransport()
+// (viem) so a dead/rate-limited endpoint fails over automatically.
+
+import { fallback, http, keccak256, type Hex, type Transport } from 'viem'
+import { logger } from '../lib/logger'
 
 const alchemyKey = process.env.ALCHEMY_API_KEY || ''
 
-export const RPC_ENDPOINTS: Record<string, string> = {
-	ethereum: process.env.ETH_RPC_URL || (alchemyKey ? `https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://eth.llamarpc.com'),
-	arbitrum: process.env.ARBITRUM_RPC_URL || (alchemyKey ? `https://arb-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://arbitrum.llamarpc.com'),
-	optimism: process.env.OPTIMISM_RPC_URL || (alchemyKey ? `https://opt-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://optimism.llamarpc.com'),
-	polygon: process.env.POLYGON_RPC_URL || (alchemyKey ? `https://polygon-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://polygon.llamarpc.com'),
-	base: process.env.BASE_RPC_URL || (alchemyKey ? `https://base-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://base.llamarpc.com'),
-	bsc: process.env.BSC_RPC_URL || 'https://bsc.llamarpc.com',
-	solana: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
-	tempo: process.env.TEMPO_RPC_URL || 'https://tempo-mainnet.drpc.org',
-	plasma: process.env.PLASMA_RPC_URL || 'https://rpc.plasma.to/',
+/** Per-request timeout for each endpoint attempt (ms). */
+export const RPC_TIMEOUT_MS = 8000
+
+function parseList(raw: string | undefined): string[] {
+	return (raw ?? '')
+		.split(',')
+		.map((s) => s.trim())
+		.filter(Boolean)
+}
+
+function endpoints(envVar: string, defaults: string[], alchemyHost?: string): string[] {
+	const fromEnv = parseList(process.env[envVar])
+	if (fromEnv.length > 0) return fromEnv
+	const list = alchemyKey && alchemyHost ? [`https://${alchemyHost}.g.alchemy.com/v2/${alchemyKey}`, ...defaults] : [...defaults]
+	return Array.from(new Set(list))
+}
+
+export const RPC_ENDPOINT_LISTS: Record<string, string[]> = {
+	ethereum: endpoints('ETH_RPC_URL', ['https://ethereum-rpc.publicnode.com', 'https://eth.drpc.org', 'https://rpc.mevblocker.io'], 'eth-mainnet'),
+	arbitrum: endpoints('ARBITRUM_RPC_URL', ['https://arbitrum-one-rpc.publicnode.com', 'https://arb1.arbitrum.io/rpc', 'https://arbitrum.drpc.org'], 'arb-mainnet'),
+	optimism: endpoints('OPTIMISM_RPC_URL', ['https://optimism-rpc.publicnode.com', 'https://mainnet.optimism.io', 'https://optimism.drpc.org'], 'opt-mainnet'),
+	polygon: endpoints('POLYGON_RPC_URL', ['https://polygon-bor-rpc.publicnode.com', 'https://polygon.drpc.org', 'https://polygon.gateway.tenderly.co'], 'polygon-mainnet'),
+	base: endpoints('BASE_RPC_URL', ['https://base-rpc.publicnode.com', 'https://mainnet.base.org', 'https://base.gateway.tenderly.co'], 'base-mainnet'),
+	bsc: endpoints('BSC_RPC_URL', ['https://bsc-rpc.publicnode.com', 'https://bsc-dataseed.bnbchain.org', 'https://bsc.drpc.org']),
+	solana: endpoints('SOLANA_RPC_URL', ['https://api.mainnet-beta.solana.com', 'https://solana-rpc.publicnode.com']),
+	tempo: endpoints('TEMPO_RPC_URL', ['https://tempo-mainnet.drpc.org', 'https://rpc.tempo.xyz']),
+	plasma: endpoints('PLASMA_RPC_URL', ['https://rpc.plasma.to', 'https://plasma.gateway.tenderly.co']),
 	// Robinhood Chain — Arbitrum Orbit L2 (chain 4663), native gas ETH. Alchemy
 	// support confirmed live (alchemy.com/rpc/robinhood, 2026-08-04) — preferred
 	// over the public RPC given the chain's 2-validator set (Offchain Labs +
-	// Alchemy).
-	robinhood:
-		process.env.ROBINHOOD_RPC_URL ||
-		(alchemyKey
-			? `https://robinhood-mainnet.g.alchemy.com/v2/${alchemyKey}`
-			: 'https://rpc.mainnet.chain.robinhood.com'),
+	// Alchemy). Only one public endpoint is known-good.
+	robinhood: endpoints('ROBINHOOD_RPC_URL', ['https://rpc.mainnet.chain.robinhood.com'], 'robinhood-mainnet'),
 	// Read-only: Starknet signing/broadcast is owned by the Python bot backend
-	starknet: process.env.STARKNET_RPC_URL || 'https://rpc.starknet.lava.build',
+	starknet: endpoints('STARKNET_RPC_URL', ['https://starknet-rpc.publicnode.com', 'https://starknet.drpc.org']),
 	// GOAT Network — plain EVM chain (chain id 2345), native token is BTC
-	goat: process.env.GOAT_RPC_URL || 'https://rpc.goat.network',
+	goat: endpoints('GOAT_RPC_URL', ['https://rpc.goat.network']),
 
-	// Remaining EVM chains — first endpoint of each mirrors the corresponding
-	// `*_rpc_url` default in bot/config/settings.py so the two stacks agree.
-	'base-sepolia': process.env.BASE_SEPOLIA_RPC_URL || 'https://sepolia.base.org',
-	avalanche: process.env.AVALANCHE_RPC_URL || 'https://api.avax.network/ext/bc/C/rpc',
-	fantom: process.env.FANTOM_RPC_URL || 'https://rpcapi.fantom.network',
-	linea: process.env.LINEA_RPC_URL || 'https://rpc.linea.build',
-	mantle: process.env.MANTLE_RPC_URL || 'https://rpc.mantle.xyz',
-	gnosis: process.env.GNOSIS_RPC_URL || 'https://rpc.gnosischain.com',
-	scroll: process.env.SCROLL_RPC_URL || 'https://rpc.scroll.io',
-	rootstock: process.env.ROOTSTOCK_RPC_URL || 'https://public-node.rsk.co',
-	citrea: process.env.CITREA_RPC_URL || 'https://rpc.mainnet.citrea.xyz',
-	sonic: process.env.SONIC_RPC_URL || 'https://rpc.soniclabs.com',
-	opbnb: process.env.OPBNB_RPC_URL || 'https://opbnb-mainnet-rpc.bnbchain.org',
-	fraxtal: process.env.FRAXTAL_RPC_URL || 'https://rpc.frax.com',
-	zksync: process.env.ZKSYNC_RPC_URL || 'https://mainnet.era.zksync.io',
-	worldchain: process.env.WORLDCHAIN_RPC_URL || 'https://worldchain-mainnet.g.alchemy.com/public',
-	flow: process.env.FLOW_RPC_URL || 'https://mainnet.evm.nodes.onflow.org',
-	hyperevm: process.env.HYPEREVM_RPC_URL || 'https://rpc.hyperliquid.xyz/evm',
-	lisk: process.env.LISK_RPC_URL || 'https://rpc.api.lisk.com',
-	sei: process.env.SEI_RPC_URL || 'https://evm-rpc.sei-apis.com',
-	soneium: process.env.SONEIUM_RPC_URL || 'https://rpc.soneium.org',
-	swellchain: process.env.SWELLCHAIN_RPC_URL || 'https://swell-mainnet.alt.technology',
-	abstract: process.env.ABSTRACT_RPC_URL || 'https://api.mainnet.abs.xyz',
-	kaia: process.env.KAIA_RPC_URL || 'https://public-en.node.kaia.io',
-	apechain: process.env.APECHAIN_RPC_URL || 'https://rpc.apechain.com/http',
-	mode: process.env.MODE_RPC_URL || 'https://mainnet.mode.network',
-	hemi: process.env.HEMI_RPC_URL || 'https://rpc.hemi.network/rpc',
-	bob: process.env.BOB_RPC_URL || 'https://rpc.gobob.xyz',
-	berachain: process.env.BERACHAIN_RPC_URL || 'https://rpc.berachain.com',
-	taiko: process.env.TAIKO_RPC_URL || 'https://rpc.mainnet.taiko.xyz',
-	unichain: process.env.UNICHAIN_RPC_URL || 'https://mainnet.unichain.org',
-	flare: process.env.FLARE_RPC_URL || 'https://flare-api.flare.network/ext/C/rpc',
+	// Remaining EVM chains
+	'base-sepolia': endpoints('BASE_SEPOLIA_RPC_URL', ['https://sepolia.base.org', 'https://base-sepolia-rpc.publicnode.com', 'https://base-sepolia.drpc.org']),
+	avalanche: endpoints('AVALANCHE_RPC_URL', ['https://api.avax.network/ext/bc/C/rpc', 'https://avalanche-c-chain-rpc.publicnode.com', 'https://avalanche.drpc.org']),
+	fantom: endpoints('FANTOM_RPC_URL', ['https://rpcapi.fantom.network', 'https://fantom.drpc.org', 'https://rpc.fantom.network']),
+	linea: endpoints('LINEA_RPC_URL', ['https://rpc.linea.build', 'https://linea-rpc.publicnode.com', 'https://linea.drpc.org']),
+	mantle: endpoints('MANTLE_RPC_URL', ['https://rpc.mantle.xyz', 'https://mantle-rpc.publicnode.com', 'https://mantle.drpc.org']),
+	gnosis: endpoints('GNOSIS_RPC_URL', ['https://rpc.gnosischain.com', 'https://gnosis-rpc.publicnode.com', 'https://gnosis.drpc.org']),
+	scroll: endpoints('SCROLL_RPC_URL', ['https://rpc.scroll.io', 'https://scroll-rpc.publicnode.com', 'https://scroll.drpc.org']),
+	rootstock: endpoints('ROOTSTOCK_RPC_URL', ['https://public-node.rsk.co', 'https://rootstock.drpc.org']),
+	citrea: endpoints('CITREA_RPC_URL', ['https://rpc.mainnet.citrea.xyz']),
+	sonic: endpoints('SONIC_RPC_URL', ['https://rpc.soniclabs.com', 'https://sonic-rpc.publicnode.com', 'https://sonic.drpc.org']),
+	opbnb: endpoints('OPBNB_RPC_URL', ['https://opbnb-mainnet-rpc.bnbchain.org', 'https://opbnb-rpc.publicnode.com', 'https://opbnb.drpc.org']),
+	fraxtal: endpoints('FRAXTAL_RPC_URL', ['https://rpc.frax.com', 'https://fraxtal-rpc.publicnode.com', 'https://fraxtal.drpc.org']),
+	zksync: endpoints('ZKSYNC_RPC_URL', ['https://mainnet.era.zksync.io', 'https://zksync.drpc.org']),
+	worldchain: endpoints('WORLDCHAIN_RPC_URL', ['https://worldchain-mainnet.g.alchemy.com/public', 'https://worldchain.drpc.org', 'https://480.rpc.thirdweb.com']),
+	flow: endpoints('FLOW_RPC_URL', ['https://mainnet.evm.nodes.onflow.org']),
+	hyperevm: endpoints('HYPEREVM_RPC_URL', ['https://rpc.hyperliquid.xyz/evm', 'https://hyperliquid.drpc.org', 'https://hyperliquid-json-rpc.stakely.io']),
+	lisk: endpoints('LISK_RPC_URL', ['https://lisk.gateway.tenderly.co']),
+	sei: endpoints('SEI_RPC_URL', ['https://evm-rpc.sei-apis.com', 'https://sei-evm-rpc.publicnode.com', 'https://sei.drpc.org']),
+	soneium: endpoints('SONEIUM_RPC_URL', ['https://rpc.soneium.org', 'https://soneium.drpc.org']),
+	swellchain: endpoints('SWELLCHAIN_RPC_URL', ['https://swell.drpc.org']),
+	abstract: endpoints('ABSTRACT_RPC_URL', ['https://api.mainnet.abs.xyz', 'https://abstract.drpc.org']),
+	kaia: endpoints('KAIA_RPC_URL', ['https://public-en.node.kaia.io', 'https://kaia.drpc.org']),
+	apechain: endpoints('APECHAIN_RPC_URL', ['https://rpc.apechain.com/http', 'https://apechain.drpc.org']),
+	mode: endpoints('MODE_RPC_URL', ['https://mainnet.mode.network', 'https://mode.drpc.org']),
+	hemi: endpoints('HEMI_RPC_URL', ['https://rpc.hemi.network/rpc', 'https://hemi.drpc.org']),
+	bob: endpoints('BOB_RPC_URL', ['https://rpc.gobob.xyz', 'https://bob.drpc.org']),
+	berachain: endpoints('BERACHAIN_RPC_URL', ['https://rpc.berachain.com', 'https://berachain-rpc.publicnode.com', 'https://berachain.drpc.org']),
+	taiko: endpoints('TAIKO_RPC_URL', ['https://rpc.mainnet.taiko.xyz', 'https://taiko-rpc.publicnode.com', 'https://taiko.drpc.org']),
+	unichain: endpoints('UNICHAIN_RPC_URL', ['https://mainnet.unichain.org', 'https://unichain-rpc.publicnode.com', 'https://unichain.drpc.org']),
+	flare: endpoints('FLARE_RPC_URL', ['https://flare-api.flare.network/ext/C/rpc', 'https://flare.drpc.org']),
 	// Added alongside aurora/blast/ink in bot/config/chains.py (parallel change)
-	aurora: process.env.AURORA_RPC_URL || 'https://mainnet.aurora.dev',
-	blast: process.env.BLAST_RPC_URL || 'https://rpc.blast.io',
-	ink: process.env.INK_RPC_URL || 'https://rpc-gel.inkonchain.com',
+	aurora: endpoints('AURORA_RPC_URL', ['https://mainnet.aurora.dev', 'https://aurora.drpc.org']),
+	// rpc.blast.io could not be reached from the probe container and no public
+	// alternative answered — set BLAST_RPC_URL (comma-separated) to add more.
+	blast: endpoints('BLAST_RPC_URL', ['https://rpc.blast.io']),
+	ink: endpoints('INK_RPC_URL', ['https://rpc-gel.inkonchain.com', 'https://ink.drpc.org', 'https://rpc-qnd.inkonchain.com']),
 }
+
+/** Primary (first) endpoint per chain. Kept for callers that need a single URL;
+ *  prefer RPC_ENDPOINT_LISTS / rpcFetch / getEvmTransport for failover. */
+export const RPC_ENDPOINTS: Record<string, string> = Object.fromEntries(
+	Object.entries(RPC_ENDPOINT_LISTS).map(([k, v]) => [k, v[0] as string]),
+)
+
+// JSON-RPC error codes that mean "this endpoint can't serve it" (rate limit,
+// method unsupported, internal) rather than "your request is invalid".
+const FAILOVER_RPC_CODES = new Set([-32005, -32601, -32603, -32046, -32097, 429])
+
+function terse(e: unknown): string {
+	const m = e instanceof Error ? e.message : String(e)
+	return m.split('\n')[0]!.slice(0, 120)
+}
+
+/**
+ * Drop-in `fetch` for JSON-RPC POSTs against an ordered endpoint list. Tries each
+ * URL with a per-attempt timeout; fails over on network errors, timeouts, non-2xx
+ * HTTP, non-JSON bodies and endpoint-capacity JSON-RPC errors. Request-level
+ * JSON-RPC errors (reverts, nonce too low, ...) are returned as-is, not retried.
+ * Logs one short line per failover (no stack).
+ */
+export async function rpcFetch(
+	urls: string[],
+	init: RequestInit,
+	timeoutMs: number = RPC_TIMEOUT_MS,
+): Promise<Response> {
+	if (urls.length === 0) throw new Error('No RPC endpoints configured')
+	let lastErr: unknown
+	for (let i = 0; i < urls.length; i++) {
+		const url = urls[i]!
+		const last = i === urls.length - 1
+		try {
+			const res = await fetch(url, { ...init, method: init.method ?? 'POST', headers: init.headers ?? { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(timeoutMs) })
+			if (!res.ok) throw new Error(`HTTP ${res.status}`)
+			let code: number | undefined
+			try {
+				const body = (await res.clone().json()) as { error?: { code?: number } }
+				code = body?.error?.code
+			} catch {
+				throw new Error('non-JSON response')
+			}
+			if (code !== undefined && FAILOVER_RPC_CODES.has(code)) throw new Error(`rpc error ${code}`)
+			return res
+		} catch (e) {
+			lastErr = e
+			if (!last) logger.warn(`[rpc] ${new URL(url).host} failed (${terse(e)}), failing over`)
+		}
+	}
+	throw new Error(`All ${urls.length} RPC endpoint(s) failed: ${terse(lastErr)}`)
+}
+
+/** Ordered RPC URL list for an EVM chain id (empty if unknown). */
+export function getRpcUrls(chainId: number): string[] {
+	const key = CHAIN_ID_TO_KEY[chainId]
+	return key ? RPC_ENDPOINT_LISTS[key] ?? [] : []
+}
+
+/** viem transport with failover across the chain's endpoints (single endpoint -> plain http). */
+export function getEvmTransport(chainId: number): Transport {
+	const urls = getRpcUrls(chainId)
+	if (urls.length === 0) throw new Error(`No RPC endpoint configured for chain ${chainId}`)
+	const mk = (u: string) => http(u, { timeout: RPC_TIMEOUT_MS, retryCount: 0 })
+	return urls.length === 1 ? http(urls[0]!, { timeout: RPC_TIMEOUT_MS, retryCount: 1 }) : fallback(urls.map(mk), { rank: false, retryCount: 1 })
+}
+
 
 export const NATIVE_TOKENS: Record<string, { symbol: string; name: string; decimals: number }> = {
 	ethereum: { symbol: 'ETH', name: 'Ethereum', decimals: 18 },
@@ -244,43 +340,48 @@ export function getExplorerUrl(chainId: number, txHash: string): string | null {
 }
 
 export async function broadcastEvmTransaction(chainId: number, signedTx: string): Promise<string> {
-	const rpcUrl = getRpcUrl(chainId)
-	if (!rpcUrl) throw new Error(`No RPC endpoint configured for chain ${chainId}`)
+	const urls = getRpcUrls(chainId)
+	if (urls.length === 0) throw new Error(`No RPC endpoint configured for chain ${chainId}`)
 
-	const response = await fetch(rpcUrl, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({
-			jsonrpc: '2.0',
-			method: 'eth_sendRawTransaction',
-			params: [signedTx],
-			id: 1,
-		}),
-		signal: AbortSignal.timeout(15000),
-	})
+	const response = await rpcFetch(
+		urls,
+		{
+			body: JSON.stringify({
+				jsonrpc: '2.0',
+				method: 'eth_sendRawTransaction',
+				params: [signedTx],
+				id: 1,
+			}),
+		},
+		15000,
+	)
 
 	const data = (await response.json()) as { result?: string; error?: { message: string; code: number } }
+	// A failover after a timed-out first attempt can hit "already known": the tx
+	// is in the mempool, so its hash is deterministic.
+	if (data.error && /already known|known transaction/i.test(data.error.message)) return keccak256(signedTx as Hex)
 	if (data.error) throw new Error(`RPC broadcast error: ${data.error.message} (code ${data.error.code})`)
 	if (!data.result) throw new Error('No transaction hash returned from RPC')
 	return data.result
 }
 
 export async function getTransactionReceipt(chainId: number, txHash: string): Promise<{ status: string } | null> {
-	const rpcUrl = getRpcUrl(chainId)
-	if (!rpcUrl) return null
+	const urls = getRpcUrls(chainId)
+	if (urls.length === 0) return null
 
 	try {
-		const response = await fetch(rpcUrl, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				jsonrpc: '2.0',
-				method: 'eth_getTransactionReceipt',
-				params: [txHash],
-				id: 1,
-			}),
-			signal: AbortSignal.timeout(10000),
-		})
+		const response = await rpcFetch(
+			urls,
+			{
+				body: JSON.stringify({
+					jsonrpc: '2.0',
+					method: 'eth_getTransactionReceipt',
+					params: [txHash],
+					id: 1,
+				}),
+			},
+			10000,
+		)
 
 		const data = (await response.json()) as { result?: { status: string } | null }
 		if (!data.result) return null
