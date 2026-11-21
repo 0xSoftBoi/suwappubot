@@ -71,3 +71,67 @@
 .codeDark :global(.summer-code code span) {
   color: var(--sw-accent-bright);
 }
+
+/* ── Agent Stack grid + limits (parity pass 2). Class names avoid "card":
+   globals.css flattens anything containing it. ── */
+.stackGrid {
+  list-style: none;
+  margin: 28px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.stackItem {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 22px 24px;
+  border: 1px solid var(--sw-hairline, rgba(20, 30, 50, 0.12));
+  border-radius: 16px;
+  background: linear-gradient(180deg, #fff 0%, var(--sw-accent-wash, #fff6ef) 140%);
+  box-shadow: 0 1px 2px rgba(20, 30, 50, 0.05), 0 12px 28px -18px rgba(20, 30, 50, 0.22);
+  transition: transform 0.16s var(--sw-ease, ease), border-color 0.16s ease, box-shadow 0.16s ease;
+}
+.stackItem:hover,
+.stackItem:focus-within {
+  transform: translateY(-3px);
+  border-color: var(--sw-accent);
+  box-shadow: var(--sw-shadow-md);
+}
+.stackItem h3 { margin: 0; font-size: 1.1rem; }
+.stackItem p { margin: 0; font-size: 0.95rem; line-height: 1.5; }
+.stackLimit { color: #4a5565; }
+.stackLimit span {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-right: 6px;
+  color: #8a3d12;
+}
+.stackLink { margin-top: auto; padding-top: 6px; font-weight: 600; color: #8a3d12; text-decoration: none; }
+.stackLink:hover { text-decoration: underline; }
+.whenWhy { min-width: 220px; }
+.limitsGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 24px; }
+.limitsBlock {
+  padding: 22px 24px;
+  border: 1px solid var(--sw-hairline, rgba(20, 30, 50, 0.12));
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 12px 28px -18px rgba(20, 30, 50, 0.22);
+}
+.limitsBlock h3 { margin: 0 0 12px; font-size: 1.05rem; }
+.limitsBlock p { margin: 12px 0 0; font-size: 0.92rem; line-height: 1.55; color: #4a5565; }
+.limitsList { margin: 0; }
+.limitsList div { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid rgba(20, 30, 50, 0.08); }
+.limitsList dt { color: #4a5565; }
+.limitsList dd { margin: 0; font-variant-numeric: tabular-nums; font-weight: 600; }
+@media (max-width: 720px) {
+  .stackGrid, .limitsGrid { grid-template-columns: 1fr; }
+  .stackItem, .limitsBlock { padding: 18px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stackItem { transition: none; }
+  .stackItem:hover, .stackItem:focus-within { transform: none; }
+}
