@@ -167,21 +167,21 @@ class _NoHistory(Exception):
 
 
 def _check_history(client, params: dict) -> None:
-    """Raise _NoHistory unless `client` returns token Transfer logs for a sample of
-    the range. Samples the start, middle and end, so one quiet stretch is not
-    mistaken for pruning; the allowlisted tokens are busy stablecoins."""
+    """Raise _NoHistory unless `client` returns token Transfer logs at the very
+    start of the range. Nodes prune from the oldest block forward, so logs at the
+    start prove everything after it is retained, while logs in the middle or at
+    the end prove nothing about a pruned start. The allowlisted tokens are busy
+    stablecoins on every chain this backfills, so their first blocks are never
+    quiet; if one ever were, the window is retried rather than trusted."""
     lo, hi = int(params["fromBlock"]), int(params["toBlock"])
-    starts = sorted({lo, max(lo, (lo + hi) // 2), max(lo, hi - HISTORY_SAMPLE_BLOCKS + 1)})
-    for start in starts:
-        sample = {
-            "fromBlock": start,
-            "toBlock": min(hi, start + HISTORY_SAMPLE_BLOCKS - 1),
-            "address": params["address"],
-            "topics": [TRANSFER_TOPIC0],
-        }
-        if client.eth.get_logs(sample):
-            return
-    raise _NoHistory(f"no token Transfer logs at all in blocks {lo}-{hi}: history pruned?")
+    sample = {
+        "fromBlock": lo,
+        "toBlock": min(hi, lo + HISTORY_SAMPLE_BLOCKS - 1),
+        "address": params["address"],
+        "topics": [TRANSFER_TOPIC0],
+    }
+    if not client.eth.get_logs(sample):
+        raise _NoHistory(f"no token Transfer logs at blocks {lo}-{sample['toBlock']}: pruned?")
 
 
 def _parse_backfill(spec: str) -> Dict[str, int]:
@@ -616,7 +616,9 @@ class DepositWatcher:
                     primary_url,
                     params,
                     allow_range_shrink,
-                    history_check=history_check and i == 0,
+                    # Every chunk: a later chunk can fail over to another node,
+                    # and that node's history has to be proven too.
+                    history_check=history_check,
                     cooldowns=cooldowns,
                 )
             )
@@ -792,6 +794,14 @@ class DepositWatcher:
         token_addresses = [Web3.to_checksum_address(a) for a in tokens]
         web3 = rpc_manager.get_web3(chain)
         primary_url = rpc_manager.current_url(chain)
+        # The live cursor was confirmed on whichever node the live scan used.
+        # The primary here may be a different one (after a restart or a health
+        # flip), and _get_logs_with_failover trusts the primary's head without a
+        # check, so cap the range by this node's own confirmed head as well.
+        head = await asyncio.to_thread(lambda: web3.eth.block_number)
+        live = min(live, head - CONFIRMATIONS.get(chain, 12))
+        if progress >= live:
+            return 0
 
         # Its own span, remembered between steps: halving it must not shrink the
         # live scan's, and re-learning a provider's cap every step wastes calls.
