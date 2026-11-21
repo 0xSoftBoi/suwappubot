@@ -450,7 +450,17 @@ class RPCEndpoint:
             backoff = min(600, 30 * (2 ** (self.consecutive_failures - 3)))
             self.circuit_open_until = time.monotonic() + backoff
             if not was_open:
-                logger.warning(
+                # Each expired backoff that fails again re-opens the circuit
+                # (30s→60s→…→600s), and a chainlist-discovered endpoint is
+                # optional by design. Warning on every re-open buried real
+                # errors under a dozen dead public RPCs every two minutes, so
+                # only a configured endpoint's FIRST open is a warning.
+                log = (
+                    logger.warning
+                    if self.tier != RPCTier.DISCOVERED and self.consecutive_failures == 3
+                    else logger.debug
+                )
+                log(
                     "RPC circuit OPEN %s (%ss, %s failures, reason=%s)",
                     _safe_url(self.url),
                     backoff,

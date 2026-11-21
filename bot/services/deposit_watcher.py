@@ -328,6 +328,11 @@ class DepositWatcher:
                     break
                 try:
                     await self.scan_chain(chain)
+                except OSError as exc:
+                    # Dropped/reset connections (requests' ConnectionError and
+                    # aiohttp's ClientOSError are OSErrors) retry on the next poll
+                    # and no deposit is lost — the scan resumes from its cursor.
+                    logger.warning("Deposit scan transient failure for %s: %s", chain, exc)
                 except Exception as exc:  # one bad chain must not stop the rest
                     logger.error("Deposit scan failed for %s: %s", chain, exc)
             await asyncio.sleep(self.poll_seconds)
