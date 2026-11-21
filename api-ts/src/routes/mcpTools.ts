@@ -151,7 +151,7 @@ const LIST_WALLET_POLICIES_INPUT = mcpInputSchema(McpListWalletPoliciesSchema, {
 const TOOLS = [
 	{
 		name: 'get_quote',
-		description: "Get a priced swap quote and a quote_id, moving no funds. Use first in the flow get_quote -> simulate_swap -> execute_swap; for token prices only, use get_prices instead. Same-chain or cross-chain (EVM via Li.Fi, Solana via Jupiter). Pass wallet_address to get a quote that execute_swap can turn into a transaction. The quote_id is valid for about 60 seconds. Amounts are human units, slippage is a decimal fraction (0.03 = 3%, max 0.5).",
+		description: "Get a priced swap quote and a quote_id, moving no funds. Use first in the flow get_quote -> simulate_swap -> execute_swap; for token prices only, use get_prices instead. Same-chain or cross-chain (EVM via Li.Fi, Solana via Jupiter). Pass wallet_address to get a quote that execute_swap can turn into a transaction. The quote_id is valid for about 60 seconds and is only redeemable by the authenticated agent that requested it; anonymous callers (no API key) get a quote without an executable quote_id. Same-chain results include sign_url: show it to the user so they can review and confirm the trade in the Suwappu terminal (it only pre-fills the form; nothing executes until the user confirms). Amounts are human units, slippage is a decimal fraction (0.03 = 3%, max 0.5).",
 		inputSchema: GET_QUOTE_INPUT,
 	},
 	{

@@ -151,6 +151,7 @@ adminGrowthRoutes.get('/growth', async (c) => {
 				landingRows,
 				landingEntrances,
 				aiRows,
+				swapsBySource,
 			] = yield* Effect.all(
 				[
 					run(
@@ -324,6 +325,16 @@ adminGrowthRoutes.get('/growth', async (c) => {
 								and (lower(referrer_host) in (${inList([...AI_ALIAS.keys()])})
 									or lower(utm_source) in (${inList([...AI_ALIAS.keys()])}))
 							limit 20000`,
+					),
+					// Recorded swaps per launch/micro-product ref (written by python-api
+					// /webapp/swap/record as name='swap_recorded', utm_source=<ref>).
+					optional(
+						'swaps by source',
+						sql`select utm_source as source, count(*) as n
+							from web_events
+							where name = 'swap_recorded' and session_id = 'server'
+								and created_at >= ${start}::timestamp
+							group by 1 order by 2 desc limit 50`,
 					),
 				],
 				{ concurrency: 4 },
@@ -633,6 +644,10 @@ adminGrowthRoutes.get('/growth', async (c) => {
 				landingPages,
 				landingPagesTruncated: landingTruncated,
 				aiReferrals,
+				swapsBySource: (swapsBySource ?? []).map((r) => ({
+					source: String(r.source),
+					swaps: num(r.n),
+				})),
 				topEvents: (topEvents ?? []).map((r) => ({
 					name: String(r.name),
 					count: num(r.n),
