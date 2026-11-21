@@ -148,3 +148,14 @@
 @media (max-width: 900px) {
   .rowSplit .col, .codeFirst .col { order: 2; }
 }
+
+/* Variety: row 2 is a banded layout (copy across the top, art and code side by side),
+   row 3 sits on a quiet tinted panel. Row 1 stays the plain split. */
+.rowBand { grid-template-columns: minmax(0, 1fr); align-items: start; }
+.rowBand .copy, .rowBand .col { order: 0; }
+.rowBand .copy { max-width: 62ch; }
+.rowBand .col { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); gap: clamp(16px, 2.5vw, 28px); align-items: stretch; }
+.rowPanel { margin-block: 0; padding-inline: clamp(1.25rem, 3vw, 2.5rem); border: 1px solid var(--sw-hairline); border-radius: 24px; background: linear-gradient(180deg, rgba(255,255,255,0.7), rgba(255,246,232,0.7)); box-shadow: 0 24px 50px -34px rgba(23,50,74,0.35); }
+.rowPanel + .row, .row + .rowPanel { border-top: 0; }
+.rowPanel { margin-top: clamp(1.5rem, 3vw, 2.5rem); }
+@media (max-width: 820px) { .rowBand .col { grid-template-columns: minmax(0, 1fr); } }

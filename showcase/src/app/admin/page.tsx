@@ -91,9 +91,11 @@ function fmtNum(n: number): string {
 }
 
 function fmtUSD(n: number): string {
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}k`;
-  return `$${n.toFixed(2)}`;
+  const sign = n < 0 ? '-' : '';
+  const a = Math.abs(n);
+  if (a >= 1_000_000) return `${sign}$${(a / 1_000_000).toFixed(2)}M`;
+  if (a >= 1_000) return `${sign}$${(a / 1_000).toFixed(1)}k`;
+  return `${sign}$${a.toFixed(2)}`;
 }
 
 function fmtTime(iso: string): string {

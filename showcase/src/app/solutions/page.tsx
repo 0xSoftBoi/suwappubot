@@ -175,7 +175,7 @@ export default function SolutionsPage() {
 
           {rest.map((s, i) => (
             <section
-              className={`${styles.row} ${styles.rowSplit}${i % 2 ? ` ${styles.codeFirst}` : ''}`}
+              className={`${styles.row} ${styles.rowSplit}${i === 1 ? ` ${styles.rowBand}` : i === 2 ? ` ${styles.rowPanel}` : i % 2 ? ` ${styles.codeFirst}` : ''}`}
               id={s.id}
               key={s.id}
             >
