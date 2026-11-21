@@ -903,6 +903,8 @@ class Settings(BaseSettings):
             "arbitrum": "arb-mainnet",
             "optimism": "opt-mainnet",
             "base": "base-mainnet",
+            # Alchemy names BSC "bnb-mainnet" (bsc-mainnet does not resolve).
+            "bsc": "bnb-mainnet",
             "solana": "solana-mainnet",
             # Confirmed live on Alchemy (alchemy.com/rpc/robinhood, 2026-08-04) —
             # not a guess. Robinhood Chain's 2-validator set (Offchain Labs +
