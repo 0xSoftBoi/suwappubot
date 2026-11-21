@@ -234,6 +234,30 @@ export function getRpcUrl(chainId: number): string | null {
 	return chainKey ? RPC_ENDPOINTS[chainKey] || null : null
 }
 
+// Second public endpoint per chain, tried once when the primary has a TRANSPORT
+// failure (HTTP error, non-JSON body, network error, timeout). Only endpoints
+// verified to answer eth_chainId are listed; chains without one have no
+// fallback (polygon-rpc.com currently answers 403 "tenant disabled", so the
+// Polygon fallback is PublicNode instead).
+// These are deliberately fixed constants, NOT env-configurable: a fallback is
+// only trusted after an eth_chainId match, and keeping it out of env avoids a
+// second operator-supplied URL (SSRF surface) beyond the primary overrides.
+const RPC_FALLBACK_ENDPOINTS: Record<string, string> = {
+	ethereum: 'https://ethereum-rpc.publicnode.com',
+	arbitrum: 'https://arb1.arbitrum.io/rpc',
+	optimism: 'https://mainnet.optimism.io',
+	polygon: 'https://polygon-bor-rpc.publicnode.com',
+	base: 'https://mainnet.base.org',
+}
+
+export function getRpcFallbackUrl(chainId: number): string | null {
+	const chainKey = CHAIN_ID_TO_KEY[chainId]
+	if (!chainKey) return null
+	const fallback = RPC_FALLBACK_ENDPOINTS[chainKey]
+	// Skip when an env override already points at the same endpoint.
+	return fallback && fallback !== RPC_ENDPOINTS[chainKey] ? fallback : null
+}
+
 // Returns null for an unrecognized chain id rather than silently pointing at
 // Ethereum's explorer — a wrong-chain tx link is worse than no link. Callers
 // must handle the null case and omit the link rather than guess.
