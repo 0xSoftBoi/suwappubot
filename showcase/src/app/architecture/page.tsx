@@ -3,6 +3,8 @@ import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import stats from '@/data/stats.generated.json';
 import { GITHUB_URL } from '@/lib/links';
+import { Reveal, V3Section, SectionHead, Backdrop, ExecutionPlane } from '@/components/v3';
+import '../content-v3.css';
 
 export const metadata: Metadata = {
   title: 'Architecture & execution boundaries',
@@ -82,161 +84,123 @@ const boundaries = [
 
 export default function ArchitecturePage() {
   return (
-    <div className="summer-page docs-shell institutional-page">
+    <div className="summer-page docs-shell institutional-page v3-tone-light cv3-page">
       <SummerNav />
       <main id="main-content">
-      <div className="summer-shell mkt-page">
-        <header className="mkt-hero">
-          <p className="summer-kicker">Architecture / Execution model</p>
-          <h1>One execution plane. Explicit authority.</h1>
-          <p className="mkt-hero__lead">
-            Suwappu separates discovering a route from permission to move funds. That boundary is
-            what lets the same engine serve an operator, a trading terminal and an autonomous agent
-            without pretending they should all have the same authority.
-          </p>
-        </header>
+        <div className="cv3-hero cv3-hero--solo">
+          <Backdrop kind="mesh" />
+          <Backdrop kind="grid" />
+          <div className="v3-wrap cv3-hero__grid">
+            <header>
+              <p className="v3-kicker">Architecture / Execution model</p>
+              <h1>One execution plane. <em>Explicit</em> authority.</h1>
+              <p className="cv3-lead">
+                Suwappu separates discovering a route from permission to move funds. That boundary is
+                what lets the same engine serve an operator, a trading terminal and an autonomous agent
+                without pretending they should all have the same authority.
+              </p>
+            </header>
+          </div>
+        </div>
 
-        <section className="institutional-metrics" aria-label="Architecture scope">
-          <div className="institutional-metric">
-            <strong>{stats.platformChains}</strong>
-            <span>platform chains · product surface</span>
-          </div>
-          <div className="institutional-metric">
-            <strong>{stats.agentApiChains}</strong>
-            <span>agent API chains · programmable</span>
-          </div>
-          <div className="institutional-metric">
-            <strong>{stats.routerCount}</strong>
-            <span>routing providers · availability varies</span>
-          </div>
-          <div className="institutional-metric">
-            <strong>2</strong>
-            <span>custody modes · external or managed</span>
-          </div>
-        </section>
+        <div className="v3-wrap">
+          <Reveal>
+            <section className="cv3-stats" aria-label="Architecture scope">
+              <div className="cv3-stat"><strong className="cv3-stat__v">{stats.platformChains}</strong><span className="cv3-stat__l">platform chains · product surface</span></div>
+              <div className="cv3-stat"><strong className="cv3-stat__v">{stats.agentApiChains}</strong><span className="cv3-stat__l">agent API chains · programmable</span></div>
+              <div className="cv3-stat"><strong className="cv3-stat__v">{stats.routerCount}</strong><span className="cv3-stat__l">routing providers · availability varies</span></div>
+              <div className="cv3-stat"><strong className="cv3-stat__v">2</strong><span className="cv3-stat__l">custody modes · external or managed</span></div>
+            </section>
+          </Reveal>
+        </div>
 
-        <section className="institutional-section" aria-labelledby="pipeline-title">
-          <div className="institutional-section__label">
-            <span>Execution pipeline</span>
-            <span>Intent → route → simulate → authorize → settle</span>
-          </div>
-          <div className="institutional-section__intro institutional-section__intro--stack">
-            <h2 id="pipeline-title">Make every boundary inspectable.</h2>
-            <p>
-              The architecture is deliberately staged. A quote can be useful without granting
-              signing power; an authorized transaction can be tracked without conflating broadcast
-              with final settlement.
-            </p>
-          </div>
-          <div className="institutional-register">
+        <V3Section tone="light" className="cv3-sec" labelledBy="pipeline-title">
+          <SectionHead kicker="Intent → route → simulate → authorize → settle" title="Make every boundary inspectable." id="pipeline-title"
+            lead="The architecture is deliberately staged. A quote can be useful without granting signing power; an authorized transaction can be tracked without conflating broadcast with final settlement." />
+          <Reveal className="cv3-stage">
+            <ExecutionPlane
+              surfaces={surfaces.map((x) => x.label)}
+              stages={pipeline.map((x) => x.label)}
+              custody={['External signing', 'Managed policy']}
+              provider="Providers"
+            />
+          </Reveal>
+          <Reveal className="cv3-rows">
             {pipeline.map((step, index) => (
-              <article className="institutional-row" key={step.label}>
-                <span className="institutional-row__number">{String(index + 1).padStart(2, '0')}</span>
-                <span className="institutional-row__label">{step.label}</span>
-                <h3>{step.title}</h3>
-                <p>{step.body}</p>
-              </article>
+              <div className="cv3-row" key={step.label}>
+                <i>{String(index + 1).padStart(2, '0')}</i>
+                <strong>{step.label} · {step.title}</strong>
+                <span>{step.body}</span>
+              </div>
             ))}
-          </div>
-        </section>
+          </Reveal>
+        </V3Section>
 
-        <section className="institutional-section" aria-labelledby="surfaces-title">
-          <div className="institutional-section__label">
-            <span>Interface authority</span>
-            <span>Same engine does not mean same permissions</span>
-          </div>
-          <div className="institutional-section__intro institutional-section__intro--stack">
-            <h2 id="surfaces-title">Protocol semantics stay intact.</h2>
-            <p>
-              Enterprise systems fail when an integration quietly gains authority that its parent
-              protocol never promised. Each Suwappu surface is described by what it can actually do.
-            </p>
-          </div>
-          <div className="institutional-grid">
+        <V3Section tone="light" className="cv3-sec" labelledBy="surfaces-title" backdrop={<Backdrop kind="glow" />}>
+          <SectionHead kicker="Same engine does not mean same permissions" title="Protocol semantics stay intact." id="surfaces-title"
+            lead="Enterprise systems fail when an integration quietly gains authority that its parent protocol never promised. Each Suwappu surface is described by what it can actually do." />
+          <Reveal stagger className="cv3-num-grid cv3-num-grid--3">
             {surfaces.map((surface) => (
-              <article className="institutional-panel" key={surface.label}>
-                <span>{surface.label}</span>
+              <article className="cv3-num" key={surface.label}>
+                <span className="cv3-num__tag">{surface.label}</span>
                 <h3>{surface.title}</h3>
                 <p>{surface.body}</p>
               </article>
             ))}
-          </div>
-        </section>
+          </Reveal>
+        </V3Section>
 
-        <section className="institutional-darkband" aria-labelledby="boundaries-title">
-          <div className="institutional-darkband__head institutional-darkband__head--stack">
-            <h2 id="boundaries-title">Four boundaries worth threat-modeling.</h2>
-            <p>
-              The most important architecture decisions are not decorative boxes in a diagram. They
-              are where authority, external dependency and state change hands.
-            </p>
-          </div>
-          <div className="institutional-register">
-            {boundaries.map((boundary, index) => (
-              <article className="institutional-row" key={boundary.label}>
-                <span className="institutional-row__number">{String(index + 1).padStart(2, '0')}</span>
-                <span className="institutional-row__label">{boundary.label}</span>
-                <h3>{boundary.title}</h3>
-                <p>{boundary.body}</p>
+        <V3Section tone="dark" className="cv3-sec" labelledBy="boundaries-title" backdrop={<><Backdrop kind="mesh-grain" /><Backdrop kind="grid" /></>}>
+          <SectionHead kicker="Threat model" title="Four boundaries worth threat-modeling." id="boundaries-title"
+            lead="The most important architecture decisions are not decorative boxes in a diagram. They are where authority, external dependency and state change hands." />
+          <Reveal stagger className="cv3-num-grid cv3-num-grid--2 cv3-dark-grid">
+            {boundaries.map((b, index) => (
+              <article className="cv3-num" key={b.label}>
+                <span className="cv3-num__n" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
+                <span className="cv3-num__tag">{b.label}</span>
+                <h3>{b.title}</h3>
+                <p>{b.body}</p>
               </article>
             ))}
-          </div>
-        </section>
+          </Reveal>
+        </V3Section>
 
-        <section className="institutional-section" aria-labelledby="contracts-title">
-          <div className="institutional-section__label">
-            <span>Contracts &amp; evidence</span>
-            <span>Start from machine-readable truth</span>
-          </div>
-          <div className="institutional-section__intro institutional-section__intro--stack">
-            <h2 id="contracts-title">Integrate from the contract, not the brochure.</h2>
-            <p>
-              Current schemas, supported-chain responses and source are better integration inputs
-              than screenshots. Use the live API artifacts as the authority when a marketing page
-              and a deploy ever disagree.
-            </p>
-          </div>
-          <div className="institutional-grid">
-            <article className="institutional-panel">
-              <span>OpenAPI</span>
+        <V3Section tone="light" className="cv3-sec" labelledBy="contracts-title">
+          <SectionHead kicker="Start from machine-readable truth" title="Integrate from the contract, not the brochure." id="contracts-title"
+            lead="Current schemas, supported-chain responses and source are better integration inputs than screenshots. Use the live API artifacts as the authority when a marketing page and a deploy ever disagree." />
+          <Reveal stagger className="cv3-num-grid cv3-num-grid--3">
+            <article className="cv3-num">
+              <span className="cv3-num__tag">OpenAPI</span>
               <h3>Machine-readable endpoint contract.</h3>
               <p>Inspect request and response schemas directly from the deployed Agent API.</p>
-              <div className="institutional-actions">
-                <a className="institutional-link" href="https://api.suwappu.bot/v1/agent/openapi" target="_blank" rel="noopener noreferrer">Open spec ↗</a>
-              </div>
+              <a className="cv3-num__link" href="https://api.suwappu.bot/v1/agent/openapi" target="_blank" rel="noopener noreferrer">Open spec ↗</a>
             </article>
-            <article className="institutional-panel">
-              <span>Documentation</span>
+            <article className="cv3-num">
+              <span className="cv3-num__tag">Documentation</span>
               <h3>Authority and integration guides.</h3>
               <p>Quick starts, authentication, protocol notes and endpoint documentation live on one public surface.</p>
-              <div className="institutional-actions">
-                <a className="institutional-link" href="/docs">Read docs →</a>
-              </div>
+              <a className="cv3-num__link" href="/docs">Read docs →</a>
             </article>
-            <article className="institutional-panel">
-              <span>Source</span>
+            <article className="cv3-num">
+              <span className="cv3-num__tag">Source</span>
               <h3>Implementation remains inspectable.</h3>
               <p>Review the public repository, issues and changes alongside the deployed documentation.</p>
-              <div className="institutional-actions">
-                <a className="institutional-link" href={GITHUB_URL} target="_blank" rel="noopener noreferrer">GitHub ↗</a>
-              </div>
+              <a className="cv3-num__link" href={GITHUB_URL} target="_blank" rel="noopener noreferrer">GitHub ↗</a>
             </article>
-          </div>
-        </section>
+          </Reveal>
+        </V3Section>
 
-        <section className="mkt-cta" aria-labelledby="architecture-close">
-          <p className="summer-kicker">Next step</p>
-          <h2 id="architecture-close">Threat-model the real integration.</h2>
-          <div className="summer-actions summer-cta__actions">
-            <a className="summer-button summer-button--primary" href="/docs/quick-start/overview">
-              Build from the docs
-            </a>
-            <a className="summer-button summer-button--secondary" href="/security">
-              Review security
-            </a>
+        <V3Section tone="light" className="cv3-sec cv3-pad-bottom" labelledBy="architecture-close">
+          <div className="cv3-close v3-tone-dark">
+            <Backdrop kind="mesh-grain" />
+            <p className="v3-kicker">Next step</p>
+            <h2 id="architecture-close">Threat-model the real integration.</h2>
+            <div className="cv3-actions">
+              <a className="summer-button summer-button--primary" href="/docs/quick-start/overview">Build from the docs</a>
+              <a className="summer-button summer-button--secondary" href="/security">Review security</a>
+            </div>
           </div>
-        </section>
-      </div>
+        </V3Section>
       </main>
       <SummerFooter />
     </div>

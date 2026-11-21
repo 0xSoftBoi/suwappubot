@@ -470,3 +470,9 @@
 .v3-schem { max-width: 460px; margin-inline: auto; }
 .v3-schem text { font-weight: 600; }
 .v3-framed { position: relative; width: min(100%, 420px); aspect-ratio: 1; margin-inline: auto; }
+
+/* ExecutionPlane: wide on desktop, stacked on narrow screens */
+.v3-ep { max-width: 880px; margin-inline: auto; }
+.v3-ep--tall { display: none; max-width: 360px; }
+.v3-ep text { font-weight: 600; }
+@media (max-width: 720px) { .v3-ep--wide { display: none; } .v3-ep--tall { display: block; } }
