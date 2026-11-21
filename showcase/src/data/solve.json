@@ -139,11 +139,11 @@
         },
         {
           "title": "Quote",
-          "detail": "POST /v1/agent/quote returns quote_id, amount_out_min and route. A quote is valid for 60 seconds."
+          "detail": "POST /v1/agent/quote with the wallet_address that will sign. It returns quote_id, amount_out_min and route. A quote is valid for 60 seconds and is bound to that wallet."
         },
         {
           "title": "Simulate",
-          "detail": "POST /v1/agent/swap/simulate with the quote_id and wallet_address. Execute only if would_execute is true."
+          "detail": "POST /v1/agent/swap/simulate with the quote_id and the same wallet_address. Execute only if would_execute is true."
         },
         {
           "title": "Choose authority",
@@ -157,7 +157,7 @@
       "snippet": {
         "lang": "bash",
         "label": "Quote then simulate (no funds move)",
-        "code": "# 1. quote\ncurl -s -X POST https://api.suwappu.bot/v1/agent/quote \\\n  -H \"Authorization: Bearer $SUWAPPU_API_KEY\" -H \"Content-Type: application/json\" \\\n  -d '{\"from_token\":\"ETH\",\"to_token\":\"USDC\",\"amount\":\"0.1\",\"chain\":\"base\"}'\n\n# 2. dry run the returned quote_id\ncurl -s -X POST https://api.suwappu.bot/v1/agent/swap/simulate \\\n  -H \"Authorization: Bearer $SUWAPPU_API_KEY\" -H \"Content-Type: application/json\" \\\n  -d '{\"quote_id\":\"QUOTE_ID_FROM_STEP_1\",\"wallet_address\":\"0xYourWallet\"}'"
+        "code": "# 1. quote\ncurl -s -X POST https://api.suwappu.bot/v1/agent/quote \\\n  -H \"Authorization: Bearer $SUWAPPU_API_KEY\" -H \"Content-Type: application/json\" \\\n  -d '{\"from_token\":\"ETH\",\"to_token\":\"USDC\",\"amount\":\"0.1\",\"chain\":\"base\",\"wallet_address\":\"0xYourWallet\"}'\n\n# 2. dry run the returned quote_id with the same wallet\ncurl -s -X POST https://api.suwappu.bot/v1/agent/swap/simulate \\\n  -H \"Authorization: Bearer $SUWAPPU_API_KEY\" -H \"Content-Type: application/json\" \\\n  -d '{\"quote_id\":\"QUOTE_ID_FROM_STEP_1\",\"wallet_address\":\"0xYourWallet\"}'"
       },
       "product": {
         "name": "Agent API",

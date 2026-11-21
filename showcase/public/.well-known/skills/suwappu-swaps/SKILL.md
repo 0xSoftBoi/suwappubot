@@ -26,9 +26,9 @@ Do not use it for: A2A execution (the A2A endpoint covers quotes, prices and dis
 
 Always: get_quote, then simulate_swap, then execute_swap.
 
-1. get_quote: returns a `quote_id`, `amount_out_min` and the route. A quote is valid for 60 seconds.
-2. simulate_swap: dry-run the `quote_id` with a `wallet_address`. No signing, no broadcast, no funds move. Proceed only if `would_execute` is true.
-3. execute_swap (MCP): returns an UNSIGNED transaction. It never signs or broadcasts. Org spend policy (per-transaction, daily and session caps, approvals, kill switch) gates it. Set policies with the Suwappu team; there is no self-serve endpoint for creating them today.
+1. get_quote: pass the `wallet_address` that will sign. Returns a `quote_id`, `amount_out_min` and the route. A quote is valid for 60 seconds and is BOUND to that wallet: a quote requested without `wallet_address` is built for a placeholder address and cannot be turned into a transaction.
+2. simulate_swap: dry-run the `quote_id` with the SAME `wallet_address`. No signing, no broadcast, no funds move. Proceed only if `would_execute` is true.
+3. execute_swap (MCP): returns an UNSIGNED transaction. It never signs or broadcasts. Org spend policy (per-transaction, daily and session caps, approvals, kill switch) gates it. Org-wide policies are set with the Suwappu team. An agent can add its own per-transaction limit or address allowlist on its managed wallet with `POST /v1/agent/wallet/policy`.
 
 Over REST, step 3 is a choice: `POST /v1/agent/swap` returns an unsigned transaction you sign, and `POST /v1/agent/swap/execute` signs from the agent's managed wallet.
 
@@ -56,13 +56,15 @@ Or open https://suwappu.bot/start.
 # 1. quote
 curl -s -X POST https://api.suwappu.bot/v1/agent/quote \
   -H "Authorization: Bearer $SUWAPPU_API_KEY" -H "Content-Type: application/json" \
-  -d '{"from_token":"ETH","to_token":"USDC","amount":"0.1","chain":"base"}'
+  -d '{"from_token":"ETH","to_token":"USDC","amount":"0.1","chain":"base","wallet_address":"0xYourWallet"}'
 
-# 2. dry run the returned quote_id
+# 2. dry run the returned quote_id with the same wallet
 curl -s -X POST https://api.suwappu.bot/v1/agent/swap/simulate \
   -H "Authorization: Bearer $SUWAPPU_API_KEY" -H "Content-Type: application/json" \
   -d '{"quote_id":"QUOTE_ID_FROM_STEP_1","wallet_address":"0xYourWallet"}'
 ```
+
+Use one wallet address for the quote, the dry run and the swap. For a price check only, `wallet_address` can be omitted from the quote, but that quote cannot be executed.
 
 Track a swap with `GET /v1/agent/swap/status/:id`, or set a `callback_url` on the agent for signed webhooks.
 
@@ -81,9 +83,9 @@ curl -s -X POST https://api.suwappu.bot/mcp \
 ## Limits
 
 - Rate limits per key per minute: free 30, agent 100, pro 500, premium 2,000, enterprise 10,000. A new key starts on free. Over the limit you get HTTP 429 with `Retry-After`.
-- Agent API swap fee: 0.8% on EVM routes, 0.3% on Solana routes, regardless of subscription tier.
-- Metered calls draw prepaid credits or pay per call over HTTP 402 (x402).
-- Quotes compare multiple routing providers; the route with the best score is selected, which is not always the single highest output.
+- Base Agent API swap fee: 0.8% on EVM routes, 0.3% on Solana routes, regardless of subscription tier. World ID verified agents get 20% off by default, and a deployment can configure the Solana rate. The fee on the live quote is the one that applies.
+- Metered calls need an API key and draw prepaid credits (quote or dry run 1, swap 5; 1 credit is about $0.001). When credits run out the API answers HTTP 402. Paying on-chain per request with an x402 header exists in the code but is off by default.
+- Routing on the Agent API: EVM and cross-chain quotes execute through Li.Fi; same-chain Solana quotes through Jupiter. Other providers may be fetched for comparison only.
 
 ## Machine-readable contracts
 
