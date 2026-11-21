@@ -143,9 +143,9 @@ const STACK: { name: string; what: string; limit: string; href: string; cta: str
     cta: 'A2A protocol',
   },
   {
-    name: 'x402 pay-per-call',
-    what: 'Pay per request over HTTP 402 instead of holding a subscription.',
-    limit: 'Metered calls draw prepaid credits; 1 credit is about $0.001.',
+    name: 'Pay per call (credits, HTTP 402)',
+    what: 'Metered calls draw prepaid credits instead of a subscription; the API answers HTTP 402 when they run out.',
+    limit: 'You still need an API key. 1 credit is about $0.001. Paying on-chain per request with an x402 header is in the code but off by default.',
     href: '/solve/x402-pay-per-call-api',
     cta: 'Pay per call',
   },
@@ -166,7 +166,7 @@ const STACK: { name: string; what: string; limit: string; href: string; cta: str
   {
     name: 'Spend policies',
     what: 'Per-transaction, daily and session caps, approvals and a kill switch.',
-    limit: 'Set with the team today; there is no self-serve endpoint to create them.',
+    limit: 'Org-wide caps, approvals and kill switches are set with the team. An agent can add its own per-transaction limit or address allowlist on its managed wallet (POST /v1/agent/wallet/policy).',
     href: '/solve/spending-limits-ai-agent-wallet',
     cta: 'Spending limits',
   },
@@ -204,7 +204,7 @@ const STACK: { name: string; what: string; limit: string; href: string; cta: str
 const WHEN: { doing: string; use: string; why: string; href: string; cta: string }[] = [
   { doing: 'Give an LLM tools', use: 'MCP', why: `${stats.mcpToolCount} discoverable tools; the host lists them at runtime.`, href: '/docs/quick-start/mcp-clients', cta: 'MCP clients' },
   { doing: 'Call from your backend', use: 'REST or SDK', why: 'Full surface, including managed execution and webhooks.', href: '/docs/quick-start/first-swap', cta: 'First swap' },
-  { doing: 'Pay per call, no account', use: 'x402', why: 'Settle each request over HTTP 402 from a funded wallet.', href: '/solve/x402-pay-per-call-api', cta: 'x402 guide' },
+  { doing: 'Pay per call, no subscription', use: 'Prepaid credits', why: 'Top up credits on a key; metered calls draw them down and return HTTP 402 when empty.', href: '/solve/x402-pay-per-call-api', cta: 'x402 guide' },
   { doing: 'Discover or price from another agent', use: 'A2A', why: 'Quotes and discovery between agents; it never executes.', href: '/docs/protocols/a2a', cta: 'A2A protocol' },
   { doing: 'Let a browser agent act with a mandate', use: 'Agent Desk', why: 'WebMCP tools in the page, bounded by the mandate.', href: '/agent-terminal', cta: 'Agent Desk' },
   { doing: 'Cap an agent fleet', use: 'Spend policies', why: 'Per-tx, daily and session caps with approvals and a kill switch.', href: '/solve/spending-limits-ai-agent-wallet', cta: 'Spending limits' },
@@ -312,21 +312,25 @@ export default function AgentsPage() {
               </dl>
               <p>
                 A newly registered key starts on the free tier (30 requests a minute) until a
-                paid window raises it. Registration and GET /v1/agent/chains need no key. Every
-                other endpoint needs a key or an x402 payment. Over the limit you get HTTP 429
-                with a Retry-After header.
+                paid window raises it. Registration, GET /v1/agent/chains and the OpenAPI spec
+                need no key; everything else needs one. Over the limit you get HTTP 429 with a
+                Retry-After header.
               </p>
             </div>
             <div className={styles.limitsBlock}>
               <h3>Fees and credits</h3>
               <dl className={styles.limitsList}>
-                <div><dt>Swap fee, EVM routes</dt><dd>0.8%</dd></div>
-                <div><dt>Swap fee, Solana routes</dt><dd>0.3%</dd></div>
+                <div><dt>Base swap fee, EVM routes</dt><dd>0.8%</dd></div>
+                <div><dt>Base swap fee, Solana routes</dt><dd>0.3%</dd></div>
+                <div><dt>World ID verified agents</dt><dd>20% off</dd></div>
                 <div><dt>Starter credits on registration</dt><dd>100</dd></div>
               </dl>
               <p>
-                The swap fee does not depend on subscription tier. Starter credits cover about
-                100 quote calls or 20 swaps and are withheld if registration is rate-limited.
+                These are base rates and do not depend on subscription tier; the fee on a live
+                quote is the one that applies. A quote or dry run costs 1 credit and a swap 5,
+                so 100 starter credits cover about 100 quotes or 14 full quote, dry-run and swap
+                flows. The grant is limited to three per IP address a day; registration still
+                succeeds without it.
                 See <a href="/pricing#agent-api">Agent API pricing</a>.
               </p>
             </div>

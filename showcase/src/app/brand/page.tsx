@@ -20,7 +20,7 @@ const ASSETS = [
 // Values from the design tokens in src/app/globals.css.
 const COLOURS = [
   { name: 'Persimmon', hex: '#E58D2B', token: '--sw-accent', ink: '#17324A' },
-  { name: 'Persimmon deep', hex: '#C9731D', token: '--sw-accent-deep', ink: '#FFFFFF' },
+  { name: 'Persimmon deep', hex: '#C9731D', token: '--sw-accent-deep', ink: '#0B1220' },
   { name: 'Ink', hex: '#17324A', token: '--sw-ink', ink: '#FFFFFF' },
   { name: 'Cosmic', hex: '#0B1220', token: '--sw-cosmic-1', ink: '#E8EEF6' },
   { name: 'Cosmic ink', hex: '#E8EEF6', token: '--sw-cosmic-ink', ink: '#0B1220' },

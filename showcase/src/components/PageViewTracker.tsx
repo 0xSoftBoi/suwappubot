@@ -20,9 +20,13 @@ export default function PageViewTracker() {
   const pathname = usePathname();
 
   useEffect(() => {
-    if (!pathname || SKIP.some((p) => pathname === p || pathname.startsWith(`${p}/`))) return;
-    if (pathname === lastRecorded) return;
+    if (!pathname) return;
+    // Remember skipped paths too. Otherwise home -> /admin -> home would look like
+    // the same path twice in a row and the second home view would be dropped.
+    const previous = lastRecorded;
     lastRecorded = pathname;
+    if (SKIP.some((p) => pathname === p || pathname.startsWith(`${p}/`))) return;
+    if (pathname === previous) return;
     // First-party only: PostHog and the other providers record their own page views.
     recordFirstParty('page_view');
   }, [pathname]);
