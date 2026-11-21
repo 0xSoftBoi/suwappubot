@@ -527,6 +527,16 @@ export async function handleBrowseMppDirectory(args: Record<string, unknown>) {
 // what lets any MCP client — Claude, ChatGPT, an agent — turn a quote into a
 // real, self-custodial trade with one tap. The terminal pairs every token with
 // USDC, so the side/amount are only prefilled when one leg is USDC.
+const NATIVE_PLACEHOLDERS = new Set([
+	'0x0000000000000000000000000000000000000000',
+	'0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+	'so11111111111111111111111111111111111111112',
+	'11111111111111111111111111111111',
+])
+function isNativePlaceholder(address: string): boolean {
+	return NATIVE_PLACEHOLDERS.has(address.trim().toLowerCase())
+}
+
 const ANON_QUOTE_LIMIT = 10
 const ANON_QUOTE_WINDOW_MS = 60_000
 const anonQuoteWindows = new Map<string, { count: number; resetAt: number }>()
@@ -562,7 +572,9 @@ export function buildSignUrl(p: {
 	// would read in a different unit or direction than the quote.
 	const set = (symbol: string, address?: string) => {
 		q.set('token', symbol)
-		if (address) q.set('token_address', address)
+		// Native legs use aggregator placeholders (0x0, 0xEeee…, the wSOL mint)
+		// the terminal doesn't index; pinning them would only break the prefill.
+		if (address && !isNativePlaceholder(address)) q.set('token_address', address)
 	}
 	if (from === 'USDC' && to !== 'USDC') {
 		set(p.toToken, p.toAddress); q.set('side', 'buy'); q.set('amount', p.amount)
@@ -721,7 +733,10 @@ async function handleGetQuote(args: Record<string, unknown>, agent: Agent | unde
 				amount_in: amount, amount_out: outHuman.toFixed(6),
 				exchange_rate: quote.exchangeRate, gas_usd: quote.estimatedGasUsd,
 				route: quote.route, expires_in_seconds: 60,
-				sign_url: buildSignUrl({ fromToken: from_token, toToken: to_token, amount, chain: chainKey, toChain: to_chain, fromAddress: fromInfo.address, toAddress: toInfo.address }),
+				// Use the RESOLVED chains: aliases/IDs (arb, 8453) map to the terminal's
+				// canonical key, and a defaulted bridge (from_chain only) never yields a
+				// same-chain link.
+				sign_url: buildSignUrl({ fromToken: from_token, toToken: to_token, amount, chain: srcInfo.key, toChain: dstInfo.key, fromAddress: fromInfo.address, toAddress: toInfo.address }),
 				...(wallet_address ? {
 					transaction: {
 						to: quote.transactionRequest.to, value: quote.transactionRequest.value,

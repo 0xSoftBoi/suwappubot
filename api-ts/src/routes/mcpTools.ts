@@ -151,7 +151,7 @@ const LIST_WALLET_POLICIES_INPUT = mcpInputSchema(McpListWalletPoliciesSchema, {
 const TOOLS = [
 	{
 		name: 'get_quote',
-		description: 'Get a swap quote for exchanging tokens. Supports EVM chains (Ethereum, Base, Arbitrum, Polygon, BSC, Optimism, Avalanche) via Li.Fi and Solana via Jupiter. No API key needed. Same-chain results include sign_url: show it to the user so they can review and sign the trade in their own wallet (nothing executes without their signature).',
+		description: 'Get a swap quote for exchanging tokens. Supports EVM chains (Ethereum, Base, Arbitrum, Polygon, BSC, Optimism, Avalanche) via Li.Fi and Solana via Jupiter. No API key needed. Same-chain results include sign_url: show it to the user so they can review and confirm the trade in the Suwappu terminal (it only pre-fills the form; nothing executes until the user confirms).',
 		inputSchema: GET_QUOTE_INPUT,
 	},
 	{
