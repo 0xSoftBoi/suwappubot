@@ -150,14 +150,15 @@
       "platformChains": "cadenas de plataforma",
       "routingVenues": "rutas integradas",
       "agentApiChains": "cadenas de Agent API",
-      "routeNote": "La cobertura de plataforma y de Agent API es distinta. Cada ruta usa solo proveedores compatibles.",
       "status": "Estado del servicio",
       "statusMeta": "Salud en vivo",
       "openapi": "OpenAPI",
-      "openapiMeta": "Esquema legible por máquinas",
-      "githubMeta": "Código fuente",
+      "openapiMeta": "OpenAPI 3.1",
+      "githubMeta": "Código abierto",
       "changelog": "Novedades",
-      "changelogMeta": "Lo publicado"
+      "changelogMeta": "Último: {date}",
+      "routesThrough": "ENRUTA A TRAVÉS DE",
+      "statsLine": "{platformChains} cadenas de plataforma · {routerCount} sedes de enrutamiento · {agentApiChains} cadenas de Agent API — a {date}"
     },
     "interfaces": {
       "eyebrow": "Capacidad 06",

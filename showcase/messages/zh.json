@@ -150,14 +150,15 @@
       "platformChains": "条平台链",
       "routingVenues": "个已集成路由提供方",
       "agentApiChains": "条 Agent API 链",
-      "routeNote": "平台覆盖范围与 Agent API 不同。每条路由只使用兼容的提供方。",
       "status": "服务状态",
       "statusMeta": "实时健康状态",
       "openapi": "OpenAPI",
-      "openapiMeta": "机器可读规范",
-      "githubMeta": "源码",
+      "openapiMeta": "OpenAPI 3.1",
+      "githubMeta": "开源",
       "changelog": "更新日志",
-      "changelogMeta": "最近发布"
+      "changelogMeta": "最新：{date}",
+      "routesThrough": "路由经由",
+      "statsLine": "{platformChains} 条平台链 · {routerCount} 个路由场所 · {agentApiChains} 条 Agent API 链 — 截至 {date}"
     },
     "interfaces": {
       "eyebrow": "能力 06",

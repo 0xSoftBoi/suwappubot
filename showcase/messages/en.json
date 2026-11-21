@@ -150,14 +150,15 @@
       "platformChains": "platform chains",
       "routingVenues": "integrated routing venues",
       "agentApiChains": "Agent API chains",
-      "routeNote": "Platform coverage and Agent API coverage differ. Every route uses only compatible venues.",
       "status": "Service status",
       "statusMeta": "Live health",
       "openapi": "OpenAPI",
-      "openapiMeta": "Machine-readable schema",
-      "githubMeta": "Source",
+      "openapiMeta": "OpenAPI 3.1",
+      "githubMeta": "Open source",
       "changelog": "Changelog",
-      "changelogMeta": "What shipped"
+      "changelogMeta": "Latest {date}",
+      "routesThrough": "ROUTES THROUGH",
+      "statsLine": "{platformChains} platform chains · {routerCount} routing venues · {agentApiChains} Agent API chains — as of {date}"
     },
     "interfaces": {
       "eyebrow": "Capability 06",

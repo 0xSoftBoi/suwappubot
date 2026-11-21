@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { getTranslations } from 'next-intl/server';
+import { getLocale, getTranslations } from 'next-intl/server';
 import StructuredData from '@/components/StructuredData';
 import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
@@ -12,6 +12,7 @@ import {
   type MiniKind, ProblemStrip } from '@/components/v3';
 import FaqAccordion from '@/components/FaqAccordion';
 import productStats from '@/data/stats.generated.json';
+import { entries as changelogEntries } from '@/data/changelog';
 import { GITHUB_URL, TELEGRAM_URL, TERMINAL_URL, MINI_APP_URL } from '@/lib/links';
 import './hero-d/hero-d.css';
 import './site.css';
@@ -29,6 +30,12 @@ export const revalidate = 60;
 export default async function Home() {
   const h = await getTranslations('home');
 
+  const locale = await getLocale();
+  const fmtDate = (iso: string) =>
+    new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(`${iso}T00:00:00Z`));
+
+  // Real values only: the spec version is what GET /v1/agent/openapi serves,
+  // the changelog date is the newest entry, status is a link (no live datum).
   const proofLinks = [
     { label: h('evidence.status'), meta: h('evidence.statusMeta'), href: '/status', external: false },
     {
@@ -38,8 +45,17 @@ export default async function Home() {
       external: true,
     },
     { label: 'GitHub', meta: h('evidence.githubMeta'), href: GITHUB_URL, external: true },
-    { label: h('evidence.changelog'), meta: h('evidence.changelogMeta'), href: '/changelog', external: false },
+    {
+      label: h('evidence.changelog'),
+      meta: h('evidence.changelogMeta', { date: fmtDate(changelogEntries[0].date) }),
+      href: '/changelog',
+      external: false,
+    },
   ];
+
+  // Venues and bridges the router really calls (stats.routers), in a fixed order.
+  const routeVenues = ['Jupiter', '0x', '1inch', 'Li.Fi', 'CoW', 'KyberSwap', 'Across', 'CCTP', 'Wormhole', 'LayerZero', 'OKX', 'Socket']
+    .filter((v) => productStats.routers.includes(v));
 
   const executionSteps = [
     { number: '01', title: h('execution.intentTitle'), body: h('execution.intentBody') },
@@ -197,25 +213,18 @@ export default async function Home() {
             </div>
           </div>
 
-          {/* Evidence: real numbers from stats.generated.json, counted up. */}
+          {/* Proof: honest, for a company with no customer logos. Venues we really
+              route through (text wordmarks from stats.generated.json), then the
+              open artifacts, then the three real numbers on one dated line. */}
           <section className="hv3-proof" aria-label={h('evidence.ariaLabel')}>
-            <Reveal className="hv3-proof__inner v3-glass">
-              <div className="hv3-proof__stats">
-                <dl>
-                  <div>
-                    <dd><CountUp value={productStats.platformChains} /></dd>
-                    <dt>{h('evidence.platformChains')}</dt>
-                  </div>
-                  <div>
-                    <dd><CountUp value={productStats.routerCount} /></dd>
-                    <dt>{h('evidence.routingVenues')}</dt>
-                  </div>
-                  <div>
-                    <dd><CountUp value={productStats.agentApiChains} /></dd>
-                    <dt>{h('evidence.agentApiChains')}</dt>
-                  </div>
-                </dl>
-                <small>{h('evidence.routeNote')}</small>
+            <Reveal className="hv3-proof__inner">
+              <div className="hv3-proof__routes">
+                <p className="hv3-proof__label">{h('evidence.routesThrough')}</p>
+                <ul>
+                  {routeVenues.map((v) => (
+                    <li key={v}><a href="/architecture">{v}</a></li>
+                  ))}
+                </ul>
               </div>
               <div className="hv3-proof__links">
                 {proofLinks.map((item) => (
@@ -230,6 +239,14 @@ export default async function Home() {
                   </a>
                 ))}
               </div>
+              <p className="hv3-proof__line">
+                {h('evidence.statsLine', {
+                  platformChains: productStats.platformChains,
+                  routerCount: productStats.routerCount,
+                  agentApiChains: productStats.agentApiChains,
+                  date: fmtDate(productStats.generatedAt),
+                })}
+              </p>
             </Reveal>
           </section>
 
