@@ -38,13 +38,13 @@ const CHAIN_RPC_ENDPOINTS: Record<number, string> = {
 		process.env.ETH_RPC_URL ||
 		(alchemyKey
 			? `https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}`
-			: 'https://eth.llamarpc.com'),
+			: 'https://ethereum-rpc.publicnode.com'),
 	10:
 		process.env.OPTIMISM_RPC_URL ||
 		(alchemyKey
 			? `https://opt-mainnet.g.alchemy.com/v2/${alchemyKey}`
 			: 'https://optimism.llamarpc.com'),
-	56: process.env.BSC_RPC_URL || 'https://bsc.llamarpc.com',
+	56: process.env.BSC_RPC_URL || 'https://bsc-dataseed.bnbchain.org',
 	137:
 		process.env.POLYGON_RPC_URL ||
 		(alchemyKey
@@ -54,7 +54,7 @@ const CHAIN_RPC_ENDPOINTS: Record<number, string> = {
 		process.env.BASE_RPC_URL ||
 		(alchemyKey
 			? `https://base-mainnet.g.alchemy.com/v2/${alchemyKey}`
-			: 'https://base.llamarpc.com'),
+			: 'https://mainnet.base.org'),
 	42161:
 		process.env.ARBITRUM_RPC_URL ||
 		(alchemyKey
