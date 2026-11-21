@@ -47,12 +47,16 @@ export default function LiveQuote({ variant = 'dark' }: { variant?: 'dark' | 'wa
     'usdc-base-eth-arbitrum': t('pairs.baseArbitrum'),
   };
 
-  const load = useCallback(async (p: DemoQuotePairId) => {
+  // `silent` refreshes an on-screen quote in place: no loading flash, and a
+  // failed refresh keeps the last quote rather than replacing it with an error.
+  const load = useCallback(async (p: DemoQuotePairId, silent = false) => {
     activeRequest.current?.abort();
     const controller = new AbortController();
     activeRequest.current = controller;
-    setState('loading');
-    setQuote(null);
+    if (!silent) {
+      setState('loading');
+      setQuote(null);
+    }
 
     try {
       const response = await fetch(`/api/quote?pair=${encodeURIComponent(p)}`, {
@@ -69,7 +73,7 @@ export default function LiveQuote({ variant = 'dark' }: { variant?: 'dark' | 'wa
       setLeft(nextQuote.stale || nextQuote.indicative ? 0 : remaining);
       setState('idle');
     } catch {
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted || silent) return;
       setQuote(null);
       setLeft(0);
       setState('error');
@@ -82,6 +86,16 @@ export default function LiveQuote({ variant = 'dark' }: { variant?: 'dark' | 'wa
     void load(pair);
     return () => activeRequest.current?.abort();
   }, [pair, load]);
+
+  // An indicative preview never expires on its own, so keep it current: refresh
+  // once a minute while the tab is visible, and when the visitor comes back.
+  useEffect(() => {
+    if (state !== 'idle' || !quote?.indicative) return;
+    const refresh = () => { if (document.visibilityState === 'visible') void load(pair, true); };
+    const timer = setInterval(refresh, 60_000);
+    document.addEventListener('visibilitychange', refresh);
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', refresh); };
+  }, [state, quote?.indicative, pair, load]);
 
   useEffect(() => {
     if (state !== 'idle' || !quote || quote.stale || left <= 0) return;

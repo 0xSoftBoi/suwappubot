@@ -177,10 +177,15 @@ export function PricesLive() {
   const [busy, setBusy] = useState(false);
   const [at, setAt] = useState<Date | null>(null);
 
+  // One lookup at a time from every entry point (button, Enter, key repeat):
+  // each request costs a credit, so a held key must not fan out.
+  const inflight = useRef(false);
   const run = async () => {
+    if (inflight.current) return;
     const v = validateParam(spec, symbols);
     setVerr(v);
     if (v || !key) return;
+    inflight.current = true;
     setBusy(true); setErr(null);
     const list = symbols.split(',').map((s) => s.trim()).filter(Boolean).join(',');
     const r = await callApi({ path: `/v1/agent/prices?symbols=${encodeURIComponent(list)}`, key });
@@ -188,6 +193,7 @@ export function PricesLive() {
     if (r.ok && d?.prices) { setRes({ prices: d.prices, unknown: d.unknown_symbols ?? [] }); setAt(new Date()); } else setErr(r);
     track('widget_run', { slug, widget: 'prices_live', outcome: r.ok ? 'ok' : r.status === 0 ? 'network' : String(r.status) });
     setBusy(false);
+    inflight.current = false;
   };
   const rows = res ? Object.entries(res.prices).map(([sym, p]) => ({ sym, ...p })) : [];
   const cols: Col<{ sym: string; usd?: number; change_24h?: number }>[] = [
@@ -198,12 +204,12 @@ export function PricesLive() {
   return (
     <section className="lv-panel" aria-busy={busy}>
       <h3>Live price lookup</h3>
-      {hydrated && !key && <KeyBar compact />}
+      {hydrated && <KeyBar compact />}
       <div className="lv-dbar">
         <div className="lv-field">
           <label className="lv-label" htmlFor="lv-q-prices">{spec.label}</label>
           <input id="lv-q-prices" className="lv-input lv-input--mono" value={symbols} onChange={(e) => setSymbols(e.target.value)} placeholder={spec.placeholder} autoComplete="off" spellCheck={false}
-            aria-invalid={verr ? true : undefined} aria-describedby={verr ? 'lv-prices-err' : undefined} onKeyDown={(e) => { if (e.key === 'Enter') void run(); }} />
+            aria-invalid={verr ? true : undefined} aria-describedby={verr ? 'lv-prices-err' : undefined} onKeyDown={(e) => { if (e.key === 'Enter' && !e.repeat) void run(); }} />
         </div>
         <button type="button" className="lv-btn lv-btn--primary" onClick={() => void run()} disabled={busy || !hydrated || !key}>{busy ? 'Reading…' : 'Look up prices'}</button>
       </div>
