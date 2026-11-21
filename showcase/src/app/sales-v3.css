@@ -111,3 +111,21 @@
 @media (max-width: 700px) { .sv3-tile-split { flex-direction: column; align-items: stretch; } .sv3-tile-split .v3-tile__visual { flex: none; } }
 /* quiet backdrops (no ambient dots) and tidy mobile buttons */
 @media (max-width: 640px) { .mkt-cta .summer-actions a, .sv3-slab .summer-actions a { width: 100%; justify-content: center; text-align: center; } }
+
+/* v3 fix pass A: enterprise rhythm (full-width dark stage for Q03), tight heading to lede */
+@media (min-width: 900px) {
+  .sv3-crit--stage { grid-template-columns: minmax(0, 1fr); justify-items: center; text-align: center; }
+  .sv3-crit--stage .sv3-crit__text { order: 0; }
+  .sv3-crit--stage .sv3-crit__num { justify-content: center; }
+  .sv3-crit--stage p { margin-inline: auto; }
+  .sv3-crit--stage .sv3-stage { width: 100%; padding-block: clamp(28px, 4vw, 52px); }
+}
+.institutional-section__intro--stack, .institutional-darkband__head--stack { gap: 0; row-gap: 0; }
+.institutional-section__intro--stack p, .institutional-darkband__head--stack p { margin-top: 0.9rem; }
+.sv3-score + * , .institutional-metric span { font-size: 0.7rem; }
+
+/* v3 fix pass A: pricing credit costs + rate limits share one tinted band */
+.sv3-tables2 { display: grid; gap: clamp(1rem, 3vw, 2.5rem); grid-template-columns: minmax(0, 1fr); margin-top: 2rem; padding: clamp(16px, 3vw, 32px); border-radius: 22px; background: linear-gradient(160deg, rgba(255, 244, 226, 0.9), rgba(255, 250, 241, 0.6)); border: 1px solid rgba(201, 115, 29, 0.18); }
+.sv3-tables2 > div { min-width: 0; }
+.sv3-tables2 .compare__title { margin-top: 0 !important; }
+@media (min-width: 1000px) { .sv3-tables2 { grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); } }

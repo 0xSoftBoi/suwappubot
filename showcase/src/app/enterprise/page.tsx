@@ -17,7 +17,7 @@ const criterionVisuals = [
   <AuthorityFlow key="a" lanes={[['Your keys', 'Unsigned tx', 'Chain'], ['Managed', 'Policy', 'Chain']]} />,
   <ToolOrbit key="o" count={stats.mcpToolCount}><span className="sv3-hub">MCP</span></ToolOrbit>,
   <EvidenceStack key="e" items={['Status', 'Changelog', 'OpenAPI', 'Source', 'Research']} />,
-  <TierLadder key="t" steps={['Self-serve', 'Enterprise']} />,
+  <TierLadder key="t" steps={['Free', 'Pro', 'Premium', 'Enterprise']} />,
 ];
 
 export const metadata: Metadata = {
@@ -135,7 +135,7 @@ export default function EnterprisePage() {
           </div>
           <div className="sv3-crits">
             {criteria.map((criterion, index) => (
-              <Reveal as="article" className={`sv3-crit${index % 2 ? ' sv3-crit--flip' : ''}`} key={criterion.label}>
+              <Reveal as="article" className={`sv3-crit${index % 2 ? ' sv3-crit--flip' : ''}${index === 2 ? ' sv3-crit--stage' : ''}`} key={criterion.label}>
                 <div className="sv3-crit__text">
                   <span className="sv3-crit__num">
                     {String(index + 1).padStart(2, '0')} <i>{criterion.label}</i>
@@ -143,7 +143,7 @@ export default function EnterprisePage() {
                   <h3>{criterion.title}</h3>
                   <p>{criterion.body}</p>
                 </div>
-                <div className="sv3-stage">{criterionVisuals[index]}</div>
+                <div className={`sv3-stage${index === 2 ? ' sv3-stage--dark' : ''}`}>{criterionVisuals[index]}</div>
               </Reveal>
             ))}
           </div>

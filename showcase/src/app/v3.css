@@ -487,3 +487,35 @@
   .v3-tile__visual svg { max-width: 84px; }
   .v3-tile__body { padding-top: 8px; }
 }
+
+/* v3 fix pass A: comparison tables show every product column on a phone. */
+@media (max-width: 640px) {
+  .compare-table { table-layout: fixed; width: 100%; min-width: 0; }
+  .compare-table th, .compare-table td { padding: 9px 2px; font-size: 0.68rem; line-height: 1.3; overflow-wrap: anywhere; hyphens: auto; }
+  .compare-table__rowhead { width: 30%; text-align: left; padding-left: 8px; position: static; }
+  .compare-table__colhead { font-size: 0.6rem; letter-spacing: 0; }
+  .compare-table__colhead .compare-table__colsub, .compare-table__colhead .sv3-score { display: none; }
+  .compare-table__colname { font-size: 0.6rem; overflow-wrap: anywhere; }
+  .compare-cell { padding: 9px 2px; }
+  .compare-cell__glyph { width: 20px; height: 20px; font-size: 0.7rem; }
+}
+/* home hero: brighter capture, chip sits below the frame edge, sound pill out of the reading area on phones */
+.v3-desk__frame img { filter: brightness(1.22) contrast(1.06) saturate(1.05); }
+.v3-desk__sheen { background: linear-gradient(115deg, rgba(255, 255, 255, 0.07) 0%, transparent 26%), linear-gradient(0deg, rgba(10, 11, 13, 0.22), transparent 22%); }
+.v3-desk__chip--a { left: 3%; bottom: -34px; }
+.v3-desk__stage { padding-bottom: 36px; }
+@media (max-width: 767px) {
+  .home-sound { display: none; }
+}
+@media (max-width: 640px) {
+  .compare-table__rowhead, .compare-table__colhead, .compare-table th, .compare-table td { min-width: 0 !important; }
+  .compare-table__rowhead { width: 27% !important; }
+  .compare-table__colhead, .compare-table__colname { overflow-wrap: normal !important; word-break: normal !important; hyphens: none; }
+}
+@media (max-width: 640px) {
+  .compare-table { table-layout: fixed !important; width: 100% !important; }
+  .compare-table thead th.compare-table__colhead { width: 18.25% !important; }
+  .compare-table thead th.compare-table__rowhead { width: 27% !important; }
+  .compare-table tbody th.compare-table__rowhead { width: auto !important; }
+}
+@media (max-width: 640px) { .compare-table { display: table !important; } }

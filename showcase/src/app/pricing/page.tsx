@@ -514,13 +514,14 @@ export default function PricingPage() {
                 key={p.title}
                 index={`0${i + 1}`}
                 title={p.title}
-                visual={<MiniViz kind={(['swap', 'book', 'automate'] as const)[i]} />}
+                visual={<MiniViz kind={(['http402', 'meter', 'calendar'] as const)[i]} />}
               >
                 {p.body}
               </SpotlightCard>
             ))}
           </Reveal>
 
+          <div className="sv3-tables2"><div>
           <h3 className="compare__title" style={{ marginTop: '2.25rem', fontSize: '1.15rem' }}>
             Credit costs
           </h3>
@@ -546,6 +547,7 @@ export default function PricingPage() {
             </table>
           </div>
 
+          </div><div>
           <h3 className="compare__title" style={{ marginTop: '2.25rem', fontSize: '1.15rem' }}>
             Agent API rate limits &amp; route-fee behavior
           </h3>
@@ -570,6 +572,7 @@ export default function PricingPage() {
               </tbody>
             </table>
           </div>
+          </div></div>
           <p className="compare__note">
             * This table is specifically for the Agent API, not the account-trading fee ladder
             above. Agent-surface swap fees are not derived from the subscription tier. Current

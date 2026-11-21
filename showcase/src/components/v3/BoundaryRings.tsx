@@ -22,10 +22,10 @@ export default function BoundaryRings({ className = '', labels, quiet = false }:
           <circle cx="90" cy="200" r="4.5" fill="var(--v3-cool)" />
         </g></>)}
         {labels && [60, 110, 160, 195].map((r, i) => labels[i + 1] ? (
-          <text key={r} x="200" y={200 - r + 4} textAnchor="middle" fontSize="11" fill="var(--v3-ink)" stroke="var(--v3-surface, #0b0d12)" strokeWidth="5" paintOrder="stroke" style={{ fontFamily: 'var(--v3-font-mono)', letterSpacing: '0.1em', fontWeight: 600 }}>{labels[i + 1].toUpperCase()}</text>
+          <text key={r} x="200" y={200 - r + 4} textAnchor="middle" fontSize="15" fill="var(--v3-ink)" stroke="#0a1826" strokeWidth="6" paintOrder="stroke" style={{ fontFamily: 'var(--v3-font-mono)', letterSpacing: '0.1em', fontWeight: 600 }}>{labels[i + 1].toUpperCase()}</text>
         ) : null)}
-        <circle cx="200" cy="200" r="5" fill="var(--v3-accent)" />
-        {labels?.[0] && <text x="200" y="224" textAnchor="middle" fontSize="11" fill="var(--v3-accent)" style={{ fontFamily: 'var(--v3-font-mono)', letterSpacing: '0.1em', fontWeight: 600 }}>{labels[0].toUpperCase()}</text>}
+        {!quiet && <circle cx="200" cy="200" r="5" fill="var(--v3-accent)" />}
+        {labels?.[0] && <text x="200" y="228" textAnchor="middle" fontSize="14" fill="var(--v3-accent)" style={{ fontFamily: 'var(--v3-font-mono)', letterSpacing: '0.1em', fontWeight: 600 }}>{labels[0].toUpperCase()}</text>}
       </svg>
     </Live>
   );

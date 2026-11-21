@@ -490,3 +490,13 @@
   .rowHead { position: sticky; left: 0; z-index: 1; min-width: 170px; background: #fffaf1; box-shadow: 1px 0 0 var(--sw-hairline); }
 }
 @media (max-width: 960px) { .cardFeatured { scale: 1; } }
+
+/* v3 fix pass A: every plan column fits a phone (no hidden columns). */
+@media (max-width: 640px) {
+  .table { min-width: 0; width: 100%; table-layout: fixed; }
+  .table th, .table td { padding: 9px 3px; font-size: 0.7rem; line-height: 1.3; overflow-wrap: anywhere; hyphens: auto; text-align: center; }
+  .table thead th { font-size: 0.64rem; }
+  .table .rowHead, .table thead th:first-child { position: static; min-width: 0; width: 31%; text-align: left; padding-left: 8px; }
+  .table .yes { width: 20px; height: 20px; font-size: 0.7rem; }
+}
+@media (max-width: 640px) { .table thead th { font-size: 0.56rem; letter-spacing: 0; overflow-wrap: normal; hyphens: none; padding-inline: 1px; } }
