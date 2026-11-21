@@ -110,7 +110,7 @@ export default function StartKey({ bash, ts, python }: { bash: string; ts: strin
           <div className="sv-actions">
             <button type="button" className="summer-button summer-button--primary" onClick={copyKey}>{copied ? 'Copied' : 'Copy key'}</button>
             {(adopted || !hadKey) && <button type="button" className="summer-button summer-button--secondary" onClick={() => { forgetKey(); setAdopted(false); }}>Forget on this device</button>}
-            {hadKey && !adopted && <button type="button" className="summer-button summer-button--secondary" onClick={() => { setStoredKey(key); setAdopted(true); }}>Use this new key on this site (replaces the saved one — copy the old key first if you still need it)</button>}
+            {hadKey && !adopted && <button type="button" className="summer-button summer-button--secondary" style={{ whiteSpace: 'normal', height: 'auto', minHeight: 44, textAlign: 'center', lineHeight: 1.3, padding: '.7rem 1rem' }} onClick={() => { setStoredKey(key); setAdopted(true); }}>Use this new key on this site (replaces the saved one — copy the old key first if you still need it)</button>}
             <button type="button" className="summer-button summer-button--secondary" onClick={() => { setKey(null); setAdopted(false); setHadKey(false); setName(''); setDescription(''); }}>I have stored it</button>
           </div>
         </div>

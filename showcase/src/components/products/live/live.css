@@ -95,3 +95,6 @@
 .lv-rowpanel .lv-panel { background: #f7f2e8; }
 .lv-rowpanel .lv-acc__item { background: #fff; }
 .pd-run, .pd-table .lv-btn--ghost { background: #fff; color: #17324a; }
+
+/* Endpoint-row panels sit inside a horizontally scrolling table: keep them in view on phones. */
+.lv-rowpanel .lv-panel { position: sticky; left: 0; max-width: calc(100vw - 3rem); box-sizing: border-box; }
