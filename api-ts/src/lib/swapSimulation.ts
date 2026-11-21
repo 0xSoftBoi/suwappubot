@@ -121,8 +121,34 @@ function classifyRpcError(e: unknown): string {
 
 const RPC_MIN_ATTEMPT_MS = 1_500
 // With a fallback the primary gets a shorter slice so the whole call stays
-// bounded (worst case ~ 5s + 3s chainId probe + 1.5s call = 9.5s).
-const RPC_PRIMARY_WITH_FALLBACK_MS = 5_000
+// bounded. The EVM report as a whole is additionally capped by
+// EVM_REPORT_DEADLINE_MS (checks run concurrently).
+const RPC_PRIMARY_WITH_FALLBACK_MS = 4_000
+const EVM_REPORT_DEADLINE_MS = 7_000
+// A primary with a transport failure is skipped (when a verified fallback
+// exists) for this long, so later calls don't each wait out the stall.
+const RPC_BREAKER_MS = 60_000
+const RPC_BREAKER_MAX_ENTRIES = 200
+const rpcDownUntil = new Map<string, number>()
+
+function isPrimaryDown(url: string): boolean {
+	const until = rpcDownUntil.get(url)
+	if (until === undefined) return false
+	if (until <= Date.now()) {
+		rpcDownUntil.delete(url)
+		return false
+	}
+	return true
+}
+
+function markPrimaryDown(url: string): void {
+	if (rpcDownUntil.size >= RPC_BREAKER_MAX_ENTRIES) {
+		const now = Date.now()
+		for (const [k, v] of rpcDownUntil) if (v <= now) rpcDownUntil.delete(k)
+		if (rpcDownUntil.size >= RPC_BREAKER_MAX_ENTRIES) rpcDownUntil.clear()
+	}
+	rpcDownUntil.set(url, Date.now() + RPC_BREAKER_MS)
+}
 
 const REVERT_RE = /revert/i
 
@@ -197,24 +223,33 @@ async function rpcCallOnce<T>(
 	}
 }
 
-// URLs already confirmed (this process) to serve the expected chain id.
+// URLs already confirmed (this process) to serve the expected chain id, plus
+// in-flight probes so concurrent checks share ONE eth_chainId request.
 const verifiedFallbacks = new Set<string>()
+const fallbackProbes = new Map<string, Promise<boolean>>()
 
-async function fallbackServesChain(url: string, chainId: number, timeoutMs: number): Promise<boolean> {
+function fallbackServesChain(url: string, chainId: number, timeoutMs: number): Promise<boolean> {
 	const key = `${chainId}|${url}`
-	if (verifiedFallbacks.has(key)) return true
-	const r = await rpcCallOnce<string>(url, 'eth_chainId', [], timeoutMs)
-	if (r.ok && typeof r.result === 'string' && Number(r.result) === chainId) {
-		verifiedFallbacks.add(key)
-		return true
-	}
-	return false
+	if (verifiedFallbacks.has(key)) return Promise.resolve(true)
+	const inflight = fallbackProbes.get(key)
+	if (inflight) return inflight
+	const probe = (async () => {
+		const r = await rpcCallOnce<string>(url, 'eth_chainId', [], timeoutMs)
+		if (r.ok && typeof r.result === 'string' && Number(r.result) === chainId) {
+			verifiedFallbacks.add(key)
+			return true
+		}
+		return false
+	})().finally(() => fallbackProbes.delete(key))
+	fallbackProbes.set(key, probe)
+	return probe
 }
 
 /**
  * Raw JSON-RPC call. On a transport failure retries ONCE against the fallback
  * endpoint (if any, and only after confirming it serves the expected chain).
- * Worst case ~9.5s with a fallback, 8s without.
+ * A primary that recently had a transport failure is skipped (circuit breaker)
+ * when a fallback exists; with no fallback the primary is always attempted.
  */
 async function rpcCall<T = unknown>(
 	rpc: RpcEndpoints,
@@ -222,14 +257,21 @@ async function rpcCall<T = unknown>(
 	params: unknown[],
 ): Promise<RpcResult<T>> {
 	const startedAt = Date.now()
-	const first = await rpcCallOnce<T>(
-		rpc.primary,
-		method,
-		params,
-		rpc.fallback ? RPC_PRIMARY_WITH_FALLBACK_MS : RPC_TIMEOUT_MS,
-	)
-	if (!first.transport || !rpc.fallback) return first
 	const budget = () => Math.max(RPC_MIN_ATTEMPT_MS, RPC_TIMEOUT_MS - (Date.now() - startedAt))
+	let first: RpcResult<T>
+	if (rpc.fallback && isPrimaryDown(rpc.primary)) {
+		first = { ok: false, transport: true, error: 'RPC unreachable' }
+	} else {
+		first = await rpcCallOnce<T>(
+			rpc.primary,
+			method,
+			params,
+			rpc.fallback ? RPC_PRIMARY_WITH_FALLBACK_MS : RPC_TIMEOUT_MS,
+		)
+		if (first.transport) markPrimaryDown(rpc.primary)
+		else rpcDownUntil.delete(rpc.primary)
+	}
+	if (!first.transport || !rpc.fallback) return first
 	if (rpc.expectedChainId !== undefined && !(await fallbackServesChain(rpc.fallback, rpc.expectedChainId, budget()))) {
 		return first
 	}
@@ -344,17 +386,28 @@ export async function runEvmChecks(input: EvmCheckInput): Promise<SimulationChec
 		]
 	}
 
-	// --- balance_sufficient ---
-	checks.push(await checkEvmBalanceSufficient(rpc, input, isNative))
-
-	// --- allowance_sufficient ---
-	checks.push(await checkEvmAllowanceSufficient(rpc, input, isNative))
-
-	// --- gas_affordable ---
-	checks.push(await checkEvmGasAffordable(rpc, input, isNative))
-
-	// --- eth_call_revert_check ---
-	checks.push(await checkEvmEthCallRevert(rpc, input))
+	// The four checks are independent — run them concurrently, in a fixed output
+	// order, under one shared deadline. A check that hasn't finished by then is
+	// reported as unverified (which blocks would_execute) rather than hanging the
+	// whole report past the server's idle timeout.
+	const withDeadline = (name: string, p: Promise<SimulationCheck>): Promise<SimulationCheck> => {
+		let timer: ReturnType<typeof setTimeout> | undefined
+		const timeout = new Promise<SimulationCheck>((resolve) => {
+			timer = setTimeout(
+				() => resolve({ name, status: 'warn', unverified: true, detail: 'Could not verify: timed out' }),
+				EVM_REPORT_DEADLINE_MS,
+			)
+		})
+		return Promise.race([p, timeout]).finally(() => clearTimeout(timer))
+	}
+	checks.push(
+		...(await Promise.all([
+			withDeadline('balance_sufficient', checkEvmBalanceSufficient(rpc, input, isNative)),
+			withDeadline('allowance_sufficient', checkEvmAllowanceSufficient(rpc, input, isNative)),
+			withDeadline('gas_affordable', checkEvmGasAffordable(rpc, input, isNative)),
+			withDeadline('eth_call_revert_check', checkEvmEthCallRevert(rpc, input)),
+		])),
+	)
 
 	return checks
 }
