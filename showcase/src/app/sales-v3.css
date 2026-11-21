@@ -72,3 +72,7 @@
 .sv3-ringnum { display: block; font-family: var(--type-display-font, var(--font-serif)); font-size: 2.6rem; line-height: 1; color: var(--v3-ink); }
 .sv3-ringlabel { display: block; margin-top: 4px; font-family: var(--v3-font-mono); font-size: 0.68rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--v3-faint); }
 .sv3-stage .v3-ring, .sv3-stage .v3-chainring { max-width: 300px; margin-inline: auto; }
+
+/* Compare: derived score meter under column heads */
+.sv3-score { display: block; position: relative; height: 4px; margin: 8px auto 0; width: 70%; border-radius: 999px; background: var(--v3-line); overflow: hidden; }
+.sv3-score i { position: absolute; inset: 0; transform-origin: left; transform: scaleX(var(--w, 0)); background: linear-gradient(90deg, var(--v3-cool), var(--v3-accent)); border-radius: inherit; }

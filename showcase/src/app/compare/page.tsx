@@ -4,7 +4,15 @@ import { Fragment } from 'react';
 import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import { TELEGRAM_URL } from '@/lib/links';
+import { Reveal, Backdrop, BoundaryRings } from '@/components/v3';
+import '../sales-v3.css';
 import styles from './compare.module.css';
+
+/** Share of rows a column fully offers (derived from the matrix itself, no new claims). */
+function share(groups: { rows: { cells: Record<string, string> }[] }[], key: string) {
+  const rows = groups.flatMap((g) => g.rows);
+  return rows.filter((r) => r.cells[key] === 'yes').length / rows.length;
+}
 
 const TERMINAL_URL = 'https://terminal.suwappu.bot';
 
@@ -208,20 +216,20 @@ const HIGHLIGHTS = [
 
 export default function ComparePage() {
   return (
-    <div className="summer-page docs-shell institutional-page">
+    <div className="summer-page docs-shell institutional-page v3-tone-light sv3-page">
       <SummerNav />
       <main id="main-content">
       <div className="summer-shell mkt-page">
-        <header className="mkt-hero mkt-hero--center">
+        <div className="sv3-heroband"><Backdrop kind="grid" /><header className="mkt-hero mkt-hero--center">
           <h1>One product where the others pick a lane.</h1>
           <p className="mkt-hero__lead">
             Telegram bots, trading terminals, and cross-chain infrastructure each do one part well.
             Suwappu is the only one that unifies cross-chain spot, HyperLiquid perps, and gasless
             swaps: in a bot, a terminal, and an SDK.
           </p>
-        </header>
+        </header></div>
 
-        <section className={`compare ${styles.matrix}`} aria-labelledby="compare-matrix">
+        <Reveal as="section" className={`compare ${styles.matrix}`}>
           <h2 id="compare-matrix" className="compare__title">
             Capability comparison
           </h2>
@@ -244,6 +252,7 @@ export default function ComparePage() {
                     >
                       <span className="compare-table__colname">{c.label}</span>
                       <span className="compare-table__colsub">{c.sub}</span>
+                      <span className="sv3-score" aria-hidden="true"><i style={{ ['--w' as string]: share(GROUPS, c.key) }} /></span>
                     </th>
                   ))}
                 </tr>
@@ -298,11 +307,11 @@ export default function ComparePage() {
             Named products are examples of their category, not exhaustive. Product features change
             frequently: verify current capabilities on each provider&apos;s own site.
           </p>
-        </section>
+        </Reveal>
 
         {/* The first card is the argument; the other two are evidence. Giving
             all three equal weight was what made this section read as filler. */}
-        <section className={styles.why} aria-label="Why Suwappu">
+        <Reveal stagger as="section" className={styles.why}>
           {HIGHLIGHTS.map((h, i) => (
             <div
               className={`${styles.whyCard}${i === 0 ? ` ${styles.whyLead}` : ''}`}
@@ -313,10 +322,10 @@ export default function ComparePage() {
               <p>{h.body}</p>
             </div>
           ))}
-        </section>
+        </Reveal>
 
         {/* ── AGENT INFRASTRUCTURE COMPARISON: a second, distinct competitive set ── */}
-        <section className={`compare ${styles.matrix}`} aria-labelledby="agent-compare-matrix">
+        <Reveal as="section" className={`compare ${styles.matrix}`}>
           <h2 id="agent-compare-matrix" className="compare__title">
             Agent infrastructure comparison
           </h2>
@@ -344,6 +353,7 @@ export default function ComparePage() {
                     >
                       <span className="compare-table__colname">{c.label}</span>
                       <span className="compare-table__colsub">{c.sub}</span>
+                      <span className="sv3-score" aria-hidden="true"><i style={{ ['--w' as string]: share(AGENT_GROUPS, c.key) }} /></span>
                     </th>
                   ))}
                 </tr>
@@ -404,14 +414,15 @@ export default function ComparePage() {
             cells marked &ldquo;not publicly confirmed&rdquo; are conservative placeholders, not
             claims of absence: verify current capabilities on each provider&apos;s own site.
           </p>
-        </section>
+        </Reveal>
 
         {/* Closing band shares the dark register of the pricing enterprise band,
             so the two commercial pages end on the same note. */}
         <section
-          className={`${styles.ctaBand} sw-card-dark sw-grain sw-grain--dark`}
+          className={`${styles.ctaBand} sw-card-dark sw-grain sw-grain--dark sv3-slab v3-tone-dark`}
           aria-labelledby="compare-cta"
         >
+          <div className="sv3-slab__art" aria-hidden="true"><BoundaryRings /></div>
           <h2 className={styles.ctaTitle} id="compare-cta">
             A matrix is an argument. A fill is proof.
           </h2>
