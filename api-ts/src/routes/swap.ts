@@ -1,7 +1,7 @@
 import { Turnkey } from '@turnkey/sdk-server'
 import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
-import { getRpcUrls, isStarknet, rpcFetch } from '../config/chains'
+import { broadcastRawTx, getRpcUrls, isStarknet, rpcFetch } from '../config/chains'
 import { EnvService } from '../config/EnvService'
 import { logger } from '../lib/logger'
 import { DatabaseError, mapErrorToResponse, NotFoundError, ValidationError } from '../errors'
@@ -372,14 +372,17 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 			}
 
 			// Fetch current nonce from RPC
-			const fetchNonce = async (addr: string): Promise<string> => {
-				const res = await rpcFetch(rpcUrlForChain, {
+			// preferUrl: the endpoint that accepted our last broadcast (may be ahead of
+			// the others); tag 'pending' so an in-flight approval is counted.
+			const fetchNonce = async (addr: string, tag: 'latest' | 'pending' = 'latest', preferUrl?: string): Promise<string> => {
+				const ordered = preferUrl ? [preferUrl, ...rpcUrlForChain.filter((u) => u !== preferUrl)] : rpcUrlForChain
+				const res = await rpcFetch(ordered, {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify({
 						jsonrpc: '2.0',
 						method: 'eth_getTransactionCount',
-						params: [addr, 'latest'],
+						params: [addr, tag],
 						id: 1,
 					}),
 				})
@@ -388,6 +391,7 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 				return data.result || '0x0'
 			}
 
+			let approvalUrl: string | undefined
 			// ERC20 approval if fromToken is not native
 			const NATIVE_ZERO = '0x0000000000000000000000000000000000000000'
 			const fromTokenAddr = quote.fromToken.address.toLowerCase()
@@ -475,18 +479,9 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 						// Broadcast approval tx and poll for nonce increment in parallel
 						yield* Effect.tryPromise({
 							try: async () => {
-								const res = await rpcFetch(rpcUrlForChain, {
-									method: 'POST',
-									headers: { 'Content-Type': 'application/json' },
-									body: JSON.stringify({
-										jsonrpc: '2.0',
-										method: 'eth_sendRawTransaction',
-										params: [approvalSignResult.signedTransaction],
-										id: 1,
-									}),
-								})
-								const data = (await res.json()) as { result?: string; error?: { message: string; code: number } }
-								if (data.error) throw new Error(`Approval RPC error: ${data.error.message}`)
+								const sent = await broadcastRawTx(rpcUrlForChain, approvalSignResult.signedTransaction)
+								approvalUrl = sent.url
+								const data = { result: sent.hash }
 								logger.info('[SwapRoute] Approval tx broadcast: %s', data.result)
 
 								// Poll for nonce to increment (approval tx mined) instead of fixed wait
@@ -495,7 +490,7 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 								for (let i = 0; i < 6; i++) {
 									await new Promise((r) => setTimeout(r, 500))
 									try {
-										const currentNonce = parseInt(await fetchNonce(wallet.address), 16)
+										const currentNonce = parseInt(await fetchNonce(wallet.address, 'latest', approvalUrl), 16)
 										if (currentNonce > startNonce) {
 											logger.info('[SwapRoute] Approval confirmed after %dms', (i + 1) * 500)
 											break
@@ -515,7 +510,7 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 
 			// Fetch nonce for the swap tx (after potential approval)
 			const swapNonce = yield* Effect.tryPromise({
-				try: () => fetchNonce(wallet.address),
+				try: () => fetchNonce(wallet.address, approvalUrl ? 'pending' : 'latest', approvalUrl),
 				catch: (e) => new Error(`Failed to get nonce: ${e}`),
 			})
 
@@ -565,24 +560,7 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 			if (rpcUrlForChain) {
 				const broadcastResult = yield* Effect.tryPromise({
 					try: async () => {
-						const res = await rpcFetch(rpcUrlForChain, {
-							method: 'POST',
-							headers: { 'Content-Type': 'application/json' },
-							body: JSON.stringify({
-								jsonrpc: '2.0',
-								method: 'eth_sendRawTransaction',
-								params: [signedTransaction],
-								id: 1,
-							}),
-						})
-						const data = (await res.json()) as {
-							result?: string
-							error?: { message: string; code: number }
-						}
-						if (data.error) {
-							throw new Error(`RPC error: ${data.error.message} (code ${data.error.code})`)
-						}
-						return data.result as string
+						return (await broadcastRawTx(rpcUrlForChain, signedTransaction)).hash
 					},
 					catch: (e) => new Error(`Failed to broadcast transaction: ${e}`),
 				})

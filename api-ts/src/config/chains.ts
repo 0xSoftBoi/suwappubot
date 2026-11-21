@@ -339,30 +339,94 @@ export function getExplorerUrl(chainId: number, txHash: string): string | null {
 	return `${base}/tx/${txHash}`
 }
 
+const ALREADY_KNOWN_RE = /already known|known transaction|alreadyknown|already imported/i
+const NONCE_CONFLICT_RE = /nonce too low|replacement transaction underpriced|already (been )?(mined|executed)/i
+/** Per-endpoint timeout for eth_sendRawTransaction (reads use RPC_TIMEOUT_MS). */
+export const BROADCAST_TIMEOUT_MS = 15000
+
+async function rpcOnce(url: string, method: string, params: unknown[], timeoutMs: number) {
+	const res = await fetch(url, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+		signal: AbortSignal.timeout(timeoutMs),
+	})
+	if (!res.ok) throw new Error(`HTTP ${res.status}`)
+	try {
+		return (await res.json()) as { result?: unknown; error?: { message: string; code: number } }
+	} catch {
+		throw new Error('non-JSON response')
+	}
+}
+
+/**
+ * Broadcast a signed tx with failover, safe against "first endpoint accepted it
+ * but we saw a timeout/error" (which would otherwise surface as a failure and
+ * invite a retry -> double execution). Returns the tx hash and the URL that
+ * accepted/knows the tx (callers should read the next nonce from that URL).
+ *  - "already known" on any attempt => success, hash = keccak256(signedTx)
+ *  - "nonce too low"/"underpriced" after a prior failed attempt => look the tx up
+ *    by hash across endpoints; found => success, else the original error surfaces
+ */
+export async function broadcastRawTx(
+	urls: string[],
+	signedTx: string,
+): Promise<{ hash: string; url: string }> {
+	if (urls.length === 0) throw new Error('No RPC endpoints configured')
+	const localHash = keccak256(signedTx as Hex)
+	let lastErr: Error = new Error('broadcast failed')
+	let attempts = 0
+	for (let i = 0; i < urls.length; i++) {
+		const url = urls[i]!
+		attempts++
+		try {
+			const data = await rpcOnce(url, 'eth_sendRawTransaction', [signedTx], BROADCAST_TIMEOUT_MS)
+			if (data.error) {
+				const { message, code } = data.error
+				if (ALREADY_KNOWN_RE.test(message)) return { hash: localHash, url }
+				if (NONCE_CONFLICT_RE.test(message) && attempts > 1) {
+					const found = await findTxUrl(urls, localHash)
+					if (found) return { hash: localHash, url: found }
+					throw new Error(`RPC broadcast error: ${message} (code ${code})`)
+				}
+				if (FAILOVER_RPC_CODES.has(code)) throw new Error(`rpc error ${code}: ${message}`)
+				// Request-level rejection (revert, funds, nonce on first attempt): don't retry
+				throw Object.assign(new Error(`RPC broadcast error: ${message} (code ${code})`), { final: true })
+			}
+			if (typeof data.result !== 'string' || !data.result) throw new Error('No transaction hash returned from RPC')
+			return { hash: data.result, url }
+		} catch (e) {
+			lastErr = e instanceof Error ? e : new Error(String(e))
+			if ((lastErr as Error & { final?: boolean }).final || i === urls.length - 1) break
+			logger.warn(`[rpc] broadcast via ${new URL(url).host} failed (${terse(e)}), failing over`)
+		}
+	}
+	// Last resort: an earlier timed-out attempt may have landed.
+	if (attempts > 1) {
+		const found = await findTxUrl(urls, localHash)
+		if (found) return { hash: localHash, url: found }
+	}
+	throw lastErr
+}
+
+async function findTxUrl(urls: string[], hash: string): Promise<string | null> {
+	for (const url of urls) {
+		for (const method of ['eth_getTransactionByHash', 'eth_getTransactionReceipt']) {
+			try {
+				const d = await rpcOnce(url, method, [hash], RPC_TIMEOUT_MS)
+				if (d.result) return url
+			} catch {
+				/* try next */
+			}
+		}
+	}
+	return null
+}
+
 export async function broadcastEvmTransaction(chainId: number, signedTx: string): Promise<string> {
 	const urls = getRpcUrls(chainId)
 	if (urls.length === 0) throw new Error(`No RPC endpoint configured for chain ${chainId}`)
-
-	const response = await rpcFetch(
-		urls,
-		{
-			body: JSON.stringify({
-				jsonrpc: '2.0',
-				method: 'eth_sendRawTransaction',
-				params: [signedTx],
-				id: 1,
-			}),
-		},
-		15000,
-	)
-
-	const data = (await response.json()) as { result?: string; error?: { message: string; code: number } }
-	// A failover after a timed-out first attempt can hit "already known": the tx
-	// is in the mempool, so its hash is deterministic.
-	if (data.error && /already known|known transaction/i.test(data.error.message)) return keccak256(signedTx as Hex)
-	if (data.error) throw new Error(`RPC broadcast error: ${data.error.message} (code ${data.error.code})`)
-	if (!data.result) throw new Error('No transaction hash returned from RPC')
-	return data.result
+	return (await broadcastRawTx(urls, signedTx)).hash
 }
 
 export async function getTransactionReceipt(chainId: number, txHash: string): Promise<{ status: string } | null> {

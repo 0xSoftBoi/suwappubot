@@ -8,7 +8,7 @@ import { DEFAULT_SLIPPAGE } from '../config/constants'
 import { logger } from '../lib/logger'
 import { DrizzleService, requireDb, wallets } from '../db'
 import { mapErrorToResponse, NotFoundError, UnauthorizedError, ValidationError } from '../errors'
-import { getRpcUrls, rpcFetch } from '../config/chains'
+import { broadcastRawTx, getRpcUrls } from '../config/chains'
 import { withSigningFallback } from '../services/FallbackSigningService'
 import { type AuthUser, flexAuth } from '../middleware/flexAuth'
 import { ipRateLimit } from '../middleware/ipRateLimit'
@@ -826,24 +826,7 @@ publicSwapRoutes.post('/execute', flexAuth(), async (c) => {
 			if (rpcUrl) {
 				const broadcastResult = yield* Effect.tryPromise({
 					try: async () => {
-						const res = await rpcFetch(rpcUrl, {
-							method: 'POST',
-							headers: { 'Content-Type': 'application/json' },
-							body: JSON.stringify({
-								jsonrpc: '2.0',
-								method: 'eth_sendRawTransaction',
-								params: [signedTransaction],
-								id: 1,
-							}),
-						})
-						const data = (await res.json()) as {
-							result?: string
-							error?: { message: string; code: number }
-						}
-						if (data.error) {
-							throw new Error(`RPC error: ${data.error.message} (code ${data.error.code})`)
-						}
-						return data.result as string
+						return (await broadcastRawTx(rpcUrl, signedTransaction)).hash
 					},
 					catch: (e) => new Error(`Failed to broadcast transaction: ${e}`),
 				})
