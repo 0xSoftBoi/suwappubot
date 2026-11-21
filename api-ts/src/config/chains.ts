@@ -243,7 +243,8 @@ export function getRpcUrl(chainId: number): string | null {
 // only trusted after an eth_chainId match, and keeping it out of env avoids a
 // second operator-supplied URL (SSRF surface) beyond the primary overrides.
 const RPC_FALLBACK_ENDPOINTS: Record<string, string> = {
-	ethereum: 'https://cloudflare-eth.com',
+	// cloudflare-eth.com answers eth_chainId but rejects eth_getBalance / eth_gasPrice / eth_call.
+	ethereum: 'https://eth.drpc.org',
 	arbitrum: 'https://arbitrum-one-rpc.publicnode.com',
 	optimism: 'https://optimism-rpc.publicnode.com',
 	polygon: 'https://polygon.drpc.org',
