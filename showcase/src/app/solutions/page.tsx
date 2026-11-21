@@ -3,7 +3,24 @@ import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import { TELEGRAM_URL } from '@/lib/links';
 import stats from '@/data/stats.generated.json';
+import { Reveal, Backdrop, CountUp, RouteMap, ChainRing, AuthorityFlow, ProblemStrip } from '@/components/v3';
+import '../sales-v3.css';
 import styles from './solutions.module.css';
+
+/** One distinct schematic per solution (ids match `solutions`). Real names only. */
+const visuals: Record<string, React.ReactNode> = {
+  trading: <RouteMap />,
+  portfolio: (
+    <ChainRing>
+      <span className="sv3-ringnum"><CountUp value={stats.agentApiChains} /></span>
+      <span className="sv3-ringlabel">chains</span>
+    </ChainRing>
+  ),
+  payments: <AuthorityFlow lanes={[['Endpoint', 'HTTP 402', 'Pay USDC'], ['Retry', 'Proof', 'Result']]} />,
+  wallets: (
+    <AuthorityFlow lanes={[['App', 'Policy', 'Signer'], ['Signer', 'Signature', 'Chain']]} />
+  ),
+};
 
 export const metadata: Metadata = {
   title: 'Solutions',
@@ -108,18 +125,18 @@ export default function SolutionsPage() {
   const [lead, ...rest] = solutions;
 
   return (
-    <div className="summer-page docs-shell institutional-page">
+    <div className="summer-page docs-shell institutional-page v3-tone-light sv3-page">
       <SummerNav />
       <main id="main-content">
       <div className="summer-shell mkt-page">
-        <header className="mkt-hero mkt-hero--center">
+        <div className="sv3-heroband"><Backdrop kind="grid" /><header className="mkt-hero mkt-hero--center">
           <p className="summer-kicker">Solutions</p>
           <h1>Quote, swap, and settle on {stats.agentApiChains} chains from one API key.</h1>
           <p className="mkt-hero__lead">
             Trading, portfolio management, pay-per-call commerce, or a wallet your app never has
             to secure itself: the same REST API, MCP server, and A2A protocol cover all four.
           </p>
-        </header>
+        </header></div>
 
         <div className={styles.rows}>
           {/* Lead row gets the terminal treatment: the trading loop is the
@@ -147,7 +164,8 @@ export default function SolutionsPage() {
                 ))}
               </div>
             </div>
-            <CodeBlock file={lead.file} code={lead.code} />
+            <Reveal className="sv3-stage sv3-stage--wide">{visuals[lead.id]}</Reveal>
+            <Reveal><CodeBlock file={lead.file} code={lead.code} /></Reveal>
           </section>
 
           {rest.map((s, i) => (
@@ -175,7 +193,10 @@ export default function SolutionsPage() {
                   {s.cta.label}
                 </a>
               </div>
-              <CodeBlock file={s.file} code={s.code} />
+              <Reveal className={`sv3-col ${styles.col}`}>
+                <div className="sv3-stage">{visuals[s.id]}</div>
+                <CodeBlock file={s.file} code={s.code} />
+              </Reveal>
             </section>
           ))}
         </div>
@@ -183,7 +204,7 @@ export default function SolutionsPage() {
         <section className="mkt-cta">
           <h2>Pick your lane. Start in a minute.</h2>
           <div className="summer-actions summer-cta__actions">
-            <a className="summer-button summer-button--primary" href="/docs/quick-start/overview">
+            <a className="summer-button summer-button--primary" href="/start">
               Get an API key
             </a>
             <a className="summer-button summer-button--secondary" href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer">
@@ -193,6 +214,7 @@ export default function SolutionsPage() {
           </div>
         </section>
       </div>
+      <div className="summer-shell"><ProblemStrip surface="solutions" slugs={["let-ai-agent-swap-tokens", "spending-limits-ai-agent-wallet", "simulate-swap-before-signing"]} /></div>
       </main>
       <SummerFooter />
     </div>

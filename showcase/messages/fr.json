@@ -86,7 +86,11 @@
       "label": "Principal",
       "open": "Ouvrir le menu",
       "close": "Fermer le menu",
-      "mobileTitle": "Menu"
+      "mobileTitle": "Menu",
+      "startTitle": "Obtenir une clé API",
+      "startDesc": "Un appel, aucun formulaire",
+      "solveTitle": "Problèmes résolus",
+      "solveDesc": "Les étapes exactes pour de vraies tâches"
     }
   },
   "hero": {
@@ -109,7 +113,7 @@
       "h1": "La plateforme de trading full-stack pour les marchés cross-chain.",
       "lead": "Exécution, routage, recherche et gestion de portefeuille sur 45 chaînes, depuis un seul endroit. Tradez depuis le Terminal ou Telegram, ou intégrez via REST, MCP et des SDK typés.",
       "ctaTerminal": "Lancer le Terminal",
-      "ctaApi": "Lire la documentation",
+      "ctaApi": "Obtenir une clé API",
       "ctaTelegram": "Trader dans Telegram",
       "telegramNav": "Telegram",
       "ticketLabel": "Ticket d’exécution · cotation de production",
@@ -186,8 +190,8 @@
       "authorizeBody": "L’auto-garde renvoie une transaction non signée que vous signez. L’exécution REST gérée peut signer et diffuser sous les contrôles du serveur.",
       "screenshotAlt": "Terminal Suwappu avec graphique ETH/USDC, carnet d’ordres et ticket de swap.",
       "screenshotCaption": "Suwappu Terminal · capture produit · 31 juil. 2026",
-      "mevTitle": "Chasseur de MEV interne",
-      "mevBody": "Un chasseur écrit en Rust détecte le risque de sandwich sur les routes en attente avant exécution, développé en interne plutôt que sous-traité.",
+      "mevTitle": "Routage attentif au MEV",
+      "mevBody": "Le bot privilégie les routes résistantes au MEV, comme les enchères groupées CoW (EVM) et Jito (Solana), lorsque la paire est éligible. Cela ne s'applique pas à l'API Agent.",
       "benchTitle": "Benchmark des exécuteurs",
       "benchBody": "Chaque chemin d’exécution est comparé à la latence et au slippage mesurés réellement, pas à des chiffres simulés."
     },
@@ -208,7 +212,7 @@
       "curveBody": "Le venue Curve du terminal liste chaque pool sur chaque chaîne où Curve est déployé, directement depuis la Curve Prices API, triable par TVL, volume 24h ou APR de base, avec recherche, à un clic du panneau de swap. Construit sur notre fork de flet-curve.",
       "screenshotAlt": "Desk de perpétuels Suwappu avec marchés HyperLiquid, données de marché et ticket d’ordre.",
       "screenshotCaption": "Perpétuels HyperLiquid dans Suwappu · capture produit · 31 juil. 2026",
-      "lead": "La priorité de routage intelligente classe les marchés, dont le DEX natif de Tempo pour des swaps stables sans frais et les enchères groupées protégées contre le MEV de CoW, avant que CCTP et Across ne règlent une étape de bridge. Un gestionnaire RPC de secours garde chacune des 45 chaînes routable en cas de dégradation d’un fournisseur."
+      "lead": "La priorité de routage intelligente classe les marchés, dont le DEX natif de Tempo pour des swaps stables sans frais et les enchères groupées résistantes au MEV de CoW, avant que CCTP et Across ne règlent une étape de bridge. Un gestionnaire RPC de secours garde chacune des 45 chaînes routable en cas de dégradation d’un fournisseur."
     },
     "security": {
       "eyebrow": "Modèle de sécurité",
@@ -218,7 +222,7 @@
       "selfCustodyTitle": "Auto-garde",
       "selfCustodyBody": "Les flux de transaction non signée laissent la signature et la diffusion au demandeur, aucune clé n’est jamais détenue côté serveur.",
       "managedTitle": "Signature gérée",
-      "managedBody": "L’exécution gérée signe via le chiffrement enveloppe KMS (kms_aesgcm_v2), la signature Turnkey en TEE, ou un signataire MPC, selon le chemin du wallet.",
+      "managedBody": "L’exécution gérée signe via le chiffrement enveloppe KMS (kms_aesgcm_v2), des clés détenues chez Turnkey (en option par wallet), ou un signataire MPC, selon le chemin du wallet.",
       "policiesTitle": "Règles côté serveur",
       "policiesBody": "La 2FA, les limites de dépense, les coupe-circuits et la récupération sociale sont appliqués à la frontière serveur ; la surveillance des approbations révoque automatiquement ce qu’elle signale.",
       "boundaryTitle": "Périmètre d’assurance actuel",
@@ -301,6 +305,8 @@
       "fedrampTitle": "Préparation FedRAMP High",
       "fedrampBody": "Un dossier de preuves avec correspondance NIST SP 800-53 et un profil de déploiement gouvernemental fail-closed."
     },
+    "schematic": "Schéma",
+    "rankCaption": "Schéma · l'ordre varie selon la demande",
     "atmosphere": {
       "soundOn": "Son activé",
       "soundOff": "Son coupé",
@@ -333,7 +339,7 @@
     "referral_body": "Référez des traders actifs et gagnez 30% de leurs commissions, sur chaque chaîne, versées automatiquement. Obtenez votre lien avec /ref dans le bot.",
     "referral_cta": "Obtenir votre lien de parrainage",
     "enterprise_heading": "Besoin d'un plan personnalisé ?",
-    "enterprise_body": "Infrastructure dédiée, tarification au volume et SLA pour les desks de trading et les flottes d'agents.",
+    "enterprise_body": "Infrastructure dédiée et tarification au volume pour les desks de trading et les flottes d'agents. Le support et les conditions de service sont définis avec l'équipe.",
     "enterprise_cta": "Nous contacter"
   },
   "languageSwitcher": {

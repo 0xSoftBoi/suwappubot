@@ -9,7 +9,9 @@ import CopyField from './CopyField';
 import { HOOK_ADDRESS, etherscanAddress, etherscanTx } from './api';
 import { usePassportFlow } from './usePassportFlow';
 import PassportStepper from './PassportStepper';
+import { Reveal, AuthorityFlow } from '@/components/v3';
 import styles from './passport.module.css';
+import '../product-v3.css';
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -65,13 +67,23 @@ export default function PassportPageClient() {
             </p>
           </motion.div>
 
+          <Reveal className={`v3-tone-dark pv3-panel ${styles.concept}`} delay={150}>
+            <div className="pv3-panel__bar"><i /><i /><i /><span>Human proof, then a hook check on every trade</span></div>
+            <div className="pv3-stagebox">
+              <AuthorityFlow lanes={[['Human proof', 'Hook check', 'Trade allowed'], ['No proof', 'Hook check', 'Trade blocked']]} caption="How the hook decides, concept only" />
+            </div>
+          </Reveal>
+
           {notEnabled ? (
-            <div className={styles.banner} data-tone="pending">
-              <span className={styles.bannerTitle}>Trust layer not enabled on this deploy.</span>
-              <span>
-                {statusError} — the demo endpoints (<code>/hackathon/*</code>) haven&rsquo;t shipped
-                to this environment yet.
-              </span>
+            <div className={styles.unavailable} role="status">
+              <span className={styles.unavailableDot} aria-hidden="true" />
+              <div>
+                <span className={styles.bannerTitle}>Trust layer not enabled on this deploy.</span>
+                <span className={styles.unavailableText}>
+                  The demo endpoints (<code>/hackathon/*</code>) haven&rsquo;t shipped to this
+                  environment yet, so the live walkthrough is off here.
+                </span>
+              </div>
             </div>
           ) : (
             <PassportStepper flow={flow} />

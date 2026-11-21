@@ -3,6 +3,8 @@ import Image from 'next/image';
 import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import { publishedPosts, plannedPosts } from '@/content/research';
+import { Backdrop } from '@/components/v3';
+import '../content-v3.css';
 import styles from './research.module.css';
 
 const SITE = 'https://suwappu.bot';
@@ -94,7 +96,7 @@ export default function ResearchPage() {
   };
 
   return (
-    <div className="summer-page docs-shell institutional-page">
+    <div className="summer-page docs-shell institutional-page v3-tone-light cv3-page">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(collectionLd) }}
@@ -102,7 +104,9 @@ export default function ResearchPage() {
       <SummerNav />
       <main id="main-content">
       <div className={`summer-shell mkt-page ${styles.page}`}>
-        <header className={styles.hero}>
+        <header className={`${styles.hero} cv3-research-hero`}>
+          <Backdrop kind="mesh" />
+          <Backdrop kind="grain" />
           <div className={styles.heroTopline}>
             <p className="summer-kicker">Suwappu Research</p>
             <p className={styles.series}>Treasury · payments · execution · tokenization · model risk</p>

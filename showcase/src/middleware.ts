@@ -14,8 +14,20 @@ import type { NextRequest } from 'next/server';
  *     headers (the Mintlify/Anthropic pattern, so agents find it without parsing HTML).
  */
 const DOC_MD = /^\/docs\/([^/]+)\/([^/]+?)(\.md)?$/;
+const SOLVE_MD = /^\/solve\/([^/]+?)(\.md)?$/;
 
 function markdownRewrite(request: NextRequest): NextResponse | null {
+  const sm = request.nextUrl.pathname.match(SOLVE_MD);
+  if (sm) {
+    const accept = request.headers.get('accept') || '';
+    if (sm[2] || (accept.includes('text/markdown') && !accept.includes('text/html'))) {
+      const url = request.nextUrl.clone();
+      url.pathname = `/api/solve-md/${sm[1]}`;
+      return NextResponse.rewrite(url);
+    }
+    return null;
+  }
+
   const m = request.nextUrl.pathname.match(DOC_MD);
   if (!m) return null;
 
@@ -34,7 +46,7 @@ function markdownRewrite(request: NextRequest): NextResponse | null {
 export function middleware(request: NextRequest) {
   const response = markdownRewrite(request) ?? NextResponse.next();
 
-  if (request.nextUrl.pathname.startsWith('/docs')) {
+  if (request.nextUrl.pathname.startsWith('/docs') || request.nextUrl.pathname.startsWith('/solve')) {
     response.headers.set(
       'Link',
       '</llms.txt>; rel="llms-txt", </llms-full.txt>; rel="llms-full-txt"',
@@ -42,9 +54,17 @@ export function middleware(request: NextRequest) {
     response.headers.set('X-Llms-Txt', '/llms.txt');
   }
 
+  // An extensionless doc/problem URL has two representations (HTML, or Markdown
+  // when the client asks for it). Tell caches the response depends on Accept, or
+  // a cached Markdown copy could be served to a browser asking for the page.
+  const path = request.nextUrl.pathname;
+  if (!path.endsWith('.md') && (SOLVE_MD.test(path) || DOC_MD.test(path))) {
+    response.headers.append('Vary', 'Accept');
+  }
+
   return response;
 }
 
 export const config = {
-  matcher: ['/docs/:path*'],
+  matcher: ['/docs/:path*', '/solve/:path*'],
 };

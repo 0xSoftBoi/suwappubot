@@ -44,6 +44,30 @@ const CONVERSION_EVENTS = [
 	'mobile_waitlist_submitted',
 	'waitlist_reserved',
 ]
+
+/** Marketing landing pages tracked per-page: /start, /solve and /solve/<slug>. */
+const LANDING_ROW_CAP = 50_000
+const LANDING_PAGE_CAP = 50
+const SLUG_RE = /^[a-z0-9-]{1,80}$/
+const normPath = (p: string): string => (p.length > 1 ? p.replace(/\/+$/, '') : p) || '/'
+const isLandingPath = (p: string): boolean => {
+	if (p === '/start' || p === '/solve') return true
+	return p.startsWith('/solve/') && SLUG_RE.test(p.slice('/solve/'.length))
+}
+/** AI assistants whose referrer host (or utm_source, host or bare name) we report. */
+const AI_SOURCES: Record<string, string[]> = {
+	'chatgpt.com': ['chatgpt.com', 'chatgpt'],
+	'chat.openai.com': ['chat.openai.com'],
+	'perplexity.ai': ['perplexity.ai', 'perplexity'],
+	'claude.ai': ['claude.ai', 'claude'],
+	'gemini.google.com': ['gemini.google.com', 'gemini'],
+	'copilot.microsoft.com': ['copilot.microsoft.com', 'copilot'],
+	'you.com': ['you.com'],
+	'phind.com': ['phind.com', 'phind'],
+}
+const AI_ALIAS = new Map<string, string>(
+	Object.entries(AI_SOURCES).flatMap(([source, aliases]) => aliases.map((a) => [a, source] as [string, string])),
+)
 const inList = (values: string[]): SQL => sql.join(values.map((v) => sql`${v}`), sql`, `)
 
 /**
@@ -124,6 +148,9 @@ adminGrowthRoutes.get('/growth', async (c) => {
 				firstEvent,
 				moneyDaily,
 				moneyPrevious,
+				landingRows,
+				landingEntrances,
+				aiRows,
 			] = yield* Effect.all(
 				[
 					run(
@@ -265,6 +292,39 @@ adminGrowthRoutes.get('/growth', async (c) => {
 							+ (select coalesce(sum(fee_amount_usd), 0) from fee_transactions where collected = true
 								and created_at >= ${prev}::timestamp and created_at < ${start}::timestamp) as usd`,
 					),
+					// Landing-page rows: aggregated in TypeScript (props_json is untrusted
+					// text, never cast to jsonb in SQL).
+					optional(
+						'landing page events',
+						sql`select name, path, session_id, props_json
+							from web_events
+							where created_at >= ${start}::timestamp
+								and name in ('page_view', 'cta_clicked', 'solve_snippet_copied')
+								and (path = '/start' or path = '/solve' or path like '/solve/%'
+									or name in ('cta_clicked', 'solve_snippet_copied'))
+							order by created_at asc
+							limit ${LANDING_ROW_CAP + 1}`,
+					),
+					optional(
+						'landing page entrances',
+						sql`select path, count(*) as n from (
+								select distinct on (session_id) session_id, path
+								from web_events
+								where created_at >= ${start}::timestamp and name = 'page_view'
+								order by session_id, created_at asc, id asc
+							) f
+							where path = '/start' or path = '/solve' or path like '/solve/%'
+							group by 1`,
+					),
+					optional(
+						'ai referrals',
+						sql`select distinct session_id, lower(referrer_host) as ref, lower(utm_source) as utm
+							from web_events
+							where created_at >= ${start}::timestamp
+								and (lower(referrer_host) in (${inList([...AI_ALIAS.keys()])})
+									or lower(utm_source) in (${inList([...AI_ALIAS.keys()])}))
+							limit 20000`,
+					),
 				],
 				{ concurrency: 4 },
 			)
@@ -395,6 +455,96 @@ adminGrowthRoutes.get('/growth', async (c) => {
 			}
 			const conversions = totals.leads + totals.newsletter + totals.mobileWaitlist + totals.reservations
 
+			// Per-landing-page performance
+			type Landing = {
+				sessions: Set<string>
+				views: number
+				ctaClicks: number
+				/** Sessions that clicked at least once — the numerator of clickRate. */
+				clickers: Set<string>
+				snippetCopies: number
+				dests: Map<string, number>
+			}
+			const pages = new Map<string, Landing>()
+			const pageFor = (path: string): Landing => {
+				let l = pages.get(path)
+				if (!l) {
+					l = { sessions: new Set(), views: 0, ctaClicks: 0, clickers: new Set(), snippetCopies: 0, dests: new Map() }
+					pages.set(path, l)
+				}
+				return l
+			}
+			const landingTruncated = (landingRows?.length ?? 0) > LANDING_ROW_CAP
+			for (const r of (landingRows ?? []).slice(0, LANDING_ROW_CAP)) {
+				const evPath = normPath(String(r.path ?? '/'))
+				const name = String(r.name)
+				if (name === 'page_view') {
+					if (!isLandingPath(evPath)) continue
+					const l = pageFor(evPath)
+					l.views += 1
+					l.sessions.add(String(r.session_id))
+					continue
+				}
+				// Attribute an interaction to the page it HAPPENED on (the event's
+				// path), exactly like page views. The `slug` prop is not a reliable
+				// source page: /start sends "start", the hub sends "hub" or the tile's
+				// destination, and the strip on other pages sends where it leads.
+				if (!isLandingPath(evPath)) continue
+				const props = parseContext(r.props_json)
+				const l = pageFor(evPath)
+				if (name === 'cta_clicked') {
+					l.ctaClicks += 1
+					l.clickers.add(String(r.session_id))
+					const dest = field(props, 'dest', 80)
+					if (dest) l.dests.set(dest, (l.dests.get(dest) ?? 0) + 1)
+				} else l.snippetCopies += 1
+			}
+			const entrancesBy = new Map<string, number>()
+			for (const r of landingEntrances ?? []) {
+				const p = normPath(String(r.path))
+				entrancesBy.set(p, (entrancesBy.get(p) ?? 0) + num(r.n))
+			}
+			for (const p of entrancesBy.keys()) if (isLandingPath(p)) pageFor(p)
+			const landingPages = [...pages.entries()]
+				.map(([path, l]) => {
+					const visitors = l.sessions.size
+					const top = [...l.dests.entries()].sort((a, b) => b[1] - a[1])[0]
+					return {
+						path,
+						slug: path.startsWith('/solve/') ? path.slice('/solve/'.length) : null,
+						visitors,
+						views: l.views,
+						ctaClicks: l.ctaClicks,
+						snippetCopies: l.snippetCopies,
+						// Share of visitors who clicked, never above 1: one person clicking
+						// three times is one conversion, not three.
+						clickRate:
+							visitors > 0
+								? Math.min(1, Math.round((l.clickers.size / visitors) * 10_000) / 10_000)
+								: 0,
+						topDestination: top ? top[0] : null,
+						entrances: entrancesBy.get(path) ?? 0,
+					}
+				})
+				.sort((a, b) => b.visitors - a.visitors || b.ctaClicks - a.ctaClicks || a.path.localeCompare(b.path))
+				.slice(0, LANDING_PAGE_CAP)
+
+			// AI-assistant referrals (sessions, each counted once per assistant)
+			const aiSessions = new Map<string, Set<string>>()
+			for (const r of aiRows ?? []) {
+				const sid = String(r.session_id)
+				for (const v of [str(r.ref), str(r.utm)]) {
+					const source = v ? AI_ALIAS.get(v) : undefined
+					if (!source) continue
+					const set = aiSessions.get(source) ?? new Set<string>()
+					set.add(sid)
+					aiSessions.set(source, set)
+				}
+			}
+			const aiReferrals = [...aiSessions.entries()]
+				.map(([source, set]) => ({ source, sessions: set.size }))
+				.sort((a, b) => b.sessions - a.sessions)
+
 			return {
 				days,
 				window: { from: startDay, to: today },
@@ -480,6 +630,9 @@ adminGrowthRoutes.get('/growth', async (c) => {
 					visitors: num(r.visitors),
 					conversions: num(r.conversions),
 				})),
+				landingPages,
+				landingPagesTruncated: landingTruncated,
+				aiReferrals,
 				topEvents: (topEvents ?? []).map((r) => ({
 					name: String(r.name),
 					count: num(r.n),

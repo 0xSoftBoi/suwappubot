@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
+import { Backdrop, Reveal, DeadEnd } from '@/components/v3';
 import styles from './not-found.module.css';
 
 export const metadata: Metadata = {
@@ -12,10 +13,13 @@ export const metadata: Metadata = {
 
 export default function NotFound() {
   return (
-    <div className="sw-dark">
+    <div className="sw-dark v3-tone-dark">
       <SummerNav />
-      <main id="main-content" className={`${styles.page} sw-grain sw-grain--dark`}>
+      <main id="main-content" className={`${styles.page} sw-grain sw-grain--dark`} style={{ overflow: 'clip' }}>
+      <Backdrop kind="mesh" />
+      <Backdrop kind="grid" />
       <div className={styles.inner}>
+        <Reveal><DeadEnd stops={['Home', 'Docs', 'Status']} miss="404" /></Reveal>
         <p className={styles.code}>404</p>
         <h1 className={styles.title}>This route was never deployed.</h1>
         <p className={styles.lead}>

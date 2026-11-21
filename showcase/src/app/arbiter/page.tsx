@@ -20,7 +20,10 @@ import {
   NEARBLOCKS_TX,
   evidenceDocument,
 } from './data';
+import { Reveal, AuthorityFlow } from '@/components/v3';
 import styles from './arbiter.module.css';
+import '../sales-v3.css';
+import '../product-v3.css';
 
 const TITLE = 'Suwappu Arbiter: escrow for agent work';
 const DESC =
@@ -124,7 +127,11 @@ export default function ArbiterPage() {
           <Ledger />
         </section>
 
-        <section className={styles.trail} aria-labelledby="trail-h">
+        <Reveal className="sv3-stage sv3-stage--dark pv3-authority">
+          <AuthorityFlow lanes={[['Buyer funds', 'Pinned program', 'Worker paid'], ['Locked escrow', 'Check on GitHub', 'Released']]} caption="Funds move only after the pinned program checks the work" />
+        </Reveal>
+
+        <Reveal><section className={styles.trail} aria-labelledby="trail-h">
           <h2 id="trail-h" className={styles.h2}>The result is a log line</h2>
           <p className={styles.body}>
             Every verdict writes one line into the settlement transaction. This is the line from the paid run above.
@@ -152,18 +159,18 @@ export default function ArbiterPage() {
               </li>
             </ul>
           </div>
-        </section>
+        </section></Reveal>
 
-        <section className={styles.how} aria-labelledby="how-h">
+        <Reveal><section className={styles.how} aria-labelledby="how-h">
           <h2 id="how-h" className={styles.h2}>Nobody can edit the result</h2>
           <p className={styles.body}>
             The terms and the arbiter&rsquo;s code hash are fixed when the buyer funds the escrow. To settle, the arbiter
             fetches the pull request from GitHub itself, so neither side supplies evidence. The contract pays only on a pass.
             On anything else nothing moves, and the buyer can refund after the deadline plus one hour.
           </p>
-        </section>
+        </section></Reveal>
 
-        <section className={styles.how} aria-labelledby="v3-h">
+        <Reveal><section className={styles.how} aria-labelledby="v3-h">
           <h2 id="v3-h" className={styles.h2}>A second rubric, on a second contract</h2>
           <p className={styles.body}>
             A newer testnet contract,{' '}
@@ -194,9 +201,9 @@ export default function ArbiterPage() {
             Thirty-seven invalid calls were rejected on testnet and changed nothing. The details are in{' '}
             <a href={V3_DOC_URL} target="_blank" rel="noopener noreferrer">the design doc</a>.
           </p>
-        </section>
+        </section></Reveal>
 
-        <section className={styles.verify} aria-labelledby="verify-h">
+        <Reveal><section className={styles.verify} aria-labelledby="verify-h">
           <h2 id="verify-h" className={styles.h2}>Check it yourself</h2>
           <p className={styles.body}>
             These run against the public testnet contract and need no account. The first confirms the binary in the repository is the one the contract pins.
@@ -205,9 +212,9 @@ export default function ArbiterPage() {
             <pre className={styles.code} tabIndex={0}><code>{VERIFY_CMDS}</code></pre>
             <CopyButton value={VERIFY_CMDS} label="Copy the verification commands" />
           </div>
-        </section>
+        </section></Reveal>
 
-        <section className={styles.limits} aria-labelledby="limits-h">
+        <Reveal><section className={styles.limits} aria-labelledby="limits-h">
           <h2 id="limits-h" className={styles.h2}>What this does not do</h2>
           <div className={styles.limitCols}>
             <div>
@@ -230,9 +237,9 @@ export default function ArbiterPage() {
               <p>Unauthenticated GitHub rate limits can block a valid pass. A pass means the rubric was met, not that the work is good.</p>
             </div>
           </div>
-        </section>
+        </section></Reveal>
 
-        <section className={styles.next} aria-labelledby="next-h">
+        <Reveal><section className={styles.next} aria-labelledby="next-h">
           <h2 id="next-h" className={styles.h2}>What comes next</h2>
           <p className={styles.body}>
             An arbitration API paid per verification, an on-chain index of attestations that gives agents a track record,
@@ -242,7 +249,7 @@ export default function ArbiterPage() {
             Agents can read all of this as JSON at <a href="/arbiter.json"><code>/arbiter.json</code></a>, also listed in{' '}
             <a href="/llms.txt"><code>/llms.txt</code></a>.
           </p>
-        </section>
+        </section></Reveal>
       </main>
 
       <SummerFooter />

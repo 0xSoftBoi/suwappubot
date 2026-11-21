@@ -14,6 +14,8 @@ import stats from '@/data/stats.generated.json';
 import DocsAccordion from '../../components/docs/DocsAccordion';
 import DocsNav from '../../components/docs/DocsNav';
 import docsData from '../../data/docs.json';
+import { Backdrop } from '@/components/v3';
+import '../content-v3.css';
 import styles from './DocsOverview.module.css';
 
 type Entry = {
@@ -109,13 +111,14 @@ export default function DocsOverview() {
         };
 
   return (
-    <div className="summer-page docs-shell institutional-page">
+    <div className="summer-page docs-shell institutional-page v3-tone-light cv3-docs">
       <div className="docs-page">
         <aside className={`docs-page__sidebar ${styles.sidebar}`}>
           <DocsNav sections={sections} />
         </aside>
 
-        <main id="main-content" className="docs-page__main">
+        <main id="main-content" className="docs-page__main cv3-docs__main">
+          <Backdrop kind="mesh" />
           <motion.div {...reveal(0)}>
             <p className="section__label">Documentation</p>
             <h1 className="section__heading">Suwappu API</h1>

@@ -15,6 +15,7 @@ import {
 import { internalAuth } from './middleware/internalAuth'
 import { adminAuth, parseAdminEmails, parseAdminOrigins } from './middleware/adminSessionAuth'
 import { ipRateLimit } from './middleware/ipRateLimit'
+import { CHAINS } from './services/TokenService'
 import { adminGrowthRoutes } from './routes/adminGrowth'
 import { webEventRoutes } from './routes/webEvents'
 import { bodyLimit } from 'hono/body-limit'
@@ -35,7 +36,7 @@ import {
 	healthRoutes,
 	internalRoutes,
 	lendRoutes,
-	MCP_TOOLS,
+	MCP_ADVERTISED_TOOLS,
 	mcpRoutes,
 	p2pRoutes,
 	perpsRoutes,
@@ -336,10 +337,12 @@ export function createApp(config: AppConfig) {
 		// Generated from mcp.ts's TOOLS constant (the single source of truth for the
 		// MCP surface) so this line can't silently drift out of sync when a new tool
 		// is added — a hand-written list here previously went stale.
-		const mcpToolNames = MCP_TOOLS.map((t) => t.name).join(', ')
+		const mcpToolNames = MCP_ADVERTISED_TOOLS.map((t) => t.name).join(', ')
+		// Distinct EVM chain ids plus Solana, Sui and TON (matches GET /v1/agent/chains).
+		const agentApiChainCount = new Set(Object.values(CHAINS).map((c) => c.id)).size + 3
 		return c.text(`# Suwappu API
 
-> Cross-chain DEX API for AI agents. Best-price swaps, HyperLiquid perps, and gasless trades across 40+ chains.
+> Cross-chain DEX API for AI agents. Best-price swaps, HyperLiquid perps, Polymarket and Morpho reads. ${agentApiChainCount} chains on the Agent API (EVM + Solana, Sui, TON); ${MCP_ADVERTISED_TOOLS.length} MCP tools.
 
 ## Base URL
 https://api.suwappu.bot/v1/agent

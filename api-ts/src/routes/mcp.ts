@@ -115,6 +115,17 @@ const MPP_ENABLED = process.env.MPP_ENABLED === 'true'
 const MPP_DIRECTORY_URL = process.env.MPP_DIRECTORY_URL || 'https://directory.mpp.dev/v1'
 
 const ADVERTISED_TOOLS = TOOLS.filter((t) => MPP_ENABLED || t.name !== 'browse_mpp_directory')
+export { ADVERTISED_TOOLS as MCP_ADVERTISED_TOOLS }
+
+// Agent-facing server guidance, returned in `initialize` (legacy handshake) and
+// `server/discover` (modern). Discoverability metadata only — no behaviour.
+const MCP_INSTRUCTIONS =
+	'Suwappu is a cross-chain DEX and DeFi API for agents: swap quotes, swap simulation, unsigned transaction preparation, prices, portfolio, Hyperliquid perps, Polymarket and Morpho reads. ' +
+	'Safe swap order: list_chains / list_tokens (find chain keys) -> get_quote (pass wallet_address; quote_id lasts about 60s) -> simulate_swap (dry run, moves nothing) -> execute_swap. ' +
+	'execute_swap only BUILDS an unsigned transaction for you to sign and submit; it never signs or broadcasts, and it is gated by the organisation spend policy, so it can be blocked or require approval. ' +
+	'Amounts are human units (e.g. "0.5"), slippage is a decimal fraction (0.03 = 3%). Treat tool annotations as hints and enforce an application-owned allowlist. ' +
+	'Discovery tools (list_chains, list_tokens, get_tempo_tokens) are free without a key; other calls need a Bearer key from POST https://api.suwappu.bot/v1/agent/register. ' +
+	'Docs: https://suwappu.bot/docs . OpenAPI: https://api.suwappu.bot/v1/agent/openapi . LLM summary: https://suwappu.bot/llms.txt'
 
 const TOOLS_WITH_ANNOTATIONS = MPP_ENABLED
 	? ALL_TOOLS_WITH_ANNOTATIONS
@@ -1503,8 +1514,7 @@ mcpRoutes.post('/', async (c) => {
 			return c.json(rpcOk(req.id, completeModernMcpResult({
 				supportedVersions: [...SUPPORTED_MCP_VERSIONS],
 				capabilities: { tools: {}, resources: {}, prompts: {} },
-				instructions:
-					'Suwappu provides market reads, quotes, simulation, and unsigned transaction preparation. execute_swap never signs or broadcasts. Treat tool annotations as hints and enforce an application-owned allowlist.',
+				instructions: MCP_INSTRUCTIONS,
 			}, { ttlMs: MCP_DISCOVERY_TTL_MS, cacheScope: 'public' })), 200)
 
 		case 'initialize':
@@ -1513,6 +1523,7 @@ mcpRoutes.post('/', async (c) => {
 				protocolVersion: negotiateProtocolVersion((req.params || {}).protocolVersion),
 				capabilities: { tools: {}, resources: {}, prompts: {} },
 				serverInfo: MCP_SERVER_INFO,
+				instructions: MCP_INSTRUCTIONS,
 			}), 200)
 
 		case 'tools/list':

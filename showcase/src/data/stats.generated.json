@@ -26,7 +26,7 @@
     "usdt0",
     "Wormhole"
   ],
-  "mcpToolCount": 24,
+  "mcpToolCount": 23,
   "mcpTools": [
     "get_quote",
     "get_portfolio",
@@ -36,7 +36,6 @@
     "execute_swap",
     "simulate_swap",
     "get_tempo_tokens",
-    "browse_mpp_directory",
     "predict_markets",
     "predict_market",
     "perps_markets",

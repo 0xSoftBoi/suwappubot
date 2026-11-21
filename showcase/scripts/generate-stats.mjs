@@ -104,7 +104,10 @@ const routers = routerKeys.map((k) => DISPLAY[k] ?? k).sort((a, b) => a.localeCo
 // actually serves. ToolConstellationGL draws exactly these nodes, so the figure
 // can never claim tools that don't exist.
 const mcpSrc = blockAfter(read('api-ts/src/routes/mcpTools.ts'), 'const TOOLS = [', ']')
-const mcpTools = [...mcpSrc.matchAll(/^\t\tname: '([a-z0-9_]+)'/gm)].map((m) => m[1])
+// browse_mpp_directory is registered but hidden from tools/list unless MPP_ENABLED=true
+// (api-ts/src/routes/mcp.ts ADVERTISED_TOOLS), so the advertised default excludes it.
+const HIDDEN_BY_DEFAULT = new Set(['browse_mpp_directory'])
+const mcpTools = [...mcpSrc.matchAll(/^\t\tname: '([a-z0-9_]+)'/gm)].map((m) => m[1]).filter((n) => !HIDDEN_BY_DEFAULT.has(n))
 
 // ---------------------------------------------------------------- guard + emit
 // A zero here means an upstream file changed shape. Never publish a zero.

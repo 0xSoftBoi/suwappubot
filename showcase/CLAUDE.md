@@ -75,3 +75,17 @@ Every page MUST use, unless it already deliberately doesn't:
    no placeholder hrefs, no invented URLs.
 5. All four locales (`messages/en|fr|es|zh.json`) updated together when copy
    changes.
+
+## v3 kit (`src/components/v3/` + `src/app/v3.css`)
+
+Reuse; do not fork a second motion/card system. Tone-aware via `--v3-*` vars
+(dark under `.sw-dark`/`.v3-tone-dark`, cream/navy under `.v3-tone-light`).
+Import from `@/components/v3`.
+
+- `Reveal` (`stagger`, `delay`): scroll-entry rise; visible without JS/reduced motion.
+- `CountUp`: real numbers only (final value in SSR HTML).
+- `SpotlightCard` + `MiniViz kind`: bento card with pointer glow and pictogram slot (`.v3-bento`, `.v3-span-2`).
+- `V3Section` / `SectionHead` / `Backdrop` (mesh, glow, grid, grain): section layouts and headers; `.v3-split` for text/visual.
+- Graphics (all `aria-hidden`, paused off-screen via `Live`, static when reduced motion): `RouteMap`, `PipelineFlow`, `VenueRank`, `ChainRing`, `Sparkline`/`SparkCard`, `ToolOrbit`, `BoundaryRings`, `ProductFrame`.
+- Traps: never name a class with "card" in it (globals.css `.sw-dark [class*='card']` flattens it); diagrams use real names only and show no invented numbers.
+

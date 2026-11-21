@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
+import '../../content-v3.css';
 
 export const metadata: Metadata = {
   title: 'Terms of Service',
@@ -9,7 +10,7 @@ export const metadata: Metadata = {
 
 export default function TermsPage() {
   return (
-    <div className="summer-page docs-shell institutional-page">
+    <div className="summer-page docs-shell institutional-page cv3-legal">
       <SummerNav />
       <main id="main-content">
       <div className="summer-shell mkt-page">
@@ -57,7 +58,7 @@ export default function TermsPage() {
           <p>We may update these Terms from time to time. Material changes will be reflected by the “Last updated” date above; continued use after changes constitutes acceptance.</p>
 
           <h2>11. Contact</h2>
-          <p>Questions about these Terms? Reach us through the official Suwappu Telegram or at <code>legal@suwappu.bot</code>.</p>
+          <p>Questions about these Terms? Reach us through the official Suwappu Telegram or at <a href="mailto:legal@suwappu.bot">legal@suwappu.bot</a>.</p>
         </div>
         </article>
       </div>

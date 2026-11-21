@@ -143,12 +143,52 @@
   margin-top: 0.25rem;
 }
 
-.figure pre {
-  color: #d7cdbf;
+.codePane {
+  border-radius: 14px;
+  overflow: hidden;
+  background: linear-gradient(170deg, #10263a, #0a1420);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 24px 48px -28px rgba(10, 24, 38, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
+.codeBar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.codeBar span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.22);
+}
+.codeBar b {
+  margin-left: 8px;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: #c7d3df;
+}
+.codePane pre {
+  margin: 0;
+  padding: 16px 18px 18px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.7;
+  color: #f1ece2;
+  background: transparent;
+}
+.codePane code { color: inherit; background: none; white-space: pre; }
+.flip .detailHead { grid-template-columns: minmax(280px, 0.68fr) minmax(0, 1fr); }
+.flip .detailHead > :first-child { order: 2; }
+@media (max-width: 880px) { .flip .detailHead { grid-template-columns: 1fr; } .flip .detailHead > :first-child { order: 0; } }
 
 .figureCaption {
-  margin: 0.6rem 0 0;
+  margin: 0.7rem 0 0;
+  padding-left: 2px;
   color: var(--institutional-muted);
   font-family: var(--font-mono);
   font-size: 0.62rem;

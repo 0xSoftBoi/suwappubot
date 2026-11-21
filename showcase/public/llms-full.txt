@@ -1,13 +1,13 @@
 # Suwappu API
 
-> Cross-chain DeFi API built for AI agents — best-price swaps, HyperLiquid market research, and gasless trades across 40+ chains through one REST API, an MCP server, and a TypeScript SDK.
+> Cross-chain DeFi API built for AI agents: swaps routed across 21 venues, HyperLiquid market research, and sponsored-gas trades. 45 chains on the platform (18 on the Agent API), through one REST API, an MCP server, and a TypeScript SDK.
 
 Base URL: https://api.suwappu.bot/v1/agent
 Auth: Bearer token — `Authorization: Bearer suwappu_sk_...` (get a key from `POST /register`, no auth required).
 
 SDK source contracts: @suwappu/sdk 0.6.x (TypeScript), suwappu 0.3.x (Python, async), @suwappu/openclaw.
 Package registries can lag the repository; verify the installed version and use REST/OpenAPI as the canonical fallback.
-MCP server: POST https://api.suwappu.bot/mcp (JSON-RPC 2.0; source 0.6.0 advertises 22 tools). MCP
+MCP server: POST https://api.suwappu.bot/mcp (JSON-RPC 2.0; source 0.6.0 advertises 23 tools by default). MCP
 2026-07-28 is the preferred stateless protocol revision, with legacy initialize compatibility through 2025-06-18.
 MCP execute_swap only prepares an unsigned self-custody transaction; it never signs or broadcasts.
 A2A protocol: POST https://api.suwappu.bot/a2a (JSON-RPC 2.0) — agent card at
@@ -25,6 +25,1506 @@ Read tools answer freely; anything that costs money is a proposal a human must a
 - v1 verifies deterministic, machine-checkable rubrics (GitHub PR merge); it proves "done as specified", not "good".
 - Also on testnet only: a separate contract `suwappu-arb3.testnet` (code sha256 `667f4c62a77bdb59442d74daf75d2bb6c093c8bb1fcf893e4bba6562cff9ba8a`) that pins two rubrics: the PR rubric and `http_json_v1`, where the enclave fetches an HTTPS endpoint and checks conditions on the JSON it returns. It fixes a late-callback double-payment bug that the contract above still has, but that fix was tested only in a local harness. Known limits: a condition already true at creation can be paid out immediately; the account that signs the resolve call shows about 0.3 NEAR less balance during it; whoever controls the checked endpoint controls the verdict; not audited. See the `contract_v3` block in /arbiter.json.
 - Roadmap, NOT shipped: mainnet, independent audit, in-contract TDX quote verification, NEAR Intents funding, Agent Market integration, LLM-judged rubrics.
+
+# Problems solved
+
+---
+
+# How do I let an AI agent swap tokens without handing it my keys?
+
+> Register an agent with one POST, get a quote, dry-run it with /swap/simulate, then either execute from a Suwappu managed wallet or take an unsigned transaction and sign it yourself. Nothing moves until you choose the execute path.
+
+Source: https://suwappu.bot/solve/let-ai-agent-swap-tokens (last updated 2026-11-21)
+
+## The problem
+
+You want the agent to act, but you do not want a prompt-injected loop draining a wallet. Most swap APIs hand you calldata and leave the guardrails to you.
+
+## How to do it
+
+1. Register the agent. POST /v1/agent/register with a name. Save the suwappu_sk_ key; it is shown once.
+2. Quote. POST /v1/agent/quote returns quote_id, amount_out_min and route. A quote is valid for 60 seconds.
+3. Simulate. POST /v1/agent/swap/simulate with the quote_id and wallet_address. Execute only if would_execute is true.
+4. Choose authority. POST /v1/agent/swap returns an unsigned transaction you sign. POST /v1/agent/swap/execute signs from the agent's managed wallet.
+5. Track it. GET /v1/agent/swap/status/:id, or set a callback_url for signed webhooks.
+
+### Quote then simulate (no funds move)
+
+```bash
+# 1. quote
+curl -s -X POST https://api.suwappu.bot/v1/agent/quote \
+  -H "Authorization: Bearer $SUWAPPU_API_KEY" -H "Content-Type: application/json" \
+  -d '{"from_token":"ETH","to_token":"USDC","amount":"0.1","chain":"base"}'
+
+# 2. dry run the returned quote_id
+curl -s -X POST https://api.suwappu.bot/v1/agent/swap/simulate \
+  -H "Authorization: Bearer $SUWAPPU_API_KEY" -H "Content-Type: application/json" \
+  -d '{"quote_id":"QUOTE_ID_FROM_STEP_1","wallet_address":"0xYourWallet"}'
+```
+
+## What this does not do
+
+- Managed-wallet execution is only as safe as the caps on it. Spend policies are enforced for org API keys; see the desk pages.
+- MCP execute_swap only prepares an unsigned transaction. It never signs or broadcasts.
+- Starknet swaps are not handled by the Agent API.
+- Suwappu does not guarantee a fill price; amount_out_min is the floor you set through slippage.
+
+## FAQ
+
+### Does Suwappu hold the agent's private key?
+
+Only on the managed-wallet path, where the key lives with Turnkey and is used to sign server-side. On the self-custody path you receive an unsigned transaction and Suwappu never sees your key.
+
+### What does it cost to try?
+
+Registration is free. Quotes and simulations move no funds and cost 1 credit each when metering is on.
+
+### Can the agent trade without me approving?
+
+Only if no approval policy applies. Org policies can require approval above a USD threshold; see approval-workflow-onchain-trades.
+
+### What if a swap call times out?
+
+Send an Idempotency-Key header, reconcile status first, and retry with the same key.
+
+
+---
+
+# Is there an MCP server my agent can use for crypto swaps?
+
+> Yes. Point any MCP client at https://api.suwappu.bot/mcp with a Bearer key. It advertises 23 tools by default: quotes, prices, portfolio, simulation, swap status, plus read-only perps, prediction and lending data. execute_swap prepares an unsigned transaction only.
+
+Source: https://suwappu.bot/solve/mcp-server-for-crypto-swaps (last updated 2026-11-21)
+
+## The problem
+
+Your agent can reason about a trade but has no tool to price it. Wiring a bespoke swap tool per client is repeated work, and a tool that can silently sign is a risk.
+
+## How to do it
+
+1. Get a key. POST /v1/agent/register, or use the /start page.
+2. Add the server. Claude Code: claude mcp add --transport http suwappu https://api.suwappu.bot/mcp --header "Authorization: Bearer suwappu_sk_YOUR_KEY". Cursor, Claude Desktop, Codex and OpenCode configs are in the docs.
+3. List the tools. Call tools/list at runtime rather than hard-coding names.
+4. Quote and simulate. Use get_quote, then simulate_swap. Both cost 1 credit when metering is on.
+5. Treat execute_swap as prepare. It returns an unsigned self-custody transaction. Your wallet signs and broadcasts.
+
+### List the advertised MCP tools
+
+```bash
+curl -s -X POST https://api.suwappu.bot/mcp \
+  -H "Authorization: Bearer $SUWAPPU_API_KEY" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+## What this does not do
+
+- The registry holds 24 tools; browse_mpp_directory is hidden unless enabled, so clients see 23.
+- execute_swap does not sign or broadcast, despite its name.
+- Perps, prediction and lending tools are research or quote tools; none open positions or lend.
+- Some clients time out at 60 seconds; cross-chain quotes can need a longer tool timeout.
+
+## FAQ
+
+### How many tools does it expose?
+
+23 are advertised by default. The code registers 24, with one hidden by default. Call tools/list for the live set.
+
+### Is there anything to install?
+
+No. The server is hosted. @suwappu/mcp-server exists as a package, but the docs path is the remote URL.
+
+### Which tools are free?
+
+list_chains, list_tokens, get_tempo_tokens, near_resolve_asset and near_convert_amount cost 0 credits. Most others cost 1; execute_swap costs 5.
+
+### Does the MCP server need a key?
+
+Discovery and a few zero-cost tools are public. Authenticated actions use the Bearer key.
+
+
+---
+
+# Which API quotes a cross-chain swap in one call?
+
+> POST /v1/agent/quote with from_chain and to_chain. It returns the route, expected output, minimum output after slippage, estimated gas and a quote_id valid for 60 seconds. The Agent API covers 18 chains; the wider platform lists 45.
+
+Source: https://suwappu.bot/solve/cross-chain-swap-api (last updated 2026-11-21)
+
+## The problem
+
+Cross-chain means stitching a bridge, a DEX and gas estimates across vendors, then guessing what the user actually receives.
+
+## How to do it
+
+1. List chains. GET /v1/agent/chains is public. Do not hard-code chain keys.
+2. Quote. Pass from_token, to_token, amount, from_chain, to_chain. Add wallet_address to receive executable transaction data.
+3. Read the numbers. Check amount_out_min, price_impact, estimated_gas_usd, bridge_fee_usd and estimated_time_seconds.
+4. Simulate. POST /swap/simulate with the quote_id before you sign.
+5. Execute or sign. Managed wallet via /swap/execute, or sign the unsigned tx from /swap.
+
+### Cross-chain quote: USDC on Arbitrum to ETH on Base
+
+```bash
+curl -s -X POST https://api.suwappu.bot/v1/agent/quote \
+  -H "Authorization: Bearer $SUWAPPU_API_KEY" -H "Content-Type: application/json" \
+  -d '{"from_token":"USDC","to_token":"ETH","amount":"100","from_chain":"arbitrum","to_chain":"base"}'
+```
+
+## What this does not do
+
+- Route availability depends on the pair, size and chain; a quote can fail.
+- EVM to Solana needs an explicit destination address (to_wallet_address).
+- Starknet is handled by the bot backend, not this API.
+- Suwappu does not claim the best price on every route; compare the live quote.
+
+## FAQ
+
+### Which chains?
+
+GET /v1/agent/chains is authoritative. The Agent API serves 18; the platform covers 45 non-testnet chains.
+
+### Which providers route it?
+
+21 routing venues across the platform, including Li.Fi and Jupiter, gated by chain. The quote names the route used.
+
+### How long does it take?
+
+The quote includes estimated_time_seconds. Bridges vary.
+
+### What if the quote expires?
+
+Quotes last 60 seconds. Request a new one.
+
+
+---
+
+# How do I simulate a swap before signing it?
+
+> POST /v1/agent/swap/simulate with a quote_id and your wallet_address. It runs balance, allowance, gas, eth_call revert and slippage checks, creates no swap record, and returns would_execute. It costs 1 credit when metering is on.
+
+Source: https://suwappu.bot/solve/simulate-swap-before-signing (last updated 2026-11-21)
+
+## The problem
+
+A swap can revert, lack allowance or gas, or carry a price impact far above what you expected. You only find out after paying for it.
+
+## How to do it
+
+1. Quote. POST /quote and keep the quote_id.
+2. Simulate. POST /swap/simulate with quote_id and wallet_address.
+3. Read the checks. route_available, balance_sufficient, allowance_sufficient, gas_affordable, eth_call_revert_check, slippage_sane.
+4. Gate on it. Proceed only if would_execute is true and warnings is empty.
+5. Re-quote if needed. Simulating does not extend the 60-second quote life.
+
+### Gate execution on would_execute (SDK)
+
+```ts
+import { Suwappu } from "@suwappu/sdk";
+const client = new Suwappu({ apiKey: process.env.SUWAPPU_API_KEY });
+
+const quote = await client.getQuote({
+  from: "USDC", to: "ETH", chain: "base", amount: "100",
+  walletAddress: "0xYourWallet",
+});
+const sim = await client.simulateSwap({
+  quoteId: quote.id, walletAddress: "0xYourWallet",
+});
+if (!sim.wouldExecute) throw new Error(sim.warnings.join("; "));
+```
+
+## What this does not do
+
+- Simulation is a pre-flight check, not a guarantee the on-chain result will match.
+- Balance, gas and revert checks need wallet_address.
+- Checks that cannot run degrade to warn and do not block.
+- Solana has no eth_call revert check.
+
+## FAQ
+
+### Does it sign or broadcast?
+
+No. The docs state no swap rows are created, nothing is signed and nothing is broadcast.
+
+### Is it the same as a quote?
+
+No. A quote prices the route. A simulation also checks your wallet's balance, allowance, gas and revert behaviour.
+
+### Which SDK field carries the quote id?
+
+REST returns quote_id. The SDK README shows quote.id in TypeScript and quote.quote_id in Python and some TypeScript examples. Check your installed version's types.
+
+### Does it work over MCP?
+
+Yes, as the simulate_swap tool, same logic and cost.
+
+
+---
+
+# How do agents pay per call for a swap API with x402?
+
+> When a free-tier agent runs out of credits, Suwappu answers HTTP 402 with an x402 challenge: USDC on Base, an amount and a payTo address. Pay, then POST the txHash to /v1/agent/billing/topup. 1 credit is about $0.001; a quote costs 1.
+
+Source: https://suwappu.bot/solve/x402-pay-per-call-api (last updated 2026-11-21)
+
+## The problem
+
+An agent that hits a paywall mid-task has nowhere to go. A human has to find a card form that the agent cannot fill.
+
+## How to do it
+
+1. Call a metered endpoint. For example POST /quote. If credits are short you get 402.
+2. Read the challenge. accepts[0] has network, asset, maxAmountRequired and payTo; cost_credits shows the price.
+3. Pay. Send USDC on Base to payTo. Any amount is accepted for top-up.
+4. Credit it. POST /v1/agent/billing/topup with {txHash, chain, amount}. It is idempotent on txHash.
+5. Retry. Retry the original call. Or settle a single call with an X-PAYMENT header if the facilitator is enabled.
+
+### Credit a payment, then check your balance
+
+```bash
+curl -s -X POST https://api.suwappu.bot/v1/agent/billing/topup \
+  -H "Authorization: Bearer $SUWAPPU_API_KEY" -H "Content-Type: application/json" \
+  -d '{"txHash":"0xYOUR_PAYMENT_TX","chain":"base","amount":5}'
+
+curl -s https://api.suwappu.bot/v1/agent/billing \
+  -H "Authorization: Bearer $SUWAPPU_API_KEY"
+```
+
+## What this does not do
+
+- x402 applies to the free tier only; Pro, Premium and Enterprise bypass metering.
+- Per-call settlement needs the facilitator enabled on the deployment; otherwise use top-up.
+- Per-call metering is a server setting; read GET /v1/agent/billing for live weights.
+- Credits are USD-denominated at about $0.001; $5 buys about 5,000.
+
+## FAQ
+
+### How much is a call?
+
+Quote, simulate, portfolio and prices cost 1 credit; swap, execute and swap/execute cost 5. tokens and chains are free. Read live weights from GET /billing.
+
+### Can I skip per-call billing?
+
+Yes. Pro $9.99, Premium $29.99 or Enterprise $99.99 for a prepaid 30-day window; metering is bypassed.
+
+### Does a duplicate top-up double credit?
+
+No. It is idempotent on chain and txHash.
+
+### Which chain and asset?
+
+The challenge names USDC on Base.
+
+
+---
+
+# Is there a swap quote API I can call without signing up?
+
+> Yes. POST /v1/agent/register returns a key with no form or card. The free tier allows 30 requests per minute, and registration grants 100 starter credits where eligible. GET /chains and GET /tokens are free. Quotes cost 1 credit when metering is on.
+
+Source: https://suwappu.bot/solve/free-swap-quote-api (last updated 2026-11-21)
+
+## The problem
+
+You want to see real routes and prices before deciding to build. Most providers want an email, a dashboard and a plan first.
+
+## How to do it
+
+1. Register. POST /v1/agent/register {"name":"my-agent"}.
+2. List tokens. GET /v1/agent/tokens?chain=base is free.
+3. Quote. POST /v1/agent/quote with chain base, ETH to USDC.
+4. Read the headers. X-RateLimit-Remaining shows your budget; Retry-After on 429.
+5. Decide. Compare the routed output with your current source.
+
+### Register and quote in two calls
+
+```bash
+KEY=$(curl -s -X POST https://api.suwappu.bot/v1/agent/register \
+  -H "Content-Type: application/json" -d '{"name":"quote-test-1"}' \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['agent']['api_key'])")
+
+curl -s -X POST https://api.suwappu.bot/v1/agent/quote \
+  -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"from_token":"ETH","to_token":"USDC","amount":"0.1","chain":"base"}'
+```
+
+## What this does not do
+
+- Registration is limited to 5 per minute per IP; starter credits can be withheld.
+- Names are unique, 3 to 50 characters.
+- Quotes expire in 60 seconds and are indicative until executed.
+- Executing a swap carries a platform fee; see the live quote.
+
+## FAQ
+
+### Is it really free?
+
+Registering and the free tier cost nothing. If metering is on, calls draw down credits; then you top up or subscribe.
+
+### Do I need a card or email?
+
+No. Registration is a public POST.
+
+### What is the rate limit?
+
+30 requests per minute on the free tier, 100 agent, 500 Pro, 2,000 Premium, 10,000 Enterprise.
+
+### Which chains can I quote?
+
+Whatever GET /v1/agent/chains returns; 18 at last count.
+
+
+---
+
+# Is there a TypeScript or Python SDK for DEX swaps?
+
+> Yes. @suwappu/sdk (source 0.6.0) for TypeScript and suwappu (source 0.3.0, async) for Python wrap quote, simulate, prepare-swap and managed execution. Registry versions can lag the repository, so check the installed version or fall back to REST.
+
+Source: https://suwappu.bot/solve/typescript-python-sdk-dex-swaps (last updated 2026-11-21)
+
+## The problem
+
+Hand-rolling REST clients means retyping field names and retry rules. You also want the self-custody and managed paths clearly separated.
+
+## How to do it
+
+1. Install. bun add @suwappu/sdk, or pip install from the repo subdirectory for Python.
+2. Quote. getQuote({from,to,chain,amount}) or get_quote("USDC","ETH",100.0,"base").
+3. Simulate. simulateSwap before any commit.
+4. Pick a path. prepareSwap returns an unsigned tx. executeManagedSwap signs server-side.
+5. Use an idempotency key. Pass idempotencyKey on managed execution.
+
+### Python: discover chains and quote
+
+```python
+import asyncio
+from suwappu import create_client
+
+async def main():
+    async with create_client(api_key="suwappu_sk_...") as client:
+        print(await client.list_chains())
+        quote = await client.get_quote("USDC", "ETH", 100.0, "base")
+        print(quote.amount_out)
+
+asyncio.run(main())
+```
+
+## What this does not do
+
+- The Python SDK installs from the GitHub subdirectory per its README; PyPI may lag.
+- The SDK registry versions can trail the repo.
+- Perps and lending SDK calls are read or quote only; no execution.
+- Self-custody means you sign; the SDK never signs for you.
+
+## FAQ
+
+### Which version is current?
+
+The repo describes TypeScript 0.6.0 and Python 0.3.0. Run npm view @suwappu/sdk version before relying on new methods.
+
+### Does the SDK sign?
+
+executeManagedSwap asks Suwappu to sign with your managed wallet. prepareSwap returns an unsigned tx.
+
+### Is Python async?
+
+Yes; use create_client in an async context.
+
+### Is there a CLI?
+
+The TypeScript package ships a suwappu binary with -o json output.
+
+
+---
+
+# How do I give Claude access to crypto without giving it my keys?
+
+> Connect Claude to https://api.suwappu.bot/mcp. Read tools return quotes, prices and portfolio data. execute_swap only prepares an unsigned transaction, so Claude proposes a trade and your own wallet signs it. A managed wallet exists, but only through the REST path.
+
+Source: https://suwappu.bot/solve/give-claude-crypto-wallet-safely (last updated 2026-11-21)
+
+## The problem
+
+You want Claude to price a swap or watch a portfolio. You do not want a model with a signing key and a long conversation.
+
+## How to do it
+
+1. Register. POST /v1/agent/register for a key.
+2. Connect. claude mcp add --transport http suwappu https://api.suwappu.bot/mcp --header "Authorization: Bearer suwappu_sk_YOUR_KEY".
+3. Verify. Run /mcp inside Claude Code; suwappu should list its tools.
+4. Ask for a read. What is ETH on Base worth in USDC for 0.5 ETH?
+5. Keep signing yours. Review the prepared transaction, then sign it in your own wallet.
+
+### Project .mcp.json for Claude Code
+
+```json
+{
+  "mcpServers": {
+    "suwappu": {
+      "type": "http",
+      "url": "https://api.suwappu.bot/mcp",
+      "headers": { "Authorization": "Bearer suwappu_sk_YOUR_KEY" }
+    }
+  }
+}
+```
+
+## What this does not do
+
+- The model can still propose a bad trade; prepared transactions need your review.
+- Do not commit the key into a shared .mcp.json.
+- The browser Agent Desk (WebMCP) is separate and keyless.
+
+## FAQ
+
+### Can Claude spend my funds?
+
+Not through MCP. execute_swap never signs or broadcasts.
+
+### What can Claude read?
+
+Quotes, prices, tokens, chains, portfolio, swap status and history, plus perps, prediction and lending data.
+
+### Where should the key live?
+
+In your client's secret store or environment. Rotate with POST /keys/rotate if exposed.
+
+### Which clients work?
+
+Claude Code, Claude Desktop, Cursor, Codex and OpenCode have documented configs.
+
+
+---
+
+# Can my agent get crypto quotes from another agent over A2A?
+
+> Yes. POST https://api.suwappu.bot/a2a with a Bearer key and a message/send JSON-RPC call such as 'swap 0.5 ETH to USDC on base'. You get a quote task back. A2A is quote, price and discovery only. It does not execute trades.
+
+Source: https://suwappu.bot/solve/a2a-crypto-trading-agent (last updated 2026-11-21)
+
+## The problem
+
+Your orchestrator speaks A2A and you do not want a custom REST adapter. You also need to know up front that this path cannot trade.
+
+## How to do it
+
+1. Read the card. GET https://api.suwappu.bot/.well-known/agent-card.json (agent.json also served).
+2. Register. POST /v1/agent/register. A2A requires a Bearer key.
+3. Send a message. message/send with a text part.
+4. Parse artifacts. A text summary plus a data part with quote_id, amount_out and expires_in_seconds.
+5. Execute elsewhere. Use REST /swap or /swap/execute to act on the quote.
+
+### A2A message/send
+
+```bash
+curl -s -X POST https://api.suwappu.bot/a2a \
+  -H "Authorization: Bearer $SUWAPPU_API_KEY" -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"role":"user","parts":[{"type":"text","text":"swap 0.5 ETH to USDC on base"}]}}}'
+```
+
+## What this does not do
+
+- A2A does not execute trades.
+- Tasks are held in memory and expire after one hour.
+- Every A2A response is HTTP 200; errors are in the JSON-RPC error object.
+- Natural-language parsing covers swap, quote, price and balance commands, not arbitrary instructions.
+
+## FAQ
+
+### Can an A2A call move money?
+
+No. It is quote, price and discovery only.
+
+### Where is the agent card?
+
+/.well-known/agent-card.json, with /.well-known/agent.json also served.
+
+### Do I need a key?
+
+Yes, a Bearer key from /v1/agent/register.
+
+### What methods exist?
+
+message/send, tasks/get and tasks/cancel.
+
+
+---
+
+# How do I get notified when an agent's swap completes?
+
+> Set a public HTTPS callback_url with PATCH /v1/agent/me. Suwappu POSTs signed events with an X-Suwappu-Signature header: HMAC-SHA256 of the raw body keyed by the SHA-256 of your API key. Test with POST /v1/agent/webhooks/test, or poll swap/status.
+
+Source: https://suwappu.bot/solve/agent-swap-status-webhooks (last updated 2026-11-21)
+
+## The problem
+
+Polling burns your rate limit and a webhook you do not verify is an open door for forged events.
+
+## How to do it
+
+1. Set the URL. PATCH /v1/agent/me {"callback_url":"https://..."}. Private and metadata IPs are rejected.
+2. Test it. POST /v1/agent/webhooks/test. Your endpoint must answer within 10 seconds.
+3. Verify. Recompute the HMAC over the raw body and compare in constant time.
+4. Reconcile. GET /v1/agent/swap/status/:id is the source of truth.
+5. Inspect. GET /v1/agent/webhooks lists deliveries.
+
+### Verify a delivery (Node)
+
+```ts
+import crypto from "crypto";
+
+export function verify(rawBody: string, signature: string, apiKey: string): boolean {
+  const key = crypto.createHash("sha256").update(apiKey).digest();
+  const expected = crypto.createHmac("sha256", key).update(rawBody).digest("hex");
+  return crypto.timingSafeEqual(Buffer.from(signature, "hex"), Buffer.from(expected, "hex"));
+}
+```
+
+## What this does not do
+
+- Webhooks must be public HTTPS.
+- Treat a webhook as a hint; reconcile with swap status.
+- Hex lengths must match before timingSafeEqual or it throws; check length first.
+- Only managed swaps have swap records.
+
+## FAQ
+
+### What headers arrive?
+
+X-Suwappu-Event, X-Suwappu-Delivery, X-Suwappu-Timestamp, X-Suwappu-Signature.
+
+### What is the signing key?
+
+The SHA-256 hash of your suwappu_sk_ key.
+
+### What if I rotate the key?
+
+The signing key changes with it.
+
+### Is there a delivery log?
+
+Yes, GET /v1/agent/webhooks.
+
+
+---
+
+# How do I stop an agent from swapping twice after a timeout?
+
+> Send one persisted Idempotency-Key per intended trade on POST /v1/agent/swap/execute. After a timeout, network error or 5xx, check GET /swap/status or /swaps first, then retry with the same key. A fresh key is a new trade.
+
+Source: https://suwappu.bot/solve/idempotent-agent-swaps (last updated 2026-11-21)
+
+## The problem
+
+A request times out. The agent retries. If the first one landed on-chain, you just bought twice.
+
+## How to do it
+
+1. Mint the key first. Persist one key per economic intent, 1 to 64 chars of A-Z a-z 0-9 _ . : -.
+2. Send it. Add the Idempotency-Key header on /swap/execute.
+3. On failure, reconcile. GET /v1/agent/swaps or /swap/status/:id.
+4. Retry with the same key. A requote may be needed; the key still represents the same trade.
+5. Do not reuse. Use a new key only for a genuinely new trade.
+
+### Execute with an idempotency key
+
+```bash
+curl -s -X POST https://api.suwappu.bot/v1/agent/swap/execute \
+  -H "Authorization: Bearer $SUWAPPU_API_KEY" -H "Content-Type: application/json" \
+  -H "Idempotency-Key: rebalance-2026-11-21-001" \
+  -d '{"quote_id":"QUOTE_ID"}'
+```
+
+## What this does not do
+
+- Requires a managed wallet; the self-custody path has no server swap record.
+- An on-chain outcome can be unknown after a 5xx; status is the arbiter.
+- The key is bound to the trade's economic terms.
+- Idempotency does not cap size; see spending-limits-ai-agent-wallet.
+
+## FAQ
+
+### Is a key required?
+
+Recommended for automation. Without one Suwappu derives a key from the agent and quote_id.
+
+### Why not just retry?
+
+A timed-out request may have broadcast. Reconcile first.
+
+### Do approvals interact?
+
+Re-submission after approval uses approval_id.
+
+### Which SDK option?
+
+idempotencyKey on executeManagedSwap.
+
+
+---
+
+# How do I swap USDC on Base to a token on Solana?
+
+> Open the Suwappu Terminal, choose USDC on Base as the source and your Solana token as the destination, and compare the quoted minimum output, fee and time before confirming. In Telegram, /s takes the same inputs. Check the Solana address first.
+
+Source: https://suwappu.bot/solve/swap-usdc-base-to-solana (last updated 2026-11-21)
+
+## The problem
+
+The fear is sending funds to the wrong address on a chain with a different address format. You also do not know what lands on the other side.
+
+## How to do it
+
+1. Open a surface. terminal.suwappu.bot, or the bot at t.me/suwappu_bot.
+2. Pick the pair. USDC on Base to your target token on Solana.
+3. Read the quote. Look at the minimum received after slippage, fee, gas and the time estimate.
+4. Check the destination. It must be a Solana address you control. EVM and Solana addresses differ.
+5. Confirm and track. Use /hx in the bot for history, or the Terminal's activity view.
+
+
+## What this does not do
+
+- Cross-chain swaps can take minutes and can fail; a quote is not a guarantee.
+- Price can move before confirmation; the minimum received is your floor.
+- Suwappu does not promise the best price on every route.
+- Not financial advice.
+
+## FAQ
+
+### Does it use a bridge?
+
+Routes can include bridges such as Wormhole, chosen per pair; the quote shows the route.
+
+### What does it cost?
+
+The platform swap fee by tier is 1.0% Free, 0.5% Pro, 0.3% Premium, 0.1% Enterprise, plus network gas.
+
+### Do I need SOL for gas?
+
+Solana needs SOL for fees; check your destination balance.
+
+### What if it gets stuck?
+
+See why-is-my-cross-chain-swap-stuck.
+
+
+---
+
+# Can I swap across chains without using a bridge separately?
+
+> Yes. A cross-chain swap routes through bridges and DEXes for you as one order. You choose source token, source chain, destination token and destination chain; the quote shows the route and minimum output. The bridge still exists, you just do not drive it by hand.
+
+Source: https://suwappu.bot/solve/cross-chain-swap-without-a-bridge (last updated 2026-11-21)
+
+## The problem
+
+Bridge first, then swap, means two UIs, two fees and a gap in the middle where funds sit in a token you did not want.
+
+## How to do it
+
+1. Choose both ends. Source token and chain, destination token and chain.
+2. Get one quote. The router picks the legs; the quote names the route.
+3. Compare the minimum. Minimum received after slippage is the number to trust.
+4. Confirm once. One approval flow instead of two.
+5. Track. Cross-chain legs finish at different times.
+
+### Cross-chain in the bot
+
+```text
+/s 50 USDC polygon ETH ethereum
+```
+
+## What this does not do
+
+- A bridge leg still exists; it can be slower than a same-chain swap.
+- Not every chain pair is routable.
+- Fees include gas on the source chain.
+- Suwappu does not claim the cheapest route.
+
+## FAQ
+
+### Is it one transaction?
+
+One order from you; the route may involve several on-chain steps.
+
+### How many chains?
+
+45 on the platform; the Agent API serves 18.
+
+### Which venues?
+
+21 routing venues across the platform, gated by chain.
+
+### Can it fail?
+
+Yes. See why-is-my-cross-chain-swap-stuck.
+
+
+---
+
+# Is there a Telegram trading bot that swaps across chains?
+
+> Yes. Open t.me/suwappu_bot. /s 100 USDC ETH swaps; /s 50 USDC polygon ETH ethereum swaps across chains; /p shows your portfolio and /a sets alerts. Limit orders (/o), DCA (/dca) and /snipe require the Pro tier.
+
+Source: https://suwappu.bot/solve/telegram-trading-bot-cross-chain (last updated 2026-11-21)
+
+## The problem
+
+Most bots live on one chain. You end up with three bots, three wallets and three sets of settings.
+
+## How to do it
+
+1. Open the bot. t.me/suwappu_bot, then /start.
+2. Swap. /s 100 USDC ETH, or add chains: /s 50 USDC polygon ETH ethereum.
+3. Check holdings. /p for portfolio, /b for balance.
+4. Set an alert. /a and follow the prompts.
+5. Upgrade if needed. /sub for Pro at $9.99 per 30 days.
+
+### Core commands
+
+```text
+/s 100 USDC ETH
+/s 50 USDC polygon ETH ethereum
+/p
+/a
+/hx
+```
+
+## What this does not do
+
+- WhatsApp is not live.
+- Limit orders, DCA, trailing stops and snipe need Pro.
+- Swap fees apply by tier: 1.0% Free to 0.1% Enterprise.
+- Not every command works on every chain.
+
+## FAQ
+
+### Is it free?
+
+Free tier swaps carry a 1.0% fee. No subscription is required.
+
+### What needs Pro?
+
+/o, /dca, /trailing, /snipe and following traders.
+
+### Is there a web version?
+
+Yes, terminal.suwappu.bot.
+
+### Can I use it with an AI agent?
+
+See the developer pages; agents use the API.
+
+
+---
+
+# How do I set a crypto price alert in Telegram?
+
+> Open t.me/suwappu_bot and send /a. Follow the prompts to choose a token such as ETH, BTC or SOL and a target price. The bot messages you when it hits. Alerts do not need a paid tier and do not place trades.
+
+Source: https://suwappu.bot/solve/price-alerts-telegram (last updated 2026-11-21)
+
+## The problem
+
+You step away and miss a level, or you sit watching a chart.
+
+## How to do it
+
+1. Open the bot. t.me/suwappu_bot, then /start if you are new.
+2. Send /a. Create an alert and pick a token (ETH, BTC, SOL, USDC and others).
+3. Set the level. Enter the target price.
+4. Wait for the message. The bot notifies you.
+5. Act. Swap with /s, or set a limit order with /o on Pro.
+
+### Alerts
+
+```text
+/a
+/o
+```
+
+## What this does not do
+
+- An alert does not execute a trade.
+- Alert timing depends on price polling, not a guarantee of instant delivery.
+- Limit orders (/o) need Pro.
+- Prices are reference prices, not a promise of fill.
+
+## FAQ
+
+### Is it free?
+
+Alerts have no tier gate in the bot code.
+
+### Which tokens?
+
+The prompt lists examples such as ETH, BTC, SOL and USDC.
+
+### Can I cancel?
+
+Yes; the alert flow has a /cancel.
+
+### Alert vs limit order?
+
+An alert messages you. A limit order executes; that needs Pro.
+
+
+---
+
+# How do I set a limit order or recurring buy in Telegram?
+
+> Subscribe to Pro, then use /o for limit orders, /dca for a fixed-amount recurring buy and /trailing for trailing stops in t.me/suwappu_bot. Pro is $9.99 per 30 days and lowers the swap fee from 1.0% to 0.5%.
+
+Source: https://suwappu.bot/solve/limit-orders-dca-telegram (last updated 2026-11-21)
+
+## The problem
+
+You do not want to watch a price or buy by hand every week.
+
+## How to do it
+
+1. Open the bot. t.me/suwappu_bot.
+2. Upgrade. /sub shows Pro at $9.99 for a 30-day prepaid window, paid in crypto.
+3. Limit order. /o, then follow the flow.
+4. Recurring buy. /dca, amount per execution and the token.
+5. Review. /o and /dca list your active orders.
+
+### Order commands (Pro)
+
+```text
+/sub
+/o
+/dca
+/trailing
+```
+
+## What this does not do
+
+- Limit orders and DCA need the Pro tier or above.
+- A trigger price is not a guaranteed fill; slippage and gas apply.
+- Pro is a prepaid 30-day window, not auto-renewing by default.
+
+## FAQ
+
+### Is DCA free?
+
+No. The /dca handler requires Pro.
+
+### How is Pro paid?
+
+In crypto, prepaid for 30 days.
+
+### What does a DCA order do?
+
+It buys a fixed amount per execution on a schedule.
+
+### Can orders fail?
+
+Yes: slippage, gas, liquidity. Check /o for status.
+
+
+---
+
+# How do I snipe a new Solana token launch from Telegram?
+
+> Subscribe to Pro, make sure you have a default Solana wallet in the bot, then send /snipe <contract> <amount in SOL>, or /snipe for the menu. Sniping brand-new tokens is high risk; many lose most of their value and some cannot be sold.
+
+Source: https://suwappu.bot/solve/snipe-new-solana-launches-telegram (last updated 2026-11-21)
+
+## The problem
+
+Speed matters on a launch, but so does knowing what you are buying. Rushing a contract address is how people buy honeypots.
+
+## How to do it
+
+1. Get Pro. /sub, $9.99 per 30 days; /snipe is gated at Pro.
+2. Check your Solana wallet. /w. /snipe needs a default Solana wallet.
+3. Verify the contract. Read the token page and holders before you send anything.
+4. Send the command. /snipe <contract> <amount> with an amount you can lose entirely.
+5. Review. The snipe menu keeps a history.
+
+### Snipe
+
+```text
+/snipe
+/snipe <contract_address>
+/snipe <contract_address> 0.5
+```
+
+## What this does not do
+
+- Suwappu does not vet tokens; a launch can rug or be unsellable.
+- Solana only. It needs a default Solana wallet.
+- Requires Pro.
+- Past results are not a signal; not financial advice.
+
+## FAQ
+
+### Does it guarantee a fill?
+
+No. Congestion, slippage and liquidity can prevent or worsen a fill.
+
+### Which chain?
+
+Solana. The handler looks up your default Solana wallet.
+
+### Is it free?
+
+No. /snipe needs Pro.
+
+### How much should I use?
+
+Only an amount you accept losing completely.
+
+
+---
+
+# Is a Telegram trading bot safe to use?
+
+> It depends on three things: who holds the keys, what limits cap a mistake, and what you can verify yourself. Suwappu offers /2fa, open source code, a status page and a security page. It does not claim a completed audit or SOC 2.
+
+Source: https://suwappu.bot/solve/is-a-telegram-trading-bot-safe (last updated 2026-11-21)
+
+## The problem
+
+A bot asks you to trust it with funds inside a chat app. Impersonator bots and drainers copy popular names.
+
+## How to do it
+
+1. Confirm the bot. Use t.me/suwappu_bot from suwappu.bot, not a search result.
+2. Ask who holds the key. Read /security before depositing.
+3. Turn on 2FA. Send /2fa in the bot.
+4. Start small. Use an amount you can lose while you learn.
+5. Never share seed phrases. No Suwappu command needs your seed in a chat.
+
+### Account protection
+
+```text
+/2fa
+/limits
+```
+
+## What this does not do
+
+- No third-party audit report or SOC 2 is published; SOC 2 is on the roadmap.
+- No bot is risk-free; trading carries risk of total loss.
+- This page makes no uptime or loss-prevention guarantee.
+- Impersonation scams are outside Suwappu's control.
+
+## FAQ
+
+### Is there an audit?
+
+Public audit reports are listed as roadmap, not published.
+
+### Can I verify the code?
+
+Yes; the repository is public on GitHub.
+
+### Where do I check service health?
+
+/status.
+
+### What is /limits?
+
+It shows your current limits and wallet policy status.
+
+
+---
+
+# Why is my cross-chain swap stuck or pending?
+
+> Most pending swaps are waiting on a bridge leg, not lost. Find the source transaction hash, confirm it succeeded on the explorer, compare elapsed time with the quote's time estimate, and check your destination address. If it is far past the estimate, contact support with the hash.
+
+Source: https://suwappu.bot/solve/why-is-my-cross-chain-swap-stuck (last updated 2026-11-21)
+
+## The problem
+
+Your funds left one chain and have not shown up on the other. The worst assumption is that they are gone.
+
+## How to do it
+
+1. Get the hash. /hx in the bot lists recent swaps; the Terminal shows activity.
+2. Check the source tx. On the chain's explorer confirm it succeeded, not failed.
+3. Compare to the estimate. Quotes include an estimated time; bridges vary.
+4. Check the destination. Right chain, right address, and the received token may need adding to your wallet view.
+5. Contact support. /support in the bot, with the source tx hash.
+
+### Find the swap
+
+```text
+/hx
+/support
+```
+
+## What this does not do
+
+- Suwappu cannot speed up a third-party bridge.
+- A failed source tx means funds did not leave; a confirmed one can still be delayed.
+- No refund or recovery timeline is promised here.
+- Verify addresses before assuming a loss.
+
+## FAQ
+
+### How long should it take?
+
+The quote shows an estimate; same-chain swaps take seconds and bridges longer.
+
+### Could slippage cause failure?
+
+A tx can revert if price moved past your limit; funds stay in your wallet.
+
+### Where do I report it?
+
+/support with the source tx hash.
+
+### Is the service down?
+
+Check /status.
+
+
+---
+
+# How much slippage should I set on a swap?
+
+> Slippage is the largest price drop you will accept before the swap fails. At 3%, a $1,000 swap must return at least about $970. Use the lowest setting that still fills; read the quote's minimum received. A price impact above 5% is a warning.
+
+Source: https://suwappu.bot/solve/how-much-slippage-cross-chain-swap (last updated 2026-11-21)
+
+## The problem
+
+Set slippage too low and the swap fails and you pay gas. Set it too high and you invite a worse fill.
+
+## How to do it
+
+1. Find the minimum. Quotes show minimum received (amount_out_min via the API).
+2. Do the arithmetic. Minimum = expected out x (1 - slippage). 3% of $1,000 is $30.
+3. Match to liquidity. Deep pairs like ETH/USDC need less; thin tokens more.
+4. Check price impact. The simulate endpoint warns above 5%.
+5. Re-quote on expiry. API quotes last 60 seconds.
+
+### See the floor your slippage sets (API)
+
+```bash
+curl -s -X POST https://api.suwappu.bot/v1/agent/quote \
+  -H "Authorization: Bearer $SUWAPPU_API_KEY" -H "Content-Type: application/json" \
+  -d '{"from_token":"ETH","to_token":"USDC","amount":"0.5","chain":"base","slippage":0.01}'
+```
+
+## What this does not do
+
+- No setting protects against all price movement or MEV.
+- The API default is 3% with a 0 to 50% range; confirm the bot's default in its settings.
+- Slippage is separate from fees and gas.
+- Not financial advice.
+
+## FAQ
+
+### What is the API default?
+
+3%, from 0 to 0.5 as a decimal; 0.03 equals 3%.
+
+### Does low slippage save money?
+
+Only if the swap still fills; a failed swap costs gas.
+
+### What is price impact?
+
+How much your size moves the pool price.
+
+### Does the fee come out of slippage?
+
+No; the routed output already reflects the platform fee.
+
+
+---
+
+# Is Suwappu Pro worth it for the lower swap fee?
+
+> Pro lowers the swap fee from 1.0% to 0.5% for $9.99 per 30 days. Divide: 9.99 / 0.005 = $1,998. Above about $1,998 of swap volume in a window Pro costs less than Free; below it, stay on Free.
+
+Source: https://suwappu.bot/solve/swap-fee-tiers-break-even (last updated 2026-11-21)
+
+## The problem
+
+You do not want to pay for a tier you will not use, and you do not want to overpay on fees if you trade a lot.
+
+## How to do it
+
+1. Estimate monthly volume. Add up swaps in dollars.
+2. Divide. Pro: 9.99 / (1.0% - 0.5%) = $1,998.
+3. Check Premium. Premium $29.99 at 0.3% beats Pro above (29.99-9.99)/0.2% = $10,000.
+4. Check Enterprise. $99.99 at 0.1% beats Premium above (99.99-29.99)/0.2% = $35,000.
+5. Compare on /pricing. The fee calculator runs your number.
+
+### Check and subscribe
+
+```text
+/sub
+/fees
+```
+
+## What this does not do
+
+- These tier fees are the platform schedule; the Agent API charges route-specific fees (about 0.8% on EVM, 0.3% on Solana by default; read the live quote).
+- Prices are 30-day prepaid windows in crypto, not auto-renewing by default.
+- Network gas is separate.
+- Fee rates can change; check /pricing.
+
+## FAQ
+
+### What is Premium's break-even versus Free?
+
+29.99 / 0.7% is about $4,284 per window.
+
+### Do points discount fees?
+
+Points can give a fee discount, floored at 0.1%.
+
+### What about referrals?
+
+30% referral rewards are in the fee schedule; check /ref.
+
+### What is the cheapest for me?
+
+The tier with the lowest total of fee plus subscription at your volume.
+
+
+---
+
+# How do I put spending limits on an AI agent's wallet?
+
+> Suwappu's policy engine can cap USD per trade, per day and per session, trades per hour, slippage and gas, and allowlist chains, tokens, destinations and contracts. It is enforced on execution for org API key requests. There is no self-serve policy endpoint today; talk to the team.
+
+Source: https://suwappu.bot/solve/spending-limits-ai-agent-wallet (last updated 2026-11-21)
+
+## The problem
+
+An agent with a funded wallet and no ceiling is one bad loop from an expensive afternoon.
+
+## How to do it
+
+1. Define the ceiling. Pick per-trade, daily and session USD caps and an hourly trade count.
+2. Narrow the surface. Allowlist chains, tokens, destination addresses and router contracts.
+3. Choose approval mode. always_ask, autonomous, or require approval above a USD threshold.
+4. Run through an org key. Policies evaluate on swap and swap/execute for org keys and MCP agents with an organization.
+5. Test with a quote and simulate. A blocked intent returns a policy error, not a fill.
+
+### Policy fields the engine evaluates (reference, not an API body)
+
+```json
+{
+  "maxTxUsd": 500,
+  "dailyCapUsd": 2000,
+  "sessionCapUsd": 1000,
+  "maxTxPerHour": 10,
+  "maxSlippageBps": 100,
+  "maxGasUsd": 5,
+  "allowedChains": ["base", "arbitrum"],
+  "allowedTokens": ["USDC", "ETH"],
+  "requireApprovalAboveUsd": 250,
+  "approvalMode": "above_limit"
+}
+```
+
+## What this does not do
+
+- No public endpoint creates org spend policies; they are set with the team.
+- Enforcement is hard for Suwappu-held keys and the managed wallet path, advisory for a self-signing wallet that builds and signs entirely client-side.
+- Policies are not enforced for plain agent keys with no org.
+- Solana trades cannot enter an approval flow; they are refused instead.
+
+## FAQ
+
+### Is a cap enforced if my agent signs itself?
+
+No. Self-signing outside Suwappu can bypass the API, so the control is advisory there.
+
+### Do caps cover reads?
+
+No. Only execution is gated; quotes and portfolio reads are not.
+
+### Can the agent remove the cap?
+
+The delete endpoint distinguishes agent-created policies from admin ones; agents cannot remove admin caps.
+
+### What happens at the cap?
+
+The call is blocked with a policy error.
+
+
+---
+
+# How do I require human approval for an agent's on-chain trades?
+
+> Set an approval threshold on the org policy. A trade above it returns HTTP 202 with an approval_id instead of executing. The linked human owner approves or denies with their own credentials, never an agent key, and the agent re-submits the request with approval_id.
+
+Source: https://suwappu.bot/solve/approval-workflow-onchain-trades (last updated 2026-11-21)
+
+## The problem
+
+You want agents to run small trades alone and escalate large ones, without a human reading every request.
+
+## How to do it
+
+1. Set the rule. always_ask, or requireApprovalAboveUsd.
+2. Agent submits. POST /swap/execute returns 202 {status:pending, approval_id, expires_at}.
+3. Owner decides. POST /v1/agent/approvals/:id/approve or /deny, authenticated as the owner.
+4. Agent polls. GET /v1/agent/approvals/:id with the agent key.
+5. Re-submit. Send the original request with approval_id; the trade is re-quoted and policy re-checked.
+
+### Agent polls, then re-submits
+
+```bash
+curl -s https://api.suwappu.bot/v1/agent/approvals/APPROVAL_ID \
+  -H "Authorization: Bearer $SUWAPPU_API_KEY"
+
+curl -s -X POST https://api.suwappu.bot/v1/agent/swap/execute \
+  -H "Authorization: Bearer $SUWAPPU_API_KEY" -H "Content-Type: application/json" \
+  -d '{"approval_id":"APPROVAL_ID"}'
+```
+
+## What this does not do
+
+- Approvals expire; an expired one cannot be used.
+- An approval does not bypass caps; policy re-runs at execution.
+- Solana trades carry no USD value at this layer and are refused rather than approved.
+- Approvals tied only to an agent's own linked owner (no org) cannot yet be decided end-to-end.
+
+## FAQ
+
+### Can an agent approve itself?
+
+No. Approve and deny never accept an agent key.
+
+### What if nobody approves?
+
+The request expires and cannot execute.
+
+### Is there step-up?
+
+Optionally, when the deployment sets APPROVAL_STEP_UP_REQUIRED, a short-lived challenge is required.
+
+### Where is it logged?
+
+Approval create, approve and deny write audit entries.
+
+
+---
+
+# Is there an audit log for what my trading agents did?
+
+> Yes. Policy decisions, approvals, link events and kill-switch changes write to a hash-chained, append-only log. Read it with GET /v1/agent/audit (filter by event_type and since); an org key can verify the whole chain with /audit/verify. It is a tamper-evident log, not a third-party audit.
+
+Source: https://suwappu.bot/solve/audit-log-for-trading-agents (last updated 2026-11-21)
+
+## The problem
+
+When an agent moves money, someone will ask what happened and whether the record can be trusted.
+
+## How to do it
+
+1. Authenticate. Agent key reads its own rows; an org key reads the org's.
+2. Query. GET /v1/agent/audit?event_type=swap.executed&since=2026-01-01&limit=100.
+3. Filter. org keys can add agent_id; limit is capped at 500.
+4. Verify. GET /v1/agent/audit/verify with an org key returns valid, count and firstBreakId.
+5. Export. Persist rows with your own retention.
+
+### Query the audit log
+
+```bash
+curl -s "https://api.suwappu.bot/v1/agent/audit?event_type=swap.executed&limit=50" \
+  -H "Authorization: Bearer $SUWAPPU_API_KEY"
+```
+
+## What this does not do
+
+- Verification needs an org key, so one tenant cannot read another's chain.
+- Tamper-evident is not tamper-proof or independently audited.
+- Only events the service writes appear; on-chain history lives on the chain.
+- No SOC 2 or external audit report is published.
+
+## FAQ
+
+### What does it record?
+
+Non-allow policy decisions, approval events, link/unlink and kill-switch changes, and other agent events.
+
+### Can I verify integrity?
+
+With an org key, via /audit/verify.
+
+### How far back?
+
+Retention is not stated; export what you need.
+
+### Is it per agent?
+
+A plain agent key sees only its own rows.
+
+
+---
+
+# How do I stop all my agents trading immediately?
+
+> With an org API key, POST /v1/agent/killswitch {scope:"org", active:true, reason}. Execution is then blocked for the organization. The check runs before ordinary policies and fails closed: if the switch state cannot be read, the trade is blocked.
+
+Source: https://suwappu.bot/solve/agent-kill-switch-for-trading-agents (last updated 2026-11-21)
+
+## The problem
+
+When something looks wrong, you need one call that works faster than finding each agent.
+
+## How to do it
+
+1. Use an org key. Plain agent keys are rejected.
+2. Activate. POST /v1/agent/killswitch with scope org, active true and a reason.
+3. Confirm. GET /v1/agent/killswitch lists switch state.
+4. Investigate. Read the audit log; every change is logged.
+5. Release. POST with active false.
+
+### Halt the org
+
+```bash
+curl -s -X POST https://api.suwappu.bot/v1/agent/killswitch \
+  -H "Authorization: Bearer $SUWAPPU_ORG_KEY" -H "Content-Type: application/json" \
+  -d '{"scope":"org","active":true,"reason":"incident"}'
+```
+
+## What this does not do
+
+- Org keys manage only their org-scope switch via the API; agent and global scopes are not set this way.
+- It halts Suwappu-mediated execution; a self-signing wallet can still sign elsewhere.
+- It does not cancel transactions already broadcast.
+- It is not an uptime or loss guarantee.
+
+## FAQ
+
+### Does it stop quotes?
+
+It gates execution; reads are not policy-gated.
+
+### Who can flip it?
+
+An org API key for the org's own scope.
+
+### Is it logged?
+
+Yes, kill-switch changes write audit rows.
+
+### What if the DB is down?
+
+Kill-switch reads fail closed and block.
+
+
+---
+
+# Is there a swap API for multi-chain treasury operations?
+
+> Yes. The Agent API quotes, simulates and executes swaps across 18 chains, and an Enterprise organization adds org keys, approvals, caps, kill switch and an audit log. Enterprise is $99.99 per 30 days at a 0.1% platform swap fee and 10,000 requests per minute.
+
+Source: https://suwappu.bot/solve/treasury-swaps-api-for-desks (last updated 2026-11-21)
+
+## The problem
+
+Treasury moves need predictable pricing, a record, and a way to stop. Consumer swap UIs offer none of them.
+
+## How to do it
+
+1. Talk to the team. Describe chains, size and approval needs.
+2. Get an org. Org accounts with roles (Owner, Admin, Member, Viewer) and scoped org API keys exist.
+3. Quote and simulate. Same-size quotes across routes, then simulate.
+4. Gate and log. Policies, approvals and audit apply to org-key execution.
+5. Monitor. Usage per org is available.
+
+### Read a managed wallet balance
+
+```bash
+curl -s "https://api.suwappu.bot/v1/agent/portfolio?wallet_address=0xYourManagedWallet" \
+  -H "Authorization: Bearer $SUWAPPU_API_KEY"
+```
+
+## What this does not do
+
+- No SLA, SOC 2 or audit report is claimed here.
+- Org roles are Owner, Admin, Member and Viewer; seats default to 10 per org.
+- Lending and perps are read or quote only on the Agent API.
+- The Agent API fee is 0.8% on EVM routes and 0.3% on Solana routes, independent of subscription tier; confirm in a live quote.
+
+## FAQ
+
+### What does Enterprise cost?
+
+$99.99 per 30 days prepaid; swap fee 0.1% on the platform schedule.
+
+### Can I bring my own wallets?
+
+Yes: prepare an unsigned transaction and sign it yourself.
+
+### Who is it for?
+
+Teams that need caps, approvals and a log.
+
+### How do I start?
+
+Contact the team.
+
+
+---
+
+# How can I see how a swap was routed?
+
+> Each quote names its route and returns amount_out, amount_out_min, price_impact, estimated_gas_usd, bridge_fee_usd and estimated time. To test execution quality, request same-size quotes for the pairs and chains you care about and compare. Suwappu does not guarantee the best price.
+
+Source: https://suwappu.bot/solve/routing-transparency-best-execution (last updated 2026-11-21)
+
+## The problem
+
+Best execution is a claim until you can inspect the route and compare it with alternatives.
+
+## How to do it
+
+1. Quote. POST /v1/agent/quote and keep the full response.
+2. Read the route. route and dex name the path; price_impact shows size effect.
+3. Compare. Request the same size on other chains or pairs.
+4. Simulate. Check slippage_sane and revert checks.
+5. Record. Store quotes with timestamps for review.
+
+### Extract the fields that matter
+
+```bash
+curl -s -X POST https://api.suwappu.bot/v1/agent/quote \
+  -H "Authorization: Bearer $SUWAPPU_API_KEY" -H "Content-Type: application/json" \
+  -d '{"from_token":"ETH","to_token":"USDC","amount":"10","chain":"base"}' \
+  | python3 -c "import sys,json;q=json.load(sys.stdin);print({k:q.get(k) for k in ['route','amount_out','amount_out_min','price_impact','estimated_gas_usd','bridge_fee_usd']})"
+```
+
+## What this does not do
+
+- Quotes are indicative; execution can differ within slippage.
+- 21 venues are chain-gated; not every venue serves every route.
+- MEV-resistant routes (CoW, Jito) are preferred only where the pair is eligible, and not on the Agent API.
+- No best-price or cheapest guarantee.
+
+## FAQ
+
+### How many venues?
+
+21 routing venues across the platform, chain-gated.
+
+### Which fee applies?
+
+Agent API fees are route-specific; read the quote.
+
+### Can I audit past quotes?
+
+Store them yourself; swap history is per managed swap.
+
+### Does the route change?
+
+Yes, per pair, size and time.
+
 
 
 

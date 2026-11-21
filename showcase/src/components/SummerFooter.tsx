@@ -14,6 +14,7 @@ const columns: { title: string; links: { label: string; href: string; external?:
       { label: 'Agent Desk (WebMCP)', href: '/agent-terminal' },
       { label: 'Arbiter (Proof of Done)', href: '/arbiter' },
       { label: 'Telegram Bot', href: TELEGRAM_URL, external: true },
+      { label: 'Get an API key', href: '/start' },
       { label: 'Agent API', href: '/docs/api-reference/overview' },
       { label: 'TypeScript SDK', href: '/docs/quick-start/sdk-examples' },
       { label: 'MCP Server', href: '/docs/protocols/mcp' },
@@ -34,6 +35,7 @@ const columns: { title: string; links: { label: string; href: string; external?:
   {
     title: 'Developers',
     links: [
+      { label: 'Problems solved', href: '/solve' },
       { label: 'Documentation', href: '/docs' },
       { label: 'API Reference', href: '/docs/api-reference/overview' },
       { label: 'Architecture', href: '/architecture' },

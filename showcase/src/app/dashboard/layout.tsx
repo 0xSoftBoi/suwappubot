@@ -91,7 +91,7 @@ function LoginScreen({ onToken, initialError }: { onToken: (t: string) => void; 
   const destination = currentDashboardDestination();
 
   return (
-    <div className={`summer-page ${styles.loginPage}`}>
+    <div className={`summer-page ${styles.cream} ${styles.loginPage}`}>
       <div className={styles.loginCard}>
         <Image src="/logo.svg" alt="Suwappu" width={52} height={52} className={styles.loginLogo} />
         <h1 className={styles.loginTitle}>Sign in to Suwappu</h1>
@@ -215,7 +215,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     // Never a blank page while we check the session — especially right after
     // an OAuth return, when "did that work?" is the only question on screen.
     return (
-      <div className={`summer-page ${styles.loginPage}`}>
+      <div className={`summer-page ${styles.cream} ${styles.loginPage}`}>
         <div className={styles.stateBox} role="status">
           <div className={styles.spinner} aria-hidden="true" />
           <span>{signingIn ? 'Finishing sign-in…' : 'Checking your session…'}</span>
@@ -227,7 +227,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <DashboardAuthContext.Provider value={{ auth, clearToken }}>
-      <div className="summer-page">
+      <div className={`summer-page ${styles.cream}`}>
         <WorkspaceNav onSignOut={clearToken} />
         <div id="main-content" className={styles.shell} style={{ paddingTop: 24 }}>{children}</div>
       </div>

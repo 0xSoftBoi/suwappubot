@@ -10,9 +10,17 @@
 }
 
 .desk {
+  /* brand system: navy ink, cream surfaces, one orange accent (no sky-blue skin) */
+  --suwappu-summer-line: rgba(23, 50, 74, 0.16);
+  --suwappu-summer-card-background: #fffdf8;
+  --suwappu-summer-panel-background: #fffdf8;
+  --suwappu-summer-button-background: #17324a;
+  --suwappu-summer-button-background-hover: #0f2438;
+  --suwappu-summer-control-background-hover: #f6efe3;
+  --suwappu-summer-accent-deep: #c9731d;
   --ink: var(--suwappu-summer-ink, #17324a);
   --muted: var(--suwappu-summer-muted, #4f6f7f);
-  --line: var(--suwappu-summer-line, #b9dfe9);
+  --line: var(--suwappu-summer-line, rgba(23, 50, 74, 0.16));
   --accent: var(--suwappu-summer-accent-deep, #0284c7);
   --bull: var(--suwappu-summer-bull, #22c55e);
   --bear: var(--suwappu-summer-bear, #ef4444);
@@ -500,7 +508,7 @@
   box-sizing: border-box;
   min-width: 0;
   padding: 18px;
-  border: 1px solid var(--suwappu-summer-line, #b9dfe9);
+  border: 1px solid var(--suwappu-summer-line, rgba(23, 50, 74, 0.16));
   border-radius: var(--suwappu-summer-radius-inset, 8px);
   background: var(--suwappu-summer-card-background, #fff);
 }
@@ -529,7 +537,7 @@
   gap: 2px 22px;
   margin: 0 0 10px;
   padding: 10px 2px;
-  border-bottom: 1px solid var(--suwappu-summer-line, #b9dfe9);
+  border-bottom: 1px solid var(--suwappu-summer-line, rgba(23, 50, 74, 0.16));
   background: rgba(255, 252, 246, 0.88);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
@@ -590,7 +598,7 @@
 }
 
 .stepFlow li + li {
-  border-top: 1px solid var(--suwappu-summer-line, #b9dfe9);
+  border-top: 1px solid var(--suwappu-summer-line, rgba(23, 50, 74, 0.16));
 }
 
 /* Eight steps read as a half-empty column at desktop; give them the full
@@ -604,7 +612,7 @@
   }
 
   .stepFlow li {
-    border-top: 1px solid var(--suwappu-summer-line, #b9dfe9);
+    border-top: 1px solid var(--suwappu-summer-line, rgba(23, 50, 74, 0.16));
   }
 
   .stepFlow li:nth-child(-n + 2) {
@@ -1118,7 +1126,7 @@ div.page {
   box-sizing: border-box;
   min-width: 0;
   padding: 20px 18px;
-  border: 1px solid var(--suwappu-summer-line, #b9dfe9);
+  border: 1px solid var(--suwappu-summer-line, rgba(23, 50, 74, 0.16));
   border-radius: var(--suwappu-summer-radius-inset, 8px);
   background: var(--suwappu-summer-card-background, #fff);
 }
@@ -1195,7 +1203,7 @@ div.page {
 }
 
 .citeRow + .citeRow {
-  border-top: 1px solid var(--suwappu-summer-line, #b9dfe9);
+  border-top: 1px solid var(--suwappu-summer-line, rgba(23, 50, 74, 0.16));
 }
 
 .citeRow h3 {
@@ -1233,4 +1241,15 @@ div.page {
   text-decoration-line: underline;
   text-decoration-color: var(--suwappu-summer-line-strong, #42b8d7);
   text-underline-offset: 3px;
+}
+
+/* page-level brand tokens (cards/tools/proof sit outside .desk) */
+.page {
+  --suwappu-summer-line: rgba(23, 50, 74, 0.16);
+  --suwappu-summer-card-background: #fffdf8;
+  --suwappu-summer-panel-background: #fffdf8;
+  --suwappu-summer-button-background: #17324a;
+  --suwappu-summer-button-background-hover: #0f2438;
+  --suwappu-summer-control-background-hover: #f6efe3;
+  --suwappu-summer-accent-deep: #c9731d;
 }

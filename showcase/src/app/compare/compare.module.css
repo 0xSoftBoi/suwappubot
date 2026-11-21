@@ -206,3 +206,15 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ── v3: instrument matrix ─────────────────────────────────────────────── */
+.matrix.matrix { padding: clamp(1rem, 2.5vw, 2rem); border: 1px solid var(--v3-line); border-radius: 24px; background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0.6)); box-shadow: var(--v3-shadow), inset 0 1px 0 #fff; }
+.matrix :global(.compare-table__colhead--us) { box-shadow: inset 0 3px 0 var(--v3-accent); background: linear-gradient(180deg, rgba(229,141,43,0.2), rgba(229,141,43,0.06)); }
+.matrix :global(.compare-cell--us) { background: linear-gradient(180deg, rgba(229,141,43,0.1), rgba(229,141,43,0.06)); box-shadow: inset 1px 0 0 rgba(201,115,29,0.22), inset -1px 0 0 rgba(201,115,29,0.22); }
+.matrix tbody tr:hover > * { background-color: rgba(23, 50, 74, 0.035); }
+.matrix :global(.compare-cell--yes) :global(.compare-cell__glyph) { background: linear-gradient(180deg, #f6a93c, #c9731d); color: #fff; border-color: transparent; box-shadow: 0 4px 10px -3px rgba(201,115,29,0.6); }
+.matrix :global(.compare-cell--us.compare-cell--yes) :global(.compare-cell__glyph) { scale: 1.12; }
+.matrix :global(.compare-cell--no) :global(.compare-cell__glyph) { opacity: 0.4; }
+@media (max-width: 899px) {
+  .matrix :global(.compare-table__rowhead) { position: sticky; left: 0; z-index: 2; background: #fffaf1; }
+}

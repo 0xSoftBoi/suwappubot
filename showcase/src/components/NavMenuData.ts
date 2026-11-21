@@ -36,6 +36,7 @@ export const MENU_PANELS: MenuPanel[] = [
   {
     key: 'developers', id: 'developers', groups: [
       { key: 'grpBuild', items: [
+        { key: 'start', href: '/start' },
         { key: 'agentApi', href: '/agents' },
         { key: 'agentDesk', href: '/agent-terminal' },
         { key: 'mcp', href: '/docs/quick-start/mcp-clients' },
@@ -52,6 +53,7 @@ export const MENU_PANELS: MenuPanel[] = [
   {
     key: 'company', id: 'company', groups: [
       { key: 'grpWhy', items: [
+        { key: 'solve', href: '/solve' },
         { key: 'enterprise', href: '/enterprise' },
         { key: 'solutions', href: '/solutions' },
         { key: 'compare', href: '/compare' },
