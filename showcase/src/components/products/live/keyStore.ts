@@ -71,7 +71,12 @@ export function forgetKey() {
 export function getStoredKey(): string | null { hydrate(); return state.key; }
 
 /** Cheap (0-credit) balance read. The metering headers are not CORS-exposed, so /billing is the source. */
-export async function refreshBalance(): Promise<void> {
+let balInflight: Promise<void> | null = null;
+export function refreshBalance(): Promise<void> {
+  if (!state.key) return Promise.resolve();
+  return (balInflight ??= doRefresh().finally(() => { balInflight = null; }));
+}
+async function doRefresh(): Promise<void> {
   const key = state.key;
   if (!key) return;
   try {
