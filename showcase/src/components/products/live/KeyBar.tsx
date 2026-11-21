@@ -4,7 +4,7 @@ import { useRef, useState } from 'react';
 import { Field, FieldControl, FieldLabel } from '@ui-sdk/react/field';
 import { track } from '@/lib/analytics';
 import { callApi } from './api';
-import { KEY_RE, maskKey, useApiKey } from './keyStore';
+import { KEY_RE, getKeyReady, maskKey, useApiKey } from './keyStore';
 import { useLiveSlug } from './ApiKeyProvider';
 import { CopyBtn } from './ui';
 import './live.css';
@@ -29,7 +29,10 @@ export default function KeyBar({ compact = false }: { compact?: boolean }) {
     inflight.current = true; setBusy(true); setErr(null);
     const r = await callApi({ method: 'POST', path: '/v1/agent/register', body: { name: `site-${rand()}` } });
     const d = r.data as { agent?: { api_key?: string } } | null;
-    if (r.ok && d?.agent?.api_key) {
+    if (r.ok && d?.agent?.api_key && await getKeyReady()) {
+      // A key appeared while registering (another tab/widget): never overwrite it silently.
+      setErr('A key is already saved here. The new agent was created, but its key was not stored or shown. Forget the saved key first if you want a fresh one.');
+    } else if (r.ok && d?.agent?.api_key) {
       k.setKey(String(d.agent.api_key));
       track('start_key_created', { surface: `product:${slug}`, outcome: 'ok' });
     } else {

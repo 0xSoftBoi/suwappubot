@@ -80,6 +80,12 @@ export function forgetKey() {
   emit();
 }
 export function getStoredKey(): string | null { hydrate(); return state.key; }
+/** Waits for async (encrypted) hydration before answering "is there a key?". Use this in click handlers. */
+export async function getKeyReady(): Promise<string | null> {
+  hydrate();
+  if (!state.hydrated) await new Promise<void>((res) => { const f = () => { if (state.hydrated) { subs.delete(f); res(); } }; subs.add(f); });
+  return state.key;
+}
 
 /** Cheap (0-credit) balance read. The metering headers are not CORS-exposed, so /billing is the source. */
 let balInflight: Promise<void> | null = null;

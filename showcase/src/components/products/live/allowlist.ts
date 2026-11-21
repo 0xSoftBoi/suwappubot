@@ -18,21 +18,46 @@ export const RUNNABLE = [
   'GET /v1/agent/wallets',
   'GET /v1/agent/wallet/policies',
   'GET /v1/agent/audit',
-  'GET /v1/agent/audit/verify',
-  'GET /v1/agent/approvals',
-  'GET /v1/agent/killswitch',
   'GET /v1/agent/perps/markets',
   'GET /v1/agent/perps/positions',
   'GET /v1/agent/predict/markets',
-  'GET /v1/agent/predict/positions',
   'GET /v1/agent/lend/markets',
   'GET /v1/autopilot',
-  'GET /enterprise/orgs/me',
   'POST /v1/agent/register',
   'POST /v1/agent/quote',
   'POST /v1/agent/swap/simulate',
   'POST /mcp',
 ] as const;
+
+/** Routes the key alone cannot call: shown as an honest note instead of a Run button. */
+export const CREDENTIAL_NOTE: Record<string, { text: string; href?: string }> = {
+  'GET /v1/agent/approvals': { text: 'Needs a signed-in dashboard session', href: '/dashboard' },
+  'GET /v1/agent/killswitch': { text: 'Needs an org API key' },
+  'GET /enterprise/orgs/me': { text: 'Needs a signed-in dashboard session', href: '/dashboard' },
+  'GET /v1/agent/audit/verify': { text: 'Needs an org API key' },
+  'GET /v1/agent/predict/positions': { text: 'Needs a signed-in dashboard session', href: '/dashboard' },
+};
+
+/** Required query params. The Run button reveals these inputs and refuses to send until they validate. */
+export type ParamSpec = { name: string; label: string; placeholder: string; kind: 'evm_or_solana' | 'evm' | 'symbols' };
+export const PARAMS: Record<string, ParamSpec[]> = {
+  'GET /v1/agent/portfolio': [{ name: 'wallet_address', label: 'Wallet address (your managed wallet)', placeholder: '0x…', kind: 'evm_or_solana' }],
+  'GET /v1/agent/perps/positions': [{ name: 'address', label: 'EVM address', placeholder: '0x…', kind: 'evm' }],
+  'GET /v1/agent/prices': [{ name: 'symbols', label: 'Symbols (1-20, comma separated)', placeholder: 'ETH,SOL,USDC', kind: 'symbols' }],
+};
+const EVM = /^0x[0-9a-fA-F]{40}$/;
+const SOL = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+/** Returns an error message, or null when the value is acceptable. */
+export function validateParam(spec: ParamSpec, raw: string): string | null {
+  const v = raw.trim();
+  if (!v) return `${spec.name} is required.`;
+  if (spec.kind === 'evm') return EVM.test(v) ? null : 'Enter a 0x… EVM address (42 characters).';
+  if (spec.kind === 'evm_or_solana') return EVM.test(v) || SOL.test(v) ? null : 'Enter a 0x… EVM address or a Solana address.';
+  const list = v.split(',').map((x) => x.trim());
+  return list.length <= 20 && list.every((x) => /^[A-Za-z0-9._-]{1,15}$/.test(x)) ? null : 'Use 1-20 token symbols separated by commas, e.g. ETH,SOL.';
+}
+/** Routes that only make sense once a managed wallet exists (checked with a free GET /wallets first). */
+export const NEEDS_WALLET = new Set(['GET /v1/agent/wallet/policies']);
 
 /** Endpoints whose POST body the site can build from a form (the LiveConsole). */
 export const BODY_BUILT = new Set(['POST /v1/agent/quote', 'POST /v1/agent/swap/simulate']);

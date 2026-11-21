@@ -5,7 +5,7 @@ import { Field, FieldControl, FieldLabel } from '@ui-sdk/react/field';
 import { Tabs, TabsList, TabsPanel, TabsTab } from '@ui-sdk/react/tabs';
 import { track } from '@/lib/analytics';
 import { callApi, type CallResult } from './api';
-import { getStoredKey, isAmount, useApiKey } from './keyStore';
+import { getKeyReady, isAmount, useApiKey } from './keyStore';
 import { useLiveSlug } from './ApiKeyProvider';
 import KeyBar from './KeyBar';
 import { CopyBtn, ErrorBox, Json, ResultMeta } from './ui';
@@ -21,14 +21,16 @@ type Quote = {
   expires_in_seconds?: number; dex?: string; sign_url?: string;
 };
 type Sim = {
-  would_execute?: boolean; expected_output?: { token?: string; amount?: string; amount_usd?: string }; min_output_after_slippage?: string;
+  quote_id?: string; would_execute?: boolean; expected_output?: { token?: string; amount?: string; amount_usd?: string }; min_output_after_slippage?: string;
   price_impact_pct?: number; fees?: Record<string, string>; checks?: { name: string; status: string; detail?: string }[]; warnings?: string[];
 };
 const ADDR = /^0x[0-9a-fA-F]{40}$/;
 
-/** raw integer string -> decimal string using the token's decimals (display only). */
+/** raw integer string -> decimal string using the token's decimals; without trusted decimals the integer is labelled, never scaled. */
 function fromRaw(raw: string | undefined, decimals?: number): string {
-  if (!raw || !/^\d+$/.test(raw) || decimals === undefined) return raw ?? '';
+  if (!raw) return '';
+  if (!/^\d+$/.test(raw)) return raw;
+  if (decimals === undefined) return `${raw} base units`;
   const s = raw.padStart(decimals + 1, '0');
   const whole = s.slice(0, s.length - decimals);
   const frac = s.slice(s.length - decimals).replace(/0+$/, '').slice(0, 8);
@@ -47,8 +49,8 @@ export default function LiveConsole({ compact = false }: { compact?: boolean }) 
   const [toChain, setToChain] = useState('');
   const [wallet, setWallet] = useState('');
   const [busy, setBusy] = useState<null | 'quote' | 'sim'>(null);
-  const [quote, setQuote] = useState<{ r: CallResult; body: Record<string, unknown>; at: number } | null>(null);
-  const [sim, setSim] = useState<{ r: CallResult; body: Record<string, unknown> } | null>(null);
+  const [quote, setQuote] = useState<{ r: CallResult; body: Record<string, unknown>; at: number; hash: string } | null>(null);
+  const [sim, setSim] = useState<{ r: CallResult; body: Record<string, unknown>; hash: string; decimals?: number; quoteId?: string } | null>(null);
   const [left, setLeft] = useState(0);
   const [formErr, setFormErr] = useState<string | null>(null);
   const lock = useRef(false);
@@ -84,27 +86,55 @@ export default function LiveConsole({ compact = false }: { compact?: boolean }) 
     };
   }
 
+  // Any edit to the form invalidates the quote and the simulation shown on screen.
+  const hash = JSON.stringify([from.trim(), to.trim(), amount.trim(), chain, toChain, wallet.trim()]);
+  const quoteLive = quote?.hash === hash ? quote : null;
+  const simLive = sim?.hash === hash ? sim : null;
+
   async function run(kind: 'quote' | 'sim') {
     if (lock.current) return;
     const body = buildBody();
     if (!body) return;
-    const k = getStoredKey();
-    if (!k) { setFormErr('Add a key above first. It is free and takes one click.'); return; }
     lock.current = true; setBusy(kind);
-    const path = kind === 'quote' ? '/v1/agent/quote' : '/v1/agent/swap/simulate';
-    const r = await callApi({ method: 'POST', path, body, key: k });
-    if (kind === 'quote') { setQuote({ r, body, at: Date.now() }); setSim(null); } else setSim({ r, body });
-    track('widget_run', { slug, widget: kind === 'quote' ? 'live_quote' : 'live_simulate', outcome: r.ok ? 'ok' : r.status === 0 ? 'network' : String(r.status) });
+    const k = await getKeyReady();
+    if (!k) { setFormErr('Add a key above first. It is free and takes one click.'); lock.current = false; setBusy(null); return; }
+    const myHash = hash;
+    const doQuote = async () => {
+      const r = await callApi({ method: 'POST', path: '/v1/agent/quote', body, key: k });
+      const at = Date.now();
+      setQuote({ r, body, at, hash: myHash }); setSim(null);
+      track('widget_run', { slug, widget: 'live_quote', outcome: r.ok ? 'ok' : r.status === 0 ? 'network' : String(r.status) });
+      return { r, at };
+    };
+    if (kind === 'quote') { await doQuote(); }
+    else {
+      // Dry run always simulates the quote on screen: reuse it while it is live for these exact inputs, else quote first.
+      let qd = quoteLive && quoteLive.r.ok && (quoteLive.r.data as Quote).quote_id && Date.now() - quoteLive.at < ((quoteLive.r.data as Quote).expires_in_seconds ?? 60) * 1000 ? (quoteLive.r.data as Quote) : null;
+      if (!qd) {
+        const { r } = await doQuote();
+        qd = r.ok ? (r.data as Quote) : null;
+      }
+      if (qd?.quote_id) {
+        const sbody = { ...body, quote_id: qd.quote_id };
+        const r = await callApi({ method: 'POST', path: '/v1/agent/swap/simulate', body: sbody, key: k });
+        setSim({ r, body: sbody, hash: myHash, decimals: qd.to_token?.decimals, quoteId: qd.quote_id });
+        track('widget_run', { slug, widget: 'live_simulate', outcome: r.ok ? 'ok' : r.status === 0 ? 'network' : String(r.status) });
+      }
+    }
     lock.current = false; setBusy(null);
   }
 
-  const q = quote?.r.ok ? (quote.r.data as Quote) : null;
-  const s = sim?.r.ok ? (sim.r.data as Sim) : null;
-  const shown = sim ?? quote;
-  const lastPath = sim ? '/v1/agent/swap/simulate' : '/v1/agent/quote';
-  const decimals = q?.to_token?.decimals;
+  const q = quoteLive?.r.ok ? (quoteLive.r.data as Quote) : null;
+  const s = simLive?.r.ok ? (simLive.r.data as Sim) : null;
+  const shown = simLive ?? quoteLive;
+  const lastPath = simLive ? '/v1/agent/swap/simulate' : '/v1/agent/quote';
+  // Decimals only count when they came with the same quote the simulation ran against.
+  const decimals = simLive && s && s.quote_id === simLive.quoteId ? simLive.decimals : undefined;
   const cost = CREDIT_COST['POST /v1/agent/quote'];
   const expired = Boolean(q && left <= 0);
+  const dryNote = !wallet.trim()
+    ? 'Dry run needs a wallet address: the simulation checks that wallet’s balance and allowance.'
+    : 'Dry run simulates the quote shown here for your wallet. It never signs or sends anything. It costs 1 credit, plus 1 for a fresh quote if there is no live one for these exact inputs.';
 
   return (
     <div className={`lv lv-stack${compact ? ' lv--compact' : ''}`}>
@@ -143,18 +173,18 @@ export default function LiveConsole({ compact = false }: { compact?: boolean }) 
         <div className="lv-actions">
           <button type="submit" className="lv-btn lv-btn--primary" disabled={busy !== null || !key}>{busy === 'quote' ? 'Quoting…' : 'Run live quote'}</button>
           <button type="button" className="lv-btn lv-btn--secondary" disabled={busy !== null || !key || !wallet.trim()} onClick={() => run('sim')} aria-describedby="lv-sim-why">{busy === 'sim' ? 'Simulating…' : 'Dry run'}</button>
-          <span className="lv-cost">Costs <strong>{cost} credit</strong> per run{!key ? ' · add a key first' : ''}</span>
+          <span className="lv-cost">Quote costs <strong>{cost} credit</strong>; dry run costs <strong>1 credit</strong>, plus 1 for a fresh quote if needed{!key ? ' · add a key first' : ''}</span>
         </div>
-        <p id="lv-sim-why" className="lv-note">{wallet.trim() ? 'Dry run simulates this swap for your wallet. It never signs or sends anything. Costs 1 credit.' : 'Dry run needs a wallet address: the simulation checks that wallet’s balance and allowance.'}</p>
+        <p id="lv-sim-why" className="lv-note">{dryNote}</p>
       </form>
 
       <section className="lv-panel" aria-live="polite" aria-busy={busy !== null}>
         <h3>Result</h3>
         {busy && <div className="lv-loading" aria-label="Running"><i /><i /><i /></div>}
         {!busy && !shown && <p className="lv-empty">Nothing run yet. Press Run live quote to call the production API with your key. The response, route and the exact request appear here.</p>}
-        {!busy && shown && !shown.r.ok && <ErrorBox r={shown.r} onRetry={() => run(sim ? 'sim' : 'quote')}>{shown.r.status === 401 ? <p>Your key was rejected. Create or paste a key above.</p> : shown.r.status === 402 ? <p>This key is out of credits.</p> : null}</ErrorBox>}
+        {!busy && shown && !shown.r.ok && <ErrorBox r={shown.r} onRetry={() => run(simLive ? 'sim' : 'quote')}>{shown.r.status === 401 ? <p>Your key was rejected. Create or paste a key above.</p> : shown.r.status === 402 ? <p>This key is out of credits.</p> : null}</ErrorBox>}
         {!busy && shown?.r.ok && <ResultMeta r={shown.r} />}
-        {!busy && q && !sim && (
+        {!busy && q && !simLive && (
           <>
             <dl className="lv-kv lv-kv--hero">
               <div><dt>You receive (expected)</dt><dd>{q.amount_out} {q.to_token?.symbol}</dd></div>

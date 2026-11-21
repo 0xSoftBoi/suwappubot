@@ -5,7 +5,7 @@ import { Tabs, TabsList, TabsPanel, TabsTab } from '@ui-sdk/react/tabs';
 import { track } from '@/lib/analytics';
 import { API_BASE_URL } from '@/lib/links';
 import CopyCode from './CopyCode';
-import { setStoredKey } from '@/components/products/live/keyStore';
+import { getKeyReady, setStoredKey } from '@/components/products/live/keyStore';
 
 const NAME_RE = /^[A-Za-z0-9_-]{3,50}$/;
 
@@ -26,6 +26,8 @@ export default function StartKey({ bash, ts, python }: { bash: string; ts: strin
   const [key, setKey] = useState<string | null>(null);
   const [credits, setCredits] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
+  const [hadKey, setHadKey] = useState(false);
+  const [adopted, setAdopted] = useState(false);
   const inFlight = useRef(false);
 
   async function submit(e: React.FormEvent) {
@@ -38,6 +40,7 @@ export default function StartKey({ bash, ts, python }: { bash: string; ts: strin
     }
     inFlight.current = true;
     setBusy(true);
+    const existing = Boolean(await getKeyReady());
     track('cta_clicked', { surface: 'start', slug: 'start', dest: 'register_form', kind: 'primary' });
     try {
       const res = await fetch(`${API_BASE_URL}/v1/agent/register`, {
@@ -49,7 +52,10 @@ export default function StartKey({ bash, ts, python }: { bash: string; ts: strin
       const data = await res.json().catch(() => null);
       if (res.ok && data?.agent?.api_key) {
         setKey(String(data.agent.api_key));
-        setStoredKey(String(data.agent.api_key)); // shared store: the same key now works on /products pages
+        // Shared store: the same key works on /products pages. Never overwrite a saved key silently:
+        // the API cannot show a key twice, so replacing one would lose access to that agent.
+        setHadKey(existing); setAdopted(!existing);
+        if (!existing) setStoredKey(String(data.agent.api_key));
         setCredits(typeof data.credits?.starting_balance === 'number' ? data.credits.starting_balance : null);
         track('start_key_created', { surface: 'start', outcome: 'ok' });
       } else if (res.status === 429) {
@@ -99,9 +105,11 @@ export default function StartKey({ bash, ts, python }: { bash: string; ts: strin
             Suwappu keeps only a hash. Put it in <code style={{ display: 'inline', padding: '0 4px', margin: 0 }}>SUWAPPU_API_KEY</code> and send it as <code style={{ display: 'inline', padding: '0 4px', margin: 0 }}>Authorization: Bearer</code>.
             {credits !== null ? ` Starter credits granted: ${credits}.` : ''}
           </p>
+          {hadKey && <p className="sv-note">{adopted ? 'This site now uses the new key.' : 'A key was already saved in this browser, so it was kept. This site still uses the old key.'}</p>}
           <div className="sv-actions">
             <button type="button" className="summer-button summer-button--primary" onClick={copyKey}>{copied ? 'Copied' : 'Copy key'}</button>
-            <button type="button" className="summer-button summer-button--secondary" onClick={() => { setKey(null); setName(''); setDescription(''); }}>I have stored it</button>
+            {hadKey && !adopted && <button type="button" className="summer-button summer-button--secondary" onClick={() => { setStoredKey(key); setAdopted(true); }}>Use this new key on this site (replaces the saved one — copy the old key first if you still need it)</button>}
+            <button type="button" className="summer-button summer-button--secondary" onClick={() => { setKey(null); setAdopted(false); setHadKey(false); setName(''); setDescription(''); }}>I have stored it</button>
           </div>
         </div>
       ) : (

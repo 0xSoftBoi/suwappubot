@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { Tabs, TabsList, TabsPanel, TabsTab } from '@ui-sdk/react/tabs';
 import { callApi, type CallResult } from './api';
-import { getStoredKey, useApiKey } from './keyStore';
+import { getKeyReady, useApiKey } from './keyStore';
 import { useLiveSlug } from './ApiKeyProvider';
 import KeyBar from './KeyBar';
 import { CopyBtn, ErrorBox, Json, ResultMeta } from './ui';
@@ -35,6 +35,7 @@ export default function PolicyBuilder() {
   const [addrs, setAddrs] = useState('');
   const [res, setRes] = useState<CallResult | null>(null);
   const [busy, setBusy] = useState(false);
+  const [noWallet, setNoWallet] = useState(false);
   const lock = useRef(false);
 
   const built = useMemo(() => {
@@ -51,9 +52,18 @@ export default function PolicyBuilder() {
   }, [kind, eth, win, addrs]);
 
   async function read() {
-    const k = getStoredKey();
-    if (!k || lock.current) return;
-    lock.current = true; setBusy(true);
+    if (lock.current) return;
+    lock.current = true; setBusy(true); setNoWallet(false);
+    const k = await getKeyReady();
+    if (!k) { setBusy(false); lock.current = false; return; }
+    // Free pre-check: policies 400 WALLET_NOT_FOUND without a managed wallet, so only call it when one exists.
+    const w = await callApi({ path: '/v1/agent/wallets', key: k });
+    const has = w.ok && Array.isArray((w.data as { wallets?: unknown[] } | null)?.wallets) && ((w.data as { wallets: unknown[] }).wallets.length > 0);
+    if (!has) {
+      setRes(w.ok ? null : w); setNoWallet(w.ok); setBusy(false); lock.current = false;
+      track('widget_run', { slug, widget: 'policy_read', outcome: w.ok ? 'no_wallet' : String(w.status) });
+      return;
+    }
     const r = await callApi({ path: '/v1/agent/wallet/policies', key: k });
     setRes(r); setBusy(false); lock.current = false;
     track('widget_run', { slug, widget: 'policy_read', outcome: r.ok ? 'ok' : String(r.status) });
@@ -104,7 +114,8 @@ export default function PolicyBuilder() {
           <button type="button" className="lv-btn lv-btn--secondary" onClick={read} disabled={busy || !key}>{busy ? 'Reading…' : 'Read my current policy'}</button>
           <span className="lv-cost">GET /v1/agent/wallet/policies · free read{!key ? ' · add a key first' : ''}</span>
         </div>
-        {!res && !busy && <p className="lv-empty" style={{ marginTop: '1rem' }}>Not read yet. This is a real call: a key with no managed wallet gets the API’s real answer.</p>}
+        {noWallet && !busy && <p className="lv-empty" style={{ marginTop: '1rem' }}>Create a managed wallet first (from your own code). This key has none yet, so there are no policies to read and no policy call was made.</p>}
+        {!res && !noWallet && !busy && <p className="lv-empty" style={{ marginTop: '1rem' }}>Not read yet. This is a real call: it first checks, for free, that your key has a managed wallet.</p>}
         {busy && <div className="lv-loading" style={{ marginTop: '1rem' }}><i /><i /><i /></div>}
         {res && !busy && (<div style={{ marginTop: '1rem' }}>{res.ok ? <ResultMeta r={res} /> : <ErrorBox r={res} onRetry={read} />}{res.data != null && <Json data={res.data} open label="Response" />}</div>)}
       </section>
