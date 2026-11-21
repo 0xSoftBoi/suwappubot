@@ -38,6 +38,10 @@ export function AlertSwap() {
   const side = searchParams.get('side')
   const amount = searchParams.get('amount')
   const ref = searchParams.get('ref')
+  // MCP sign_url pins the exact contract/mint it quoted. When present, only an
+  // exact address match may prefill: a shared ticker must never swap in a
+  // different asset than the one the agent priced.
+  const tokenAddress = searchParams.get('token_address')?.trim() || null
   // Deep links can land on a mounted app (client-side nav), so capture here too.
   useEffect(() => { captureRef(window.location.search) }, [])
 
@@ -46,15 +50,17 @@ export function AlertSwap() {
   // a notify-only link (token+chain only, no side/amount) still works, it just
   // skips the side/amount prefill below.
   const tokenQuery = useQuery({
-    queryKey: ['alert-swap-token', tokenSymbol, chain],
-    queryFn: () => api.searchTokens(tokenSymbol as string, chain as string),
+    queryKey: ['alert-swap-token', tokenAddress ?? tokenSymbol, chain],
+    queryFn: () => api.searchTokens((tokenAddress ?? tokenSymbol) as string, chain as string),
     enabled: Boolean(tokenSymbol && chain),
     staleTime: 60_000,
   })
 
-  const resolved: SwapToken | undefined = tokenQuery.data?.find(
-    (t) => t.symbol.toLowerCase() === tokenSymbol?.toLowerCase()
-  ) ?? tokenQuery.data?.[0]
+  const resolved: SwapToken | undefined = tokenAddress
+    ? tokenQuery.data?.find((t) => t.address?.toLowerCase() === tokenAddress.toLowerCase())
+    : tokenQuery.data?.find(
+        (t) => t.symbol.toLowerCase() === tokenSymbol?.toLowerCase()
+      ) ?? tokenQuery.data?.[0]
 
   // Apply the prefill exactly once per landing (guarded by a ref) so the user
   // is still free to edit the pair/side/amount afterwards without us stomping

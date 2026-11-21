@@ -602,7 +602,9 @@ class WebAppSwapRecordRequest(BaseModel):
     # Launch/micro-product attribution label (e.g. "mcp", "producthunt").
     # Optional and sanitized server-side: a bad value is dropped, never rejected,
     # so attribution can never block recording a swap the user already signed.
-    ref: Optional[str] = Field(default=None, max_length=64)
+    # Typed Any on purpose: any value (too long, non-string) is accepted here and
+    # discarded by _record_swap_attribution instead of 422-ing the record.
+    ref: Optional[Any] = None
 
 
 class WebAppSwapRecordResponse(BaseModel):
@@ -4364,7 +4366,7 @@ async def submit_jito_swap(
 _SWAP_REF_RE = re.compile(r"^[a-z0-9_-]{1,32}$")
 
 
-def _record_swap_attribution(db: Session, raw_ref: Optional[str], chain: str) -> None:
+def _record_swap_attribution(db: Session, raw_ref: Any, chain: str) -> None:
     """Log which launch / micro product drove a recorded swap. Best-effort.
 
     Writes one ``web_events`` row (name ``swap_recorded``, ``utm_source`` = ref)
@@ -4372,7 +4374,9 @@ def _record_swap_attribution(db: Session, raw_ref: Optional[str], chain: str) ->
     Keeps the table's privacy contract: no user id, no wallet, no tx hash.
     Never raises: attribution must not affect recording the swap itself.
     """
-    ref = (raw_ref or "").strip().lower()
+    if not isinstance(raw_ref, str):
+        return
+    ref = raw_ref.strip().lower()
     if not _SWAP_REF_RE.match(ref):
         return
     try:
@@ -4389,7 +4393,12 @@ def _record_swap_attribution(db: Session, raw_ref: Optional[str], chain: str) ->
         )
         db.commit()
     except Exception as e:  # pragma: no cover - attribution is best-effort
-        db.rollback()
+        # The swap is already committed and its quote consumed; a failing
+        # rollback must not turn the response into a 500 the client can't retry.
+        try:
+            db.rollback()
+        except Exception:
+            pass
         logger.warning(f"swap attribution not recorded: {e}")
 
 

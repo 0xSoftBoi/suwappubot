@@ -27,6 +27,7 @@ import { type AgentErrorCode } from '../lib/agentError'
 import { checkEvmWalletOwnership, enforcePolicyGateForFreshQuote, agentIdentifierOf, quoteBoundToWallet } from './agent'
 import type { Context } from 'hono'
 import { chargeAgentForCall, costForTool, refundChargedCall, setX402Headers } from '../middleware/x402Payment'
+import { resolveRequestIp } from '../middleware/ipRateLimit'
 import { EnvService } from '../config/EnvService'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
 import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
@@ -526,18 +527,49 @@ export async function handleBrowseMppDirectory(args: Record<string, unknown>) {
 // what lets any MCP client — Claude, ChatGPT, an agent — turn a quote into a
 // real, self-custodial trade with one tap. The terminal pairs every token with
 // USDC, so the side/amount are only prefilled when one leg is USDC.
+const ANON_QUOTE_LIMIT = 10
+const ANON_QUOTE_WINDOW_MS = 60_000
+const anonQuoteWindows = new Map<string, { count: number; resetAt: number }>()
+function allowAnonymousQuote(ip: string): boolean {
+	const now = Date.now()
+	if (anonQuoteWindows.size > 10_000) {
+		for (const [k, w] of anonQuoteWindows) if (w.resetAt <= now) anonQuoteWindows.delete(k)
+	}
+	const w = anonQuoteWindows.get(ip)
+	if (!w || w.resetAt <= now) {
+		anonQuoteWindows.set(ip, { count: 1, resetAt: now + ANON_QUOTE_WINDOW_MS })
+		return true
+	}
+	if (w.count >= ANON_QUOTE_LIMIT) return false
+	w.count++
+	return true
+}
+
 const TERMINAL_URL = (process.env.TERMINAL_URL || 'https://terminal.suwappu.bot').replace(/\/+$/, '')
-export function buildSignUrl(p: { fromToken: string; toToken: string; amount: string; chain: string; toChain?: string }): string | undefined {
+export function buildSignUrl(p: {
+	fromToken: string; toToken: string; amount: string; chain: string; toChain?: string
+	/** Resolved contract/mint of the from/to tokens, so the deep link pins the exact asset quoted. */
+	fromAddress?: string; toAddress?: string
+}): string | undefined {
 	if (p.toChain && p.toChain.toLowerCase() !== p.chain.toLowerCase()) return undefined
 	const from = p.fromToken.toUpperCase().trim()
 	const to = p.toToken.toUpperCase().trim()
 	const q = new URLSearchParams({ chain: p.chain.toLowerCase(), ref: 'mcp' })
+	// The terminal pairs every token with USDC, and its amount handoff always
+	// opens a BUY with the amount in USDC. So only a USDC -> X quote can carry an
+	// amount; X -> USDC carries side=sell with no amount (the user types it), and
+	// any other pair only selects the token. Never prefill an amount the form
+	// would read in a different unit or direction than the quote.
+	const set = (symbol: string, address?: string) => {
+		q.set('token', symbol)
+		if (address) q.set('token_address', address)
+	}
 	if (from === 'USDC' && to !== 'USDC') {
-		q.set('token', p.toToken); q.set('side', 'buy'); q.set('amount', p.amount)
+		set(p.toToken, p.toAddress); q.set('side', 'buy'); q.set('amount', p.amount)
 	} else if (to === 'USDC' && from !== 'USDC') {
-		q.set('token', p.fromToken); q.set('side', 'sell'); q.set('amount', p.amount)
+		set(p.fromToken, p.fromAddress); q.set('side', 'sell')
 	} else {
-		q.set('token', p.toToken); q.set('side', 'buy')
+		set(p.toToken, p.toAddress)
 	}
 	return `${TERMINAL_URL}/alert-swap?${q.toString()}`
 }
@@ -588,7 +620,7 @@ async function handleGetQuote(args: Record<string, unknown>, agent: Agent | unde
 					price_impact: `${quote.priceImpactPct}%`,
 					route: quote.routePlan.map((r: any) => r.swapInfo.label).join(' -> '),
 					expires_in_seconds: 60,
-					sign_url: buildSignUrl({ fromToken: from_token, toToken: to_token, amount, chain: 'solana' }),
+					sign_url: buildSignUrl({ fromToken: from_token, toToken: to_token, amount, chain: 'solana', fromAddress: fromInfo.address, toAddress: toInfo.address }),
 				}
 			})
 		)
@@ -689,7 +721,7 @@ async function handleGetQuote(args: Record<string, unknown>, agent: Agent | unde
 				amount_in: amount, amount_out: outHuman.toFixed(6),
 				exchange_rate: quote.exchangeRate, gas_usd: quote.estimatedGasUsd,
 				route: quote.route, expires_in_seconds: 60,
-				sign_url: buildSignUrl({ fromToken: from_token, toToken: to_token, amount, chain: chainKey, toChain: to_chain }),
+				sign_url: buildSignUrl({ fromToken: from_token, toToken: to_token, amount, chain: chainKey, toChain: to_chain, fromAddress: fromInfo.address, toAddress: toInfo.address }),
 				...(wallet_address ? {
 					transaction: {
 						to: quote.transactionRequest.to, value: quote.transactionRequest.value,
@@ -1507,8 +1539,12 @@ mcpRoutes.post('/', async (c) => {
 	// tools must not require payment-capable auth (registry acceptance criteria).
 	const isPublicToolCall =
 		req.method === 'tools/call' && PUBLIC_READ_TOOLS.has(((req.params || {}).name as string) || '')
+	// A public read tool stays keyless for anonymous callers, but a caller that
+	// presents a key is still authenticated: its quotes must be cached for
+	// execute_swap, it is metered, and it keeps agent fee discounts.
+	const hasAuthHeader = Boolean(c.req.header('Authorization'))
 	let agent: Agent | undefined
-	if (!PUBLIC_MCP_METHODS.has(req.method) && !isPublicToolCall) {
+	if (!PUBLIC_MCP_METHODS.has(req.method) && (!isPublicToolCall || hasAuthHeader)) {
 		try {
 			await agentBearerAuth()(c, async () => {})
 		} catch (e) {
@@ -1526,6 +1562,17 @@ mcpRoutes.post('/', async (c) => {
 			const agentService = yield* AgentService
 			yield* agentService.incrementAgentStats(agent!.id, 'request')
 		}))
+	}
+
+	// Anonymous get_quote hits upstream aggregators on the shared Li.Fi/Jupiter
+	// keys, so it gets a tighter per-IP budget than the router-wide floor.
+	if (isPublicToolCall && !agent && ((req.params || {}).name as string) === 'get_quote') {
+		if (!allowAnonymousQuote(resolveRequestIp(c))) {
+			return c.json(
+				rpcErr(req.id, -32029, 'Anonymous quote rate limit reached. Register an agent at https://suwappu.bot/agents for a higher limit.', undefined, 'RATE_LIMITED'),
+				429,
+			)
+		}
 	}
 
 	switch (req.method) {

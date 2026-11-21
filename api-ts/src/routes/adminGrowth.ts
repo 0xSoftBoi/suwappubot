@@ -272,7 +272,8 @@ adminGrowthRoutes.get('/growth', async (c) => {
 						'swaps by source',
 						sql`select utm_source as source, count(*) as n
 							from web_events
-							where name = 'swap_recorded' and created_at >= ${start}::timestamp
+							where name = 'swap_recorded' and session_id = 'server'
+								and created_at >= ${start}::timestamp
 							group by 1 order by 2 desc limit 50`,
 					),
 				],
