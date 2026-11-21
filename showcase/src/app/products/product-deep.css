@@ -51,8 +51,8 @@
 .pd-flow__n { position: absolute; left: 0; top: 0; width: 2.5rem; height: 2.5rem; display: grid; place-items: center; border-radius: 50%; font: 700 0.8125rem/1 var(--v3-font-mono); color: #fff; background: var(--sv-accent); box-shadow: 0 8px 18px -8px var(--sv-accent); }
 .pd-flow strong { font-size: 1.0625rem; color: var(--v3-ink); }
 .pd-flow li > span:last-child { font-size: 0.98rem; line-height: 1.6; color: var(--v3-dim); overflow-wrap: anywhere; max-width: 60ch; }
-@media (min-width: 900px) {
-  .pd-flow { grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr)); gap: 1.25rem; }
+@media (min-width: 1180px) {
+  .pd-flow { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 1.25rem; }
   .pd-flow li { padding: 3.6rem 0 0; }
   .pd-flow li::after { left: 2.5rem; right: -1.25rem; top: 1.2rem; bottom: auto; width: auto; height: 2px; background: linear-gradient(90deg, var(--sv-accent), var(--v3-line-strong)); }
   .pd-flow li:last-child::after { display: none; }

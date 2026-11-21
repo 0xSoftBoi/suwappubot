@@ -1,5 +1,5 @@
-import { SITE_ORIGIN, withUtm } from '@/data/solve';
-import { PRODUCTS_UPDATED, STATUS_NOTE, type Product } from '@/data/products';
+import { SITE_ORIGIN, withUtm, getSolvePage } from '@/data/solve';
+import { PRODUCTS_UPDATED, STATUS_NOTE, getProduct, type Product } from '@/data/products';
 
 const abs = (href: string) => (href.startsWith('/') ? `${SITE_ORIGIN}${href}` : href);
 
@@ -26,7 +26,10 @@ export function productMarkdown(p: Product): string {
   out.push('## What it does not do', '', ...p.limits.map((l) => `- ${l}`), '');
   out.push('## FAQ', '');
   for (const f of p.faq) out.push(`### ${f.q}`, '', f.a, '');
-  out.push('## Related', '', ...p.related.map((r) => `- ${SITE_ORIGIN}/products/${r}`), '');
+  if (p.solveLinks?.length) {
+    out.push('## Problems this solves', '', ...p.solveLinks.map((s) => `- [${getSolvePage(s)?.title ?? s}](${SITE_ORIGIN}/solve/${s})`), '');
+  }
+  out.push('## Related', '', ...p.related.map((r) => `- [${getProduct(r)?.name ?? r}](${SITE_ORIGIN}/products/${r})`), '');
   return escapeAngles(out.join('\n').trimEnd()) + '\n';
 }
 
@@ -38,7 +41,7 @@ export function escapeAngles(md: string): string {
     .map((line) => {
       if (line.startsWith('```')) { fenced = !fenced; return line; }
       if (fenced) return line;
-      return line.split('`').map((seg, i) => (i % 2 ? seg : seg.replace(/</g, '\\<'))).join('`');
+      return line.split('`').map((seg, i) => (i % 2 ? seg : seg.replace(/\\/g, '\\\\').replace(/</g, '\\<'))).join('`');
     })
     .join('\n');
 }

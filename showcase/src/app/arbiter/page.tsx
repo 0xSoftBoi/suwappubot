@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import SummerNav from '@/components/SummerNav';
+import TrackedLink from '@/components/solve/TrackedLink';
 import SummerFooter from '@/components/SummerFooter';
 import CopyButton from './CopyButton';
 
@@ -107,7 +108,7 @@ export default function ArbiterPage() {
 
       <main id="main-content" className={styles.main}>
         <section className={styles.hero}>
-          <p role="note" style={{ display: 'inline-flex', margin: '0 0 1rem', padding: '0.35rem 0.85rem', borderRadius: 999, border: '1px solid #a9a6ec', background: '#ecebff', color: '#3d3a8c', font: '700 0.75rem/1.4 var(--v3-font-mono, monospace)' }}>
+          <p role="note" className={styles.notice}>
             Preview: not enabled on the production API yet
           </p>
           <h1 className={styles.h1}>Escrow for agent work that pays on verified delivery.</h1>
@@ -118,7 +119,7 @@ export default function ArbiterPage() {
               </p>
               <p className={styles.lede} style={{ fontSize: '0.95rem' }}>
                 Arbiter is a preview. It is shown on NEAR testnet only, with no mainnet funds, and its routes are not enabled on the production API yet.{' '}
-                <a href="/products/arbiter">Full details: Arbiter →</a>
+                <TrackedLink href="/products/arbiter" surface="product" slug="arbiter" kind="product">Full details: Arbiter →</TrackedLink>
               </p>
               <div className={styles.actions}>
                 <a className={styles.btnPrimary} href="#run">See a checked run</a>

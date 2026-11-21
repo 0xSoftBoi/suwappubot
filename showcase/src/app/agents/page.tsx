@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import SummerNav from '@/components/SummerNav';
+import TrackedLink from '@/components/solve/TrackedLink';
 import SummerFooter from '@/components/SummerFooter';
 import FaqAccordion from '@/components/FaqAccordion';
 import AgentQuickstart from './AgentQuickstart';
@@ -244,7 +245,7 @@ export default function AgentsPage() {
               Read the quick start
             </a>
           </div>
-          <p className="pdx-detail"><a href="/products/agent-api">Full details: Agent API →</a></p>
+          <p className="pdx-detail"><TrackedLink href="/products/agent-api" surface="product" slug="agent-api" kind="product">Full details: Agent API →</TrackedLink></p>
         </header>
             <Reveal className="pv3-hero__art" delay={120}>
               <ToolOrbit count={stats.mcpToolCount}>

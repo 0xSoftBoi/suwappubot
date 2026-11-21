@@ -11,6 +11,7 @@ const solve = JSON.parse(readFileSync(join(scriptDir, '../src/data/solve.json'),
 const stats = JSON.parse(readFileSync(join(scriptDir, '../src/data/stats.generated.json'), 'utf-8'));
 const SOLVE_UPDATED = '2026-11-21'; // keep in step with src/data/solve.ts
 const products = JSON.parse(readFileSync(join(scriptDir, '../src/data/products.json'), 'utf-8')).pages;
+const abs = (h) => (h.startsWith('/') ? `${SITE}${h}` : h);
 const PRODUCTS_UPDATED = '2026-11-21'; // keep in step with src/data/products.ts
 
 const H1 = '# Suwappu API';
@@ -97,17 +98,20 @@ const productIndex = [
 ].join('\n');
 const productFull = escapeAngles(products.map((p) => [
   `\n---\n\n# ${p.name}: ${p.headline}`, `\n> ${p.lead}\n`, `Source: ${SITE}/products/${p.slug} (last updated ${PRODUCTS_UPDATED})${p.status && p.status !== 'live' ? ` · status: ${p.status}` : ''}\n`,
+  `**Start:** [${p.primaryCta.label}](${abs(p.primaryCta.href)})${p.secondaryCta ? ` · [${p.secondaryCta.label}](${abs(p.secondaryCta.href)})` : ''}\n`,
   `## What it is\n\n${p.whatItIs.join('\n\n')}\n`,
   `## How it works\n\n${p.howItWorks.map((s, i) => `${i + 1}. ${s.title}. ${s.detail}`).join('\n')}\n`,
   `## What you can do\n\n${p.capabilities.map((c) => `- ${c.title}. ${c.detail}`).join('\n')}\n`,
-  p.commands ? `## Commands\n\n${p.commands.map((c) => `- ${c.command}: ${c.does}`).join('\n')}\n` : '',
-  p.endpoints ? `## Endpoints\n\n${p.endpoints.map((e) => `- ${e.method} ${e.path}: ${e.does}`).join('\n')}\n` : '',
+  p.commands?.length ? `## Commands\n\n${p.commands.map((c) => `- ${c.command}: ${c.does}`).join('\n')}\n` : '',
+  p.endpoints?.length ? `## Endpoints\n\n${p.endpoints.map((e) => `- ${e.method} ${e.path}: ${e.does}`).join('\n')}\n` : '',
   `### ${p.example.title}\n\n\`\`\`${p.example.lang === 'telegram' ? 'text' : p.example.lang}\n${p.example.code}\n\`\`\`\n`,
   `## The hard facts\n\n${p.specs.map((x) => `- ${x.label}: ${x.value}`).join('\n')}\n`,
   ...(p.more ?? []).map((m) => `## ${m.title}\n\n${m.body}\n`),
   `## Pricing\n\n${p.pricing}\n`,
   `## What it does not do\n\n${p.limits.map((l) => `- ${l}`).join('\n')}\n`,
   `## FAQ\n\n${p.faq.map((f) => `### ${f.q}\n\n${f.a}\n`).join('\n')}`,
+  p.solveLinks?.length ? `## Problems this solves\n\n${p.solveLinks.map((s) => `- [${solve.pages.find((x) => x.slug === s)?.title ?? s}](${SITE}/solve/${s})`).join('\n')}\n` : '',
+  `## Related\n\n${p.related.map((r) => `- [${products.find((x) => x.slug === r)?.name ?? r}](${SITE}/products/${r})`).join('\n')}\n`,
 ].join('\n')).join('\n'));
 
 // ---- llms.txt (curated index) ----
@@ -165,7 +169,7 @@ function escapeAngles(md) {
     .map((line) => {
       if (line.startsWith('```')) { fenced = !fenced; return line; }
       if (fenced) return line;
-      return line.split('`').map((seg, i) => (i % 2 ? seg : seg.replace(/</g, '\\<'))).join('`');
+      return line.split('`').map((seg, i) => (i % 2 ? seg : seg.replace(/\\/g, '\\\\').replace(/</g, '\\<'))).join('`');
     })
     .join('\n');
 }

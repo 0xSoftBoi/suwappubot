@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import SummerNav from '@/components/SummerNav';
+import TrackedLink from '@/components/solve/TrackedLink';
 import SummerFooter from '@/components/SummerFooter';
 import { API_BASE_URL } from '@/lib/links';
 import AutopilotFeed from './AutopilotFeed';
@@ -78,7 +79,7 @@ export default async function AutopilotPage() {
                 trades, then reveals the thesis after. Every refusal is published with the same
                 weight as every fill.
               </p>
-              <p style={{ margin: '0.7rem 0 0', fontSize: '0.9rem' }}><a href="/products/autopilot" style={{ color: 'inherit', fontWeight: 600 }}>Full details: Autopilot →</a></p>
+              <p style={{ margin: '0.7rem 0 0', fontSize: '0.9rem', fontWeight: 600 }}><TrackedLink href="/products/autopilot" surface="product" slug="autopilot" kind="product">Full details: Autopilot →</TrackedLink></p>
             </div>
             <span className={styles.live}>
               {agent?.mode === 'paper' && (

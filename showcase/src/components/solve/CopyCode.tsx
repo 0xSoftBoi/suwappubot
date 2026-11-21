@@ -6,7 +6,7 @@ import { track } from '@/lib/analytics';
 /**
  * Designed code panel with a Copy button. `telegram` snippets render as a chat
  * (one outgoing message per line) because that is how a person uses them.
- * Copy fires `solve_snippet_copied` with the page slug and language only.
+ * Copy fires `solve_snippet_copied` with the page slug, language and an optional `surface`.
  */
 export default function CopyCode({
   code, lang, label, slug, surface,

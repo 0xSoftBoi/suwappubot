@@ -2296,14 +2296,14 @@
           "detail": "Call get_quote, then simulate_swap with the same wallet. Both are read-only."
         },
         {
-          "title": "Execute and track",
-          "detail": "Call execute_swap only when you intend to move funds, then get_swap_status. Check isError on every result."
+          "title": "Prepare and sign",
+          "detail": "Call execute_swap with the quote_id to get an unsigned transaction, then sign it with your own wallet and submit it. Check isError on every result."
         }
       ],
       "capabilities": [
         {
           "title": "Swap tools",
-          "detail": "get_quote, simulate_swap, execute_swap, get_swap_status and get_swap_history cover the full quote to settlement loop."
+          "detail": "get_quote and simulate_swap price a swap. execute_swap turns a quote into an unsigned transaction for you to sign. get_swap_status and get_swap_history read managed swaps started through the REST API."
         },
         {
           "title": "Portfolio and prices",
@@ -2348,17 +2348,17 @@
         {
           "method": "TOOL",
           "path": "execute_swap",
-          "does": "Execute from a managed wallet. 5 credits."
+          "does": "Build an unsigned transaction from a quote_id. You sign and submit it. 5 credits."
         },
         {
           "method": "TOOL",
           "path": "get_swap_status",
-          "does": "Read a swap's status."
+          "does": "Read the status of a managed swap from REST POST /v1/agent/swap/execute."
         },
         {
           "method": "TOOL",
           "path": "get_swap_history",
-          "does": "List past swaps."
+          "does": "List past managed swaps from the REST API."
         },
         {
           "method": "TOOL",
@@ -2431,8 +2431,8 @@
           "value": "60 seconds"
         },
         {
-          "label": "Moves funds",
-          "value": "execute_swap only; every other tool is read-only"
+          "label": "Writes",
+          "value": "execute_swap prepares an unsigned transaction; no tool signs or broadcasts"
         },
         {
           "label": "Credit cost",
@@ -2448,18 +2448,19 @@
       "limits": [
         "Perps is quote and read only. Lending is read only.",
         "Prediction markets can place orders through the REST API; the MCP tools listed here are reads.",
-        "Only execute_swap moves funds, and it is subject to wallet policies and approvals.",
+        "No MCP tool signs or broadcasts. For managed-wallet execution use REST POST /v1/agent/swap/execute.",
+        "execute_swap evaluates org spend policy first; a block or required approval comes back as an error. It creates no managed swap record, so get_swap_status and get_swap_history do not show transactions you prepared this way.",
         "Always check isError on tool results; errors are returned in the result, not as transport failures.",
         "The npm package version in the repo is 0.6.0. Check the registry before pinning."
       ],
       "faq": [
         {
           "q": "Does the model ever see my keys?",
-          "a": "Managed wallets sign server-side, and execute_swap is the only tool that moves funds. Your API key sits in client config, so scope it and rotate it if it leaks."
+          "a": "No MCP tool signs for you: execute_swap returns an unsigned transaction and you sign it with your own wallet. Your API key sits in client config, so scope it and rotate it if it leaks."
         },
         {
           "q": "What if execute_swap fails?",
-          "a": "Read get_swap_status before retrying. A retry without the same idempotency protection can create a second trade, so reconcile first."
+          "a": "It returns an error in the result. A policy block or a required approval looks the same way, so read the message. Nothing is signed or broadcast either way, so check on-chain before you resubmit a transaction you already signed."
         },
         {
           "q": "Can I stop the model spending too much?",
@@ -2467,7 +2468,7 @@
         },
         {
           "q": "Which tools are read-only?",
-          "a": "Everything except execute_swap. Quote, simulate, status, history, portfolio, prices, perps, prediction and lending tools do not move funds."
+          "a": "Everything except execute_swap, which only prepares an unsigned transaction. No MCP tool signs or broadcasts."
         },
         {
           "q": "What gets logged?",

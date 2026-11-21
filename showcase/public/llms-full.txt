@@ -36,6 +36,8 @@ Read tools answer freely; anything that costs money is a proposal a human must a
 
 Source: https://suwappu.bot/products/terminal (last updated 2026-11-21)
 
+**Start:** [Open the Terminal](https://terminal.suwappu.bot) · [Prefer chat? Use the bot](https://t.me/suwappu_bot)
+
 ## What it is
 
 The Terminal is the web side of Suwappu. It puts the swap form, price charts, order book, recent trades, perps, bridge, alerts, DCA and copy trading in one workspace, so you stop switching between tabs and apps.
@@ -134,6 +136,18 @@ The Terminal detects when its auth backend is not available and flips its status
 
 Yes, on HyperLiquid, with a connect step. Leverage caps come from each market.
 
+## Problems this solves
+
+- [Cross-chain swap without a bridge](https://suwappu.bot/solve/cross-chain-swap-without-a-bridge)
+- [Is a Pro subscription worth it? Fee break-even](https://suwappu.bot/solve/swap-fee-tiers-break-even)
+
+## Related
+
+- [Telegram Bot](https://suwappu.bot/products/telegram-bot)
+- [Swaps and Routing](https://suwappu.bot/products/swap-routing)
+- [HyperLiquid Perps](https://suwappu.bot/products/perps)
+- [Wallets and Custody](https://suwappu.bot/products/wallets-custody)
+
 
 ---
 
@@ -142,6 +156,8 @@ Yes, on HyperLiquid, with a connect step. Leverage caps come from each market.
 > Swap across chains, set orders and alerts, copy traders, snipe launches and check your portfolio. Short commands, a confirm step on each, and push messages when something fires.
 
 Source: https://suwappu.bot/products/telegram-bot (last updated 2026-11-21)
+
+**Start:** [Open the bot in Telegram](https://t.me/suwappu_bot) · [See plans](https://suwappu.bot/pricing)
 
 ## What it is
 
@@ -254,6 +270,19 @@ Send /subscribe pro 3 for three months. You sign once, no gas.
 
 Swap routing covers multiple chains. Each feature page lists its own venues.
 
+## Problems this solves
+
+- [A Telegram trading bot that works cross-chain](https://suwappu.bot/solve/telegram-trading-bot-cross-chain)
+- [Is a Telegram trading bot safe?](https://suwappu.bot/solve/is-a-telegram-trading-bot-safe)
+- [Is a Pro subscription worth it? Fee break-even](https://suwappu.bot/solve/swap-fee-tiers-break-even)
+
+## Related
+
+- [Web Terminal](https://suwappu.bot/products/terminal)
+- [Swaps and Routing](https://suwappu.bot/products/swap-routing)
+- [Limit, DCA, Trailing](https://suwappu.bot/products/orders)
+- [Wallets and Custody](https://suwappu.bot/products/wallets-custody)
+
 
 ---
 
@@ -262,6 +291,8 @@ Swap routing covers multiple chains. Each feature page lists its own venues.
 > One command races roughly ten route adapters in parallel, scores them, and shows you the winner. Same-chain or cross-chain. Fees 1.0% on Free, down to 0.1%.
 
 Source: https://suwappu.bot/products/swap-routing (last updated 2026-11-21)
+
+**Start:** [Open the bot in Telegram](https://t.me/suwappu_bot) · [Why cross-chain swaps stall](https://suwappu.bot/solve/why-is-my-cross-chain-swap-stuck)
 
 ## What it is
 
@@ -359,6 +390,19 @@ Only on Tempo, when sponsorship is on, for up to 3 transactions per user.
 
 See the stuck-swap guide. Transfers settle through the chosen provider, and timing differs by route.
 
+## Problems this solves
+
+- [Swap USDC from Base to Solana](https://suwappu.bot/solve/swap-usdc-base-to-solana)
+- [Cross-chain swap without a bridge](https://suwappu.bot/solve/cross-chain-swap-without-a-bridge)
+- [How much slippage should I set on a swap?](https://suwappu.bot/solve/how-much-slippage-cross-chain-swap)
+
+## Related
+
+- [Telegram Bot](https://suwappu.bot/products/telegram-bot)
+- [Web Terminal](https://suwappu.bot/products/terminal)
+- [Limit, DCA, Trailing](https://suwappu.bot/products/orders)
+- [Wallets and Custody](https://suwappu.bot/products/wallets-custody)
+
 
 ---
 
@@ -367,6 +411,8 @@ See the stuck-swap guide. Transfers settle through the chosen provider, and timi
 > Limit orders, recurring buys and trailing stops from Telegram. Each ends in a confirm step. Pro plan required. Fills are checked on a 30-second loop, not instantly.
 
 Source: https://suwappu.bot/products/orders (last updated 2026-11-21)
+
+**Start:** [Get Pro, $9.99/mo](https://suwappu.bot/pricing) · [Open the bot in Telegram](https://t.me/suwappu_bot)
 
 ## What it is
 
@@ -467,6 +513,18 @@ Limit orders can have an optional expiry in hours. Expired ones are marked EXPIR
 
 You can leave any flow before confirming. Managing live orders is done through /o.
 
+## Problems this solves
+
+- [Limit orders and DCA in Telegram](https://suwappu.bot/solve/limit-orders-dca-telegram)
+- [Is a Pro subscription worth it? Fee break-even](https://suwappu.bot/solve/swap-fee-tiers-break-even)
+
+## Related
+
+- [Price Alerts](https://suwappu.bot/products/alerts)
+- [Swaps and Routing](https://suwappu.bot/products/swap-routing)
+- [Telegram Bot](https://suwappu.bot/products/telegram-bot)
+- [HyperLiquid Perps](https://suwappu.bot/products/perps)
+
 
 ---
 
@@ -475,6 +533,8 @@ You can leave any flow before confirming. Managing live orders is done through /
 > Create an alert in three answers: token, type, price. The bot checks every 60 seconds and messages you. It does not trade for you.
 
 Source: https://suwappu.bot/products/alerts (last updated 2026-11-21)
+
+**Start:** [Open the bot in Telegram](https://t.me/suwappu_bot) · [Open the Terminal](https://terminal.suwappu.bot)
 
 ## What it is
 
@@ -570,6 +630,18 @@ Yes, in the Alerts panel, and the Terminal has a route to act on an alert.
 
 Coverage depends on the price source. Try the token in /a to confirm.
 
+## Problems this solves
+
+- [Set crypto price alerts in Telegram](https://suwappu.bot/solve/price-alerts-telegram)
+- [Limit orders and DCA in Telegram](https://suwappu.bot/solve/limit-orders-dca-telegram)
+
+## Related
+
+- [Limit, DCA, Trailing](https://suwappu.bot/products/orders)
+- [Telegram Bot](https://suwappu.bot/products/telegram-bot)
+- [Web Terminal](https://suwappu.bot/products/terminal)
+- [Swaps and Routing](https://suwappu.bot/products/swap-routing)
+
 
 ---
 
@@ -578,6 +650,8 @@ Coverage depends on the price source. Try the token in /a to confirm.
 > Pick from a ranked leaderboard, choose notify, auto or paper mode, and set hard caps per trade and per day. Follow up to five leaders. Pro plan.
 
 Source: https://suwappu.bot/products/copy-trading (last updated 2026-11-21)
+
+**Start:** [Get Pro, $9.99/mo](https://suwappu.bot/pricing) · [Open the bot in Telegram](https://t.me/suwappu_bot)
 
 ## What it is
 
@@ -680,6 +754,18 @@ Pro, at $9.99 a month.
 
 No automatic stop on the leader was found. Stop a follow yourself or let your daily cap limit damage.
 
+## Problems this solves
+
+- [A Telegram trading bot that works cross-chain](https://suwappu.bot/solve/telegram-trading-bot-cross-chain)
+- [Is a Telegram trading bot safe?](https://suwappu.bot/solve/is-a-telegram-trading-bot-safe)
+
+## Related
+
+- [Swaps and Routing](https://suwappu.bot/products/swap-routing)
+- [Limit, DCA, Trailing](https://suwappu.bot/products/orders)
+- [Telegram Bot](https://suwappu.bot/products/telegram-bot)
+- [Web Terminal](https://suwappu.bot/products/terminal)
+
 
 ---
 
@@ -688,6 +774,8 @@ No automatic stop on the leader was found. Stop a follow yourself or let your da
 > Watch pump.fun launches and new Raydium pools, buy by contract or on auto, and cap your daily spend. Solana only. Pro plan. No safety filter is enforced.
 
 Source: https://suwappu.bot/products/sniping (last updated 2026-11-21)
+
+**Start:** [Get Pro, $9.99/mo](https://suwappu.bot/pricing) · [Open the bot in Telegram](https://t.me/suwappu_bot)
 
 ## What it is
 
@@ -786,6 +874,18 @@ New tokens move fast and thin. You can lower it, but buys may fail.
 
 Pro at $9.99 a month.
 
+## Problems this solves
+
+- [Snipe new Solana token launches in Telegram](https://suwappu.bot/solve/snipe-new-solana-launches-telegram)
+- [Is a Telegram trading bot safe?](https://suwappu.bot/solve/is-a-telegram-trading-bot-safe)
+
+## Related
+
+- [Swaps and Routing](https://suwappu.bot/products/swap-routing)
+- [Price Alerts](https://suwappu.bot/products/alerts)
+- [Telegram Bot](https://suwappu.bot/products/telegram-bot)
+- [Wallets and Custody](https://suwappu.bot/products/wallets-custody)
+
 
 ---
 
@@ -794,6 +894,8 @@ Pro at $9.99 a month.
 > Open and close perpetual positions on HyperLiquid from Telegram or the Terminal. Leverage is capped by each market, with a 20x fallback. Leverage can liquidate you.
 
 Source: https://suwappu.bot/products/perps (last updated 2026-11-21)
+
+**Start:** [Open the bot in Telegram](https://t.me/suwappu_bot) · [Open the Terminal](https://terminal.suwappu.bot)
 
 ## What it is
 
@@ -895,6 +997,18 @@ Yes. The Terminal has a perps workspace with a HyperLiquid connect step.
 
 No. HyperLiquid only.
 
+## Problems this solves
+
+- [A Telegram trading bot that works cross-chain](https://suwappu.bot/solve/telegram-trading-bot-cross-chain)
+- [Is a Telegram trading bot safe?](https://suwappu.bot/solve/is-a-telegram-trading-bot-safe)
+
+## Related
+
+- [Web Terminal](https://suwappu.bot/products/terminal)
+- [Limit, DCA, Trailing](https://suwappu.bot/products/orders)
+- [Telegram Bot](https://suwappu.bot/products/telegram-bot)
+- [Wallets and Custody](https://suwappu.bot/products/wallets-custody)
+
 
 ---
 
@@ -903,6 +1017,8 @@ No. HyperLiquid only.
 > Open /predict, find a market and take a side. A monitor watches prices and settles resolved markets for you. Blocked in restricted regions, including the US.
 
 Source: https://suwappu.bot/products/predictions (last updated 2026-11-21)
+
+**Start:** [Open the bot in Telegram](https://t.me/suwappu_bot) · [Open the Terminal](https://terminal.suwappu.bot)
 
 ## What it is
 
@@ -998,6 +1114,18 @@ The check does not block when a region cannot be determined. Polymarket's own ru
 
 No. It is a market on event outcomes, and you can lose the full stake.
 
+## Problems this solves
+
+- [A Telegram trading bot that works cross-chain](https://suwappu.bot/solve/telegram-trading-bot-cross-chain)
+- [Set crypto price alerts in Telegram](https://suwappu.bot/solve/price-alerts-telegram)
+
+## Related
+
+- [Telegram Bot](https://suwappu.bot/products/telegram-bot)
+- [Web Terminal](https://suwappu.bot/products/terminal)
+- [Wallets and Custody](https://suwappu.bot/products/wallets-custody)
+- [Price Alerts](https://suwappu.bot/products/alerts)
+
 
 ---
 
@@ -1006,6 +1134,8 @@ No. It is a market on event outcomes, and you can lose the full stake.
 > Default wallets use KMS envelope encryption. You can import your own, add TOTP 2FA for large swaps, and read balances and PnL with two commands.
 
 Source: https://suwappu.bot/products/wallets-custody (last updated 2026-11-21)
+
+**Start:** [Open the bot in Telegram](https://t.me/suwappu_bot) · [Is a Telegram bot safe?](https://suwappu.bot/solve/is-a-telegram-trading-bot-safe)
 
 ## What it is
 
@@ -1110,6 +1240,18 @@ No. It is opt-in.
 
 Not confirmed. Check before you rely on it.
 
+## Problems this solves
+
+- [Is a Telegram trading bot safe?](https://suwappu.bot/solve/is-a-telegram-trading-bot-safe)
+- [A Telegram trading bot that works cross-chain](https://suwappu.bot/solve/telegram-trading-bot-cross-chain)
+
+## Related
+
+- [Telegram Bot](https://suwappu.bot/products/telegram-bot)
+- [Web Terminal](https://suwappu.bot/products/terminal)
+- [Swaps and Routing](https://suwappu.bot/products/swap-routing)
+- [Spend Policies](https://suwappu.bot/products/spend-policies)
+
 
 ---
 
@@ -1118,6 +1260,8 @@ Not confirmed. Check before you rely on it.
 > The Agent API is Suwappu's REST surface for cross-chain swaps. Quote and dry-run cost 1 credit each, execution costs 5, and nothing moves until you choose to execute.
 
 Source: https://suwappu.bot/products/agent-api (last updated 2026-11-21)
+
+**Start:** [Get an API key](https://suwappu.bot/start) · [Read the quick start](https://suwappu.bot/docs/quick-start/overview)
 
 ## What it is
 
@@ -1218,6 +1362,19 @@ Yes. Wallet-level policies are self-serve; org-wide caps and approvals are set w
 
 Approval and policy events are written to an audit log you can read at GET /v1/agent/audit. See approvals-audit.
 
+## Problems this solves
+
+- [Cross-chain swap API: one quote endpoint](https://suwappu.bot/solve/cross-chain-swap-api)
+- [Simulate a swap before signing it](https://suwappu.bot/solve/simulate-swap-before-signing)
+- [Avoid double swaps when an agent retries](https://suwappu.bot/solve/idempotent-agent-swaps)
+
+## Related
+
+- [MCP Server](https://suwappu.bot/products/mcp-server)
+- [TypeScript and Python SDKs](https://suwappu.bot/products/sdks)
+- [Spend Policies](https://suwappu.bot/products/spend-policies)
+- [Swaps and Routing](https://suwappu.bot/products/swap-routing)
+
 
 ---
 
@@ -1226,6 +1383,8 @@ Approval and policy events are written to an audit log you can read at GET /v1/a
 > Point any MCP client at https://api.suwappu.bot/mcp. Discovery tools work without a key; quoting, dry runs and swaps need your API key.
 
 Source: https://suwappu.bot/products/mcp-server (last updated 2026-11-21)
+
+**Start:** [Get an API key](https://suwappu.bot/start) · [Read the quick start](https://suwappu.bot/docs/quick-start/overview)
 
 ## What it is
 
@@ -1239,11 +1398,11 @@ If your client only speaks stdio, install the @suwappu/mcp-server package. It is
 2. Add the server. Use the URL https://api.suwappu.bot/mcp with an Authorization: Bearer header, or run the stdio bridge with SUWAPPU_API_KEY set.
 3. List tools. Call tools/list. The server negotiates protocol version through _meta; the MCP-Protocol-Version header must match it.
 4. Quote and simulate. Call get_quote, then simulate_swap with the same wallet. Both are read-only.
-5. Execute and track. Call execute_swap only when you intend to move funds, then get_swap_status. Check isError on every result.
+5. Prepare and sign. Call execute_swap with the quote_id to get an unsigned transaction, then sign it with your own wallet and submit it. Check isError on every result.
 
 ## What you can do
 
-- Swap tools. get_quote, simulate_swap, execute_swap, get_swap_status and get_swap_history cover the full quote to settlement loop.
+- Swap tools. get_quote and simulate_swap price a swap. execute_swap turns a quote into an unsigned transaction for you to sign. get_swap_status and get_swap_history read managed swaps started through the REST API.
 - Portfolio and prices. get_portfolio and get_prices give the agent balances and market prices before it decides.
 - Chains and tokens. list_chains, list_tokens, get_tempo_tokens, near_resolve_asset and near_convert_amount help it resolve names to real assets.
 - Perps reads and quotes. perps_markets, perps_quote and perps_positions. There is no perps order tool; perps is quote and read only.
@@ -1257,9 +1416,9 @@ If your client only speaks stdio, install the @suwappu/mcp-server package. It is
 
 - TOOL get_quote: Price a swap. 1 credit.
 - TOOL simulate_swap: Dry run a quote without signing. 1 credit.
-- TOOL execute_swap: Execute from a managed wallet. 5 credits.
-- TOOL get_swap_status: Read a swap's status.
-- TOOL get_swap_history: List past swaps.
+- TOOL execute_swap: Build an unsigned transaction from a quote_id. You sign and submit it. 5 credits.
+- TOOL get_swap_status: Read the status of a managed swap from REST POST /v1/agent/swap/execute.
+- TOOL get_swap_history: List past managed swaps from the REST API.
 - TOOL get_portfolio: Wallet balances. Metered.
 - TOOL get_prices: Token prices.
 - TOOL list_chains: Supported chains.
@@ -1293,7 +1452,7 @@ curl -s -X POST https://api.suwappu.bot/mcp \
 - Protocol versions: 2024-11-05, 2025-03-26, 2025-06-18 plus a current version negotiated via _meta
 - Stdio bridge: @suwappu/mcp-server, repo version 0.6.0
 - Quote lifetime: 60 seconds
-- Moves funds: execute_swap only; every other tool is read-only
+- Writes: execute_swap prepares an unsigned transaction; no tool signs or broadcasts
 - Credit cost: Same as REST: 1 for quote and simulate, 5 for execute
 
 ## Pricing
@@ -1304,7 +1463,8 @@ Metered calls draw prepaid credits: a quote or dry run costs 1, a swap costs 5, 
 
 - Perps is quote and read only. Lending is read only.
 - Prediction markets can place orders through the REST API; the MCP tools listed here are reads.
-- Only execute_swap moves funds, and it is subject to wallet policies and approvals.
+- No MCP tool signs or broadcasts. For managed-wallet execution use REST POST /v1/agent/swap/execute.
+- execute_swap evaluates org spend policy first; a block or required approval comes back as an error. It creates no managed swap record, so get_swap_status and get_swap_history do not show transactions you prepared this way.
 - Always check isError on tool results; errors are returned in the result, not as transport failures.
 - The npm package version in the repo is 0.6.0. Check the registry before pinning.
 
@@ -1312,11 +1472,11 @@ Metered calls draw prepaid credits: a quote or dry run costs 1, a swap costs 5, 
 
 ### Does the model ever see my keys?
 
-Managed wallets sign server-side, and execute_swap is the only tool that moves funds. Your API key sits in client config, so scope it and rotate it if it leaks.
+No MCP tool signs for you: execute_swap returns an unsigned transaction and you sign it with your own wallet. Your API key sits in client config, so scope it and rotate it if it leaks.
 
 ### What if execute_swap fails?
 
-Read get_swap_status before retrying. A retry without the same idempotency protection can create a second trade, so reconcile first.
+It returns an error in the result. A policy block or a required approval looks the same way, so read the message. Nothing is signed or broadcast either way, so check on-chain before you resubmit a transaction you already signed.
 
 ### Can I stop the model spending too much?
 
@@ -1324,11 +1484,24 @@ Yes. Wallet policies cap per-transaction size and restrict addresses. Org-wide c
 
 ### Which tools are read-only?
 
-Everything except execute_swap. Quote, simulate, status, history, portfolio, prices, perps, prediction and lending tools do not move funds.
+Everything except execute_swap, which only prepares an unsigned transaction. No MCP tool signs or broadcasts.
 
 ### What gets logged?
 
 Approval and policy events go to the audit log, readable at GET /v1/agent/audit.
+
+## Problems this solves
+
+- [MCP server for crypto swaps and quotes](https://suwappu.bot/solve/mcp-server-for-crypto-swaps)
+- [Give Claude a crypto wallet safely](https://suwappu.bot/solve/give-claude-crypto-wallet-safely)
+- [How to let an AI agent swap tokens safely](https://suwappu.bot/solve/let-ai-agent-swap-tokens)
+
+## Related
+
+- [Agent API](https://suwappu.bot/products/agent-api)
+- [TypeScript and Python SDKs](https://suwappu.bot/products/sdks)
+- [Managed Wallets](https://suwappu.bot/products/managed-wallets)
+- [Web Terminal](https://suwappu.bot/products/terminal)
 
 
 ---
@@ -1338,6 +1511,8 @@ Approval and policy events go to the audit log, readable at GET /v1/agent/audit.
 > Use the TypeScript package @suwappu/sdk or the Python package suwappu instead of hand-rolling requests. Same routes, same credits, typed responses and one error class.
 
 Source: https://suwappu.bot/products/sdks (last updated 2026-11-21)
+
+**Start:** [Get an API key](https://suwappu.bot/start) · [Read the quick start](https://suwappu.bot/docs/quick-start/overview)
 
 ## What it is
 
@@ -1363,9 +1538,6 @@ The Python package ships pydantic models for responses such as Quote and SwapRes
 - Live updates. subscribeLive opens a live subscription from the TypeScript client.
 - One error type. SuwappuError, aliased SuwappuApiError, carries the API's error body so you can branch on error_code.
 - Python types. pydantic models in suwappu/types.py, including Quote, SwapResult and PerpQuote.
-
-
-## Endpoints
 
 
 
@@ -1431,6 +1603,18 @@ Yes. Generate a client from GET /v1/agent/openapi.
 
 The SDK logs nothing for you. Server-side approval and policy events are in the audit log.
 
+## Problems this solves
+
+- [TypeScript and Python SDK for DEX swaps](https://suwappu.bot/solve/typescript-python-sdk-dex-swaps)
+- [How to let an AI agent swap tokens safely](https://suwappu.bot/solve/let-ai-agent-swap-tokens)
+- [Free swap quote API without a signup](https://suwappu.bot/solve/free-swap-quote-api)
+
+## Related
+
+- [Agent API](https://suwappu.bot/products/agent-api)
+- [MCP Server](https://suwappu.bot/products/mcp-server)
+- [Approvals and Audit](https://suwappu.bot/products/approvals-audit)
+
 
 ---
 
@@ -1439,6 +1623,8 @@ The SDK logs nothing for you. Server-side approval and policy events are in the 
 > Create a managed wallet through the API, fund it, and let the agent execute from it. Cap each transaction and restrict destinations with self-serve policies.
 
 Source: https://suwappu.bot/products/managed-wallets (last updated 2026-11-21)
+
+**Start:** [Get an API key](https://suwappu.bot/start) · [Read the quick start](https://suwappu.bot/docs/quick-start/overview)
 
 ## What it is
 
@@ -1526,6 +1712,19 @@ Wallet policies are managed through the same agent API, so do not assume an agen
 
 Approval and policy gate events are written to the audit log.
 
+## Problems this solves
+
+- [Spending limits for an AI agent wallet](https://suwappu.bot/solve/spending-limits-ai-agent-wallet)
+- [Give Claude a crypto wallet safely](https://suwappu.bot/solve/give-claude-crypto-wallet-safely)
+- [How to let an AI agent swap tokens safely](https://suwappu.bot/solve/let-ai-agent-swap-tokens)
+
+## Related
+
+- [Spend Policies](https://suwappu.bot/products/spend-policies)
+- [Approvals and Audit](https://suwappu.bot/products/approvals-audit)
+- [Wallets and Custody](https://suwappu.bot/products/wallets-custody)
+- [Agent API](https://suwappu.bot/products/agent-api)
+
 
 ---
 
@@ -1534,6 +1733,8 @@ Approval and policy gate events are written to the audit log.
 > Wallet limits are self-serve. Org-wide daily caps, hourly caps, velocity limits and approval rules are set with the team, and there is no public route to create them.
 
 Source: https://suwappu.bot/products/spend-policies (last updated 2026-11-21)
+
+**Start:** [Talk to the team](https://suwappu.bot/contact) · [Read the quick start](https://suwappu.bot/docs/quick-start/overview)
 
 ## What it is
 
@@ -1621,6 +1822,18 @@ Only an org key carrying the admin scope. Mint that key sparingly.
 
 Approval lifecycle events and policy gate failures go to the audit log.
 
+## Problems this solves
+
+- [Spending limits for an AI agent wallet](https://suwappu.bot/solve/spending-limits-ai-agent-wallet)
+- [A kill switch for trading agents](https://suwappu.bot/solve/agent-kill-switch-for-trading-agents)
+- [Approval workflow for on-chain agent trades](https://suwappu.bot/solve/approval-workflow-onchain-trades)
+
+## Related
+
+- [Managed Wallets](https://suwappu.bot/products/managed-wallets)
+- [Approvals and Audit](https://suwappu.bot/products/approvals-audit)
+- [Organisations](https://suwappu.bot/products/organisations)
+
 
 ---
 
@@ -1629,6 +1842,8 @@ Approval lifecycle events and policy gate failures go to the audit log.
 > When policy requires approval, the swap waits as pending for 15 minutes. An owner approves or denies it, the approval is used once, and each step is logged.
 
 Source: https://suwappu.bot/products/approvals-audit (last updated 2026-11-21)
+
+**Start:** [Talk to the team](https://suwappu.bot/contact) · [Read the quick start](https://suwappu.bot/docs/quick-start/overview)
 
 ## What it is
 
@@ -1723,6 +1938,18 @@ The owner, authenticated with a JWT and proof of possession. Approve and deny ar
 
 Creation, consumption, validation failures, blocked resubmits, execution failures and policy fail-closed events.
 
+## Problems this solves
+
+- [Approval workflow for on-chain agent trades](https://suwappu.bot/solve/approval-workflow-onchain-trades)
+- [An audit log for trading agents](https://suwappu.bot/solve/audit-log-for-trading-agents)
+- [A kill switch for trading agents](https://suwappu.bot/solve/agent-kill-switch-for-trading-agents)
+
+## Related
+
+- [Spend Policies](https://suwappu.bot/products/spend-policies)
+- [Organisations](https://suwappu.bot/products/organisations)
+- [Managed Wallets](https://suwappu.bot/products/managed-wallets)
+
 
 ---
 
@@ -1731,6 +1958,8 @@ Creation, consumption, validation failures, blocked resubmits, execution failure
 > Create an organisation, invite people as admin, member or viewer, and mint API keys with named scopes. A wildcard key cannot be minted.
 
 Source: https://suwappu.bot/products/organisations (last updated 2026-11-21)
+
+**Start:** [Talk to the team](https://suwappu.bot/contact) · [Read the quick start](https://suwappu.bot/docs/quick-start/overview)
 
 ## What it is
 
@@ -1824,6 +2053,18 @@ Only the owner changes roles. Owner or admin can invite and mint keys.
 
 Org key calls produce audit rows readable at GET /audit, which returns your org's rows.
 
+## Problems this solves
+
+- [A swap API for multi-chain treasury ops](https://suwappu.bot/solve/treasury-swaps-api-for-desks)
+- [An audit log for trading agents](https://suwappu.bot/solve/audit-log-for-trading-agents)
+- [Spending limits for an AI agent wallet](https://suwappu.bot/solve/spending-limits-ai-agent-wallet)
+
+## Related
+
+- [Spend Policies](https://suwappu.bot/products/spend-policies)
+- [Approvals and Audit](https://suwappu.bot/products/approvals-audit)
+- [Billing and Credits](https://suwappu.bot/products/billing-credits)
+
 
 ---
 
@@ -1832,6 +2073,8 @@ Org key calls produce audit rows readable at GET /audit, which returns your org'
 > A quote costs 1 credit, a swap costs 5, and 1 credit is about $0.001. New agents start with 100. Out of credits, the API answers HTTP 402.
 
 Source: https://suwappu.bot/products/billing-credits (last updated 2026-11-21)
+
+**Start:** [Get an API key](https://suwappu.bot/start) · [Read the quick start](https://suwappu.bot/docs/quick-start/overview)
 
 ## What it is
 
@@ -1923,6 +2166,18 @@ Any holder of your key. Use scoped org keys and wallet limits to bound it.
 
 Agent actions, including approvals and policy events, are in the audit log at GET /v1/agent/audit. Read your balance and cost weights at GET /v1/agent/billing.
 
+## Problems this solves
+
+- [Pay-per-call crypto API with prepaid credits](https://suwappu.bot/solve/x402-pay-per-call-api)
+- [Free swap quote API without a signup](https://suwappu.bot/solve/free-swap-quote-api)
+- [Cross-chain swap API: one quote endpoint](https://suwappu.bot/solve/cross-chain-swap-api)
+
+## Related
+
+- [Agent API](https://suwappu.bot/products/agent-api)
+- [Organisations](https://suwappu.bot/products/organisations)
+- [Swaps and Routing](https://suwappu.bot/products/swap-routing)
+
 
 ---
 
@@ -1931,6 +2186,8 @@ Agent actions, including approvals and policy events, are in the audit log at GE
 > Autopilot agents run in paper mode by default: fills are simulated and no real funds move. Every decision is readable through a public feed, no key needed.
 
 Source: https://suwappu.bot/products/autopilot (last updated 2026-11-21) · status: paper
+
+**Start:** [Read the quick start](https://suwappu.bot/docs/quick-start/overview) · [Talk to the team](https://suwappu.bot/contact)
 
 ## What it is
 
@@ -2022,6 +2279,19 @@ Only operators with the admin key.
 
 Decisions, positions and a journal per agent, readable through the public routes.
 
+## Problems this solves
+
+- [A2A agent for crypto quotes and prices](https://suwappu.bot/solve/a2a-crypto-trading-agent)
+- [An audit log for trading agents](https://suwappu.bot/solve/audit-log-for-trading-agents)
+- [How to let an AI agent swap tokens safely](https://suwappu.bot/solve/let-ai-agent-swap-tokens)
+
+## Related
+
+- [Agent API](https://suwappu.bot/products/agent-api)
+- [Web Terminal](https://suwappu.bot/products/terminal)
+- [HyperLiquid Perps](https://suwappu.bot/products/perps)
+- [Limit, DCA, Trailing](https://suwappu.bot/products/orders)
+
 
 ---
 
@@ -2030,6 +2300,8 @@ Decisions, positions and a journal per agent, readable through the public routes
 > Arbiter is a preview. It is shown on NEAR testnet only, with no mainnet funds, and its routes are not enabled on the production API yet.
 
 Source: https://suwappu.bot/products/arbiter (last updated 2026-11-21) · status: preview
+
+**Start:** [Read the quick start](https://suwappu.bot/docs/quick-start/overview) · [Talk to the team](https://suwappu.bot/contact)
 
 ## What it is
 
@@ -2116,6 +2388,18 @@ The rubric agreed for the job. The scoring details are not covered here.
 
 Attestations on NEAR testnet. Real testnet transactions are listed on the Arbiter page.
 
+## Problems this solves
+
+- [A2A agent for crypto quotes and prices](https://suwappu.bot/solve/a2a-crypto-trading-agent)
+- [An audit log for trading agents](https://suwappu.bot/solve/audit-log-for-trading-agents)
+- [Approval workflow for on-chain agent trades](https://suwappu.bot/solve/approval-workflow-onchain-trades)
+
+## Related
+
+- [Agent API](https://suwappu.bot/products/agent-api)
+- [Agent Desk](https://suwappu.bot/products/agent-desk)
+- [Wallets and Custody](https://suwappu.bot/products/wallets-custody)
+
 
 ---
 
@@ -2124,6 +2408,8 @@ Attestations on NEAR testnet. Real testnet transactions are listed on the Arbite
 > Agent Desk is a preview. Agents in your browser propose swap sequences through WebMCP tools, and a human reviews, overrides and signs. It is not a public API.
 
 Source: https://suwappu.bot/products/agent-desk (last updated 2026-11-21) · status: preview
+
+**Start:** [Read the quick start](https://suwappu.bot/docs/quick-start/overview) · [Talk to the team](https://suwappu.bot/contact)
 
 ## What it is
 
@@ -2214,6 +2500,19 @@ You do, in the page.
 ### What is logged?
 
 This page does not document desk logging. The Agent API audit log covers approval and policy events.
+
+## Problems this solves
+
+- [Give Claude a crypto wallet safely](https://suwappu.bot/solve/give-claude-crypto-wallet-safely)
+- [Approval workflow for on-chain agent trades](https://suwappu.bot/solve/approval-workflow-onchain-trades)
+- [How to let an AI agent swap tokens safely](https://suwappu.bot/solve/let-ai-agent-swap-tokens)
+
+## Related
+
+- [Agent API](https://suwappu.bot/products/agent-api)
+- [MCP Server](https://suwappu.bot/products/mcp-server)
+- [Spend Policies](https://suwappu.bot/products/spend-policies)
+- [Web Terminal](https://suwappu.bot/products/terminal)
 
 
 # Problems solved

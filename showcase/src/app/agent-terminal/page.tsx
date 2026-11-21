@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import SummerNav from '@/components/SummerNav';
+import TrackedLink from '@/components/solve/TrackedLink';
 import SummerFooter from '@/components/SummerFooter';
 import AgentDesk from './AgentDesk';
 import stats from '@/data/stats.generated.json';
@@ -243,7 +244,7 @@ export default function AgentTerminalPage() {
               How it works ↓
             </a>
           </div>
-          <p className="pdx-detail"><a href="/products/agent-desk">Full details: Agent Desk →</a></p>
+          <p className="pdx-detail"><TrackedLink href="/products/agent-desk" surface="product" slug="agent-desk" kind="product">Full details: Agent Desk →</TrackedLink></p>
         </header>
           </div>
         </div>

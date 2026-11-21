@@ -70,12 +70,14 @@
   display: grid;
   grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
   grid-template-areas:
+    'notice notice'
     'title title'
     'text  ledger';
   column-gap: 56px;
   row-gap: 28px;
   align-items: start;
 }
+.notice { grid-area: notice; justify-self: start; display: inline-flex; margin: 0; padding: 0.35rem 0.85rem; border-radius: 999px; border: 1px solid #a9a6ec; background: #ecebff; color: #3d3a8c; font: 700 0.75rem/1.4 var(--v3-font-mono, monospace); }
 .heroText { grid-area: text; display: flex; flex-direction: column; justify-content: space-between; gap: 40px; align-self: stretch; padding-bottom: 4px; }
 .heroTop { display: grid; gap: 28px; align-content: start; }
 
@@ -356,7 +358,7 @@
   .main { padding: 36px 20px 24px; }
   .hero {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: 'title' 'text' 'ledger';
+    grid-template-areas: 'notice' 'title' 'text' 'ledger';
     row-gap: 24px;
   }
   .lede { max-width: 44ch; }

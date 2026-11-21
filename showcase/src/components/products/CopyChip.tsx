@@ -3,7 +3,10 @@
 import { useState } from 'react';
 import { track } from '@/lib/analytics';
 
-/** Small copy button for one command or path in a reference table. */
+/**
+ * Small copy button for one command or path in a reference table.
+ * Fires `solve_snippet_copied` with slug, lang and `surface: 'product'`.
+ */
 export default function CopyChip({ text, slug, lang }: { text: string; slug: string; lang: string }) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
@@ -15,8 +18,9 @@ export default function CopyChip({ text, slug, lang }: { text: string; slug: str
     } catch { /* clipboard unavailable: the text is selectable */ }
   };
   return (
-    <button type="button" className="pd-copy" onClick={copy} aria-label={`Copy ${text}`}>
+    <button type="button" className="pd-copy" onClick={copy} aria-label={copied ? `Copied ${text}` : `Copy ${text}`}>
       {copied ? 'Copied' : 'Copy'}
+      <span className="sr-only" role="status" aria-live="polite">{copied ? 'Copied' : ''}</span>
     </button>
   );
 }
