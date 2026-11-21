@@ -141,6 +141,31 @@ class _Lagging(Exception):
 COLD_START_LOOKBACK = 500
 
 
+# SQLSTATE classes that mean the database cannot take writes right now, not that
+# this deposit is bad: 08 connection, 25 read-only / txn state, 40 serialization
+# and deadlock, 53 insufficient resources (disk full), 57 operator intervention
+# (statement timeout, shutdown). Reads can keep working through all of these.
+_INFRA_SQLSTATE_CLASSES = {"08", "25", "40", "53", "57"}
+
+
+def _is_infra_error(exc: BaseException) -> bool:
+    """Whether a booking failure is the database's fault rather than the deposit's."""
+    from sqlalchemy.exc import InterfaceError, OperationalError, TimeoutError as PoolTimeout
+
+    seen = 0
+    cur: Optional[BaseException] = exc
+    while cur is not None and seen < 5:
+        if isinstance(cur, (OperationalError, InterfaceError, PoolTimeout, ConnectionError)):
+            return True
+        orig = getattr(cur, "orig", None)
+        code = getattr(orig, "pgcode", None) or getattr(orig, "sqlstate", None)
+        if isinstance(code, str) and code[:2] in _INFRA_SQLSTATE_CLASSES:
+            return True
+        cur = cur.__cause__ or cur.__context__
+        seen += 1
+    return False
+
+
 def _topic_for_address(address: str) -> str:
     """Left-pad an address to a 32-byte topic."""
     return "0x" + address.lower().replace("0x", "").rjust(64, "0")
@@ -249,6 +274,7 @@ class DepositWatcher:
                     operation="add",
                     session=session,
                 )
+            self._credit_failures.pop(key, None)
             logger.info(
                 "Credited deposit %s %s to user %s on %s (%s)",
                 amount,
@@ -278,10 +304,13 @@ class DepositWatcher:
             # past a deposit that was never booked — a transient DB error was
             # enough to lose it for good. Re-crediting is idempotent; skipping
             # is permanent.
-            if done is None:
-                # The database itself is unreachable: an outage, not this
-                # deposit. Retry for as long as it takes; never count it.
-                logger.error("Failed to credit deposit %s (database unreachable): %s", key, exc)
+            if done is None or _is_infra_error(exc):
+                # The database is unreachable, or answering reads but refusing
+                # writes (disk full, read-only failover, lock timeout,
+                # serialization failure): an outage, not this deposit. Retry
+                # for as long as it takes; never count it toward quarantine,
+                # or a long write outage would quarantine deposit after deposit.
+                logger.error("Failed to credit deposit %s (database outage): %s", key, exc)
                 raise
             failures = self._credit_failures.get(key, 0) + 1
             if failures < MAX_CREDIT_ATTEMPTS:
@@ -299,9 +328,27 @@ class DepositWatcher:
             # chain behind it, so quarantine it loudly (CRITICAL reaches Sentry)
             # with everything needed to credit it by hand, and move on.
             self._credit_failures.pop(key, None)
+            # Record it under the SAME idempotency key, with no balance move.
+            # A later re-scan (rewound or reset cursor) then hits the unique
+            # index and skips it, instead of crediting it a second time after
+            # an operator has already credited it by hand. The manual fix is to
+            # credit the balance and flip this row to completed.
+            recorded = self._record_quarantine(
+                user_id=user_id,
+                chain=chain,
+                token_symbol=token_symbol,
+                token_address=token_address,
+                amount=str(amount),
+                tx_hash=tx_hash,
+                from_address=from_address,
+                to_address=to_address,
+                key=key,
+                note=f"QUARANTINED block {block_number}, log {log_index}: {str(exc)[:200]}",
+            )
             logger.critical(
                 "DEPOSIT QUARANTINED, manual credit required: key=%s user_id=%s "
-                "chain=%s token=%s amount=%s tx=%s log=%s block=%s to=%s error=%s",
+                "chain=%s token=%s amount=%s tx=%s log=%s block=%s to=%s "
+                "ledger_row=%s error=%s",
                 key,
                 user_id,
                 chain,
@@ -311,8 +358,27 @@ class DepositWatcher:
                 log_index,
                 block_number,
                 to_address,
+                "failed-status row written" if recorded else "NOT WRITTEN, use this key exactly",
                 exc,
             )
+            return False
+
+    def _record_quarantine(self, *, key: str, note: str, **fields) -> bool:
+        """Write a failed-status ledger row for a quarantined deposit. No balance move."""
+        try:
+            with get_session() as session:
+                session.add(
+                    CustodialTransaction(
+                        tx_type=TransactionType.DEPOSIT.value,
+                        status=TransactionStatus.FAILED.value,
+                        idempotency_key=key,
+                        notes=note,
+                        **fields,
+                    )
+                )
+            return True
+        except Exception as exc:
+            logger.error("Could not record quarantined deposit %s: %s", key, exc)
             return False
 
     def _already_credited(self, user_id: int, key: str) -> Optional[bool]:
