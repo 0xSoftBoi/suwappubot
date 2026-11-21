@@ -49,3 +49,28 @@ Rippling: salaried / hourly / contractors run separately (R). Gusto: approvals d
 
 ## Still unverified
 Full Gusto left-menu order; Deel home widgets besides All tasks; current Rippling labels (PCMag may lag); EOR approval specifics; mobile screens.
+
+---
+# Beyond parity: what only onchain payroll can do
+
+Each item is tied to a sourced incumbent limit (see files above) and to what Suwappu already runs. Built into the prototype (v5).
+
+| Capability | Incumbent limit (sourced) | Onchain version | Suwappu building block | Prototype screen |
+|---|---|---|---|---|
+| **No deadlines** | Gusto: submit by 4 pm PT run-by date, 2/4-day ACH, failed debit $100 (G); Deel "Awaiting funding" stage (D) | Onchain payees paid in seconds, any hour, weekends; prefunded treasury means no failed debits | swap engine, paymaster (gas sponsorship), CCTP | Run payroll › Settlement card |
+| **Streaming pay / earned-wage access** | Paid only on payday; EWA is a separate partner product | Pay accrues per second, withdraw earned pay anytime for free | Sablier/Superfluid adapter (new), Turnkey wallets | Treasury › Streaming pay; Payee view live "Earned so far" + Withdraw |
+| **Float yield is the customer's** | Provider holds funds between debit and payday (G debit 2–4 days early) | Payroll float sits in a USDC vault until the payment moves | `treasury_vault_service.py` (Aave/Morpho) | Treasury › Float earns until payday; Home stat |
+| **Payout rules (tips, commission, rev-share, bounties)** | Off-cycle runs are manual; per-payout bank cost makes micro-payouts uneconomic; Gusto approvals don't cover contractors (G) | Event-triggered payouts settled instantly at ~$0.01 | EventBus, webhook dispatcher, policy engine, agent/MCP API | Payroll › Payout rules |
+| **Approvals enforced by the account** | Approvals are app settings (G/D/R) | 2-of-3 multisig plus hard limits and payee allowlist enforced at signing | Safe / smart accounts, `turnkey_policies.py`, PolicyService | Approvals pending card; Treasury › Who can move money |
+| **Public, privacy-preserving receipts** | PDFs and CSV exports (G/D) | Every batch has an onchain receipt; the accountant gets a key to match lines | tx receipts, Blockscout | Payroll cycles › Pay history › Public receipt |
+| **Proof of income** | Employees send bank statements | Selective-disclosure link backed by receipts | receipts + attestations (Arbiter) | Payee view › Share proof of income |
+| **Cheap global payouts** | Gusto international 0.75–2% (local bank), $25 min, 1–5 days (G); Deel card funding $0.30 + 2.9% (D); SWIFT 5–7 days (D) | USDC to 180+ countries in seconds, $0 funding fee; local cash-out via partners | swap engine, P2P off-ramp, Wise/partner rails | Billing › Pay your team (USDC $0 fee, 14 s) |
+| **Pay in anything, get paid in anything** | Employer funds in USD; FX forward-rate markup (D) | Fund in USDC, ETH or bank; payee picks asset and network; market-rate swap | swap engine, 7+ chains | Org settings › Payment methods; Payee view |
+| **Savings at source** | Separate 401(k) / bank products | % of each paycheck auto-routed to a yield vault | savings_service, vaults | Payee view › Savings |
+
+## Honest limits (keep these in product copy)
+- **US W-2 wages:** the FLSA requires minimum wage in cash or a negotiable instrument, and many states require wages in US currency. Crypto or stablecoin pay must be an employee election above that, which is why the prototype says "minimum wage is always paid in dollars." Contractors and non-US workers have no such constraint, depending on local law.
+- **Irreversibility:** onchain payments can't be clawed back. Corrections go through correction payrolls, and the 48-hour payee-change hold plus allowlist is what prevents misdirected pay.
+- **Yield risk:** vault rates are variable and carry smart-contract risk. Default off for regulated customers; disclose clearly.
+- **Taxes:** we still need a payroll tax partner for withholding and filings. Crypto payouts need fair-market-value records (the "Payout value at payment time" report).
+- **Privacy:** never put names or amounts onchain in the clear. Receipts are batch-level; the line mapping stays off-chain.
