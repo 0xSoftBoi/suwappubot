@@ -7,6 +7,7 @@ import { type AuthState, useDashboardAuth } from './auth-context';
 import UsageChart, { DailyBucket } from './components/UsageChart';
 import BillingPanel from './components/BillingPanel';
 import styles from './dashboard.module.css';
+import { CountUp } from '@/components/v3';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -790,7 +791,7 @@ export default function DashboardPage() {
       <div className={styles.kpiPrimary}>
         <div className={styles.kpiHero}>
           <p className={styles.kpiLabel}>Requests this month</p>
-          <span className={styles.kpiHeroValue}>{fmtNumber(usage.callsThisMonth)}</span>
+          <span className={styles.kpiHeroValue}><CountUp value={usage.callsThisMonth} duration={1100} /></span>
           <span className={styles.kpiHeroMeta}>
             {fmtNumber(usage.callsToday)} today
           </span>

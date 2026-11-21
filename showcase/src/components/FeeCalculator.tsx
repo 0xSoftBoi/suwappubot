@@ -68,7 +68,7 @@ export default function FeeCalculator({ tiers }: { tiers: CalcTier[] }) {
     : 0;
 
   return (
-    <section className={styles.calc} aria-labelledby={`${inputId}-heading`}>
+    <section className={`${styles.calc} v3-tone-light`} aria-labelledby={`${inputId}-heading`}>
       <div className={styles.head}>
         <p className="summer-kicker">What you&rsquo;d actually pay</p>
         <h2 className="mkt-h2" id={`${inputId}-heading`}>
@@ -114,6 +114,11 @@ export default function FeeCalculator({ tiers }: { tiers: CalcTier[] }) {
         </div>
       </div>
 
+      <p className={styles.legend} aria-hidden="true">
+        <span><i className={styles.swatch} /> Monthly cost: subscription plus swap fees</span>
+        <span><i className={`${styles.swatch} ${styles.swatchBest}`} /> Cheapest at this volume</span>
+      </p>
+
       <ol className={styles.rows}>
         {rows.map((r) => {
           const best = r.cents === cheapest.cents;
@@ -130,7 +135,7 @@ export default function FeeCalculator({ tiers }: { tiers: CalcTier[] }) {
                 )}
               </span>
               <span className={styles.bar} aria-hidden="true">
-                <span className={styles.barFill} style={{ width: `${(r.total / max) * 100}%` }} />
+                <span className={styles.barFill} style={{ transform: `scaleX(${Math.max(0.012, r.total / max)})` }} />
               </span>
               <span className={styles.total}>
                 {usd(r.total)}

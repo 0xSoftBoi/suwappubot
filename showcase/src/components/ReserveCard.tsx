@@ -47,6 +47,13 @@ export interface ReserveCardProps {
  * position, etc. are all real text elsewhere), so the whole thing is
  * aria-hidden.
  */
+const BRAND_PALETTE = {
+  color1: [0.04, 0.09, 0.15],
+  color2: [0.09, 0.2, 0.29],
+  color3: [0.16, 0.3, 0.42],
+  color4: [0.9, 0.55, 0.17],
+} as ReturnType<typeof deriveCardParams>['palette'];
+
 export default function ReserveCard({ handle, seed, variant = 'hero', className = '' }: ReserveCardProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -58,7 +65,9 @@ export default function ReserveCard({ handle, seed, variant = 'hero', className 
     const fallback = fallbackRef.current;
     if (!canvas || !fallback) return;
 
-    const { mode, variation, palette } = deriveCardParams(seed);
+    const { mode, variation } = deriveCardParams(seed);
+    // Brand palette (navy ink + one orange accent) instead of the seed-derived hues.
+    const palette = BRAND_PALETTE;
     fallback.style.background = paletteToCssGradient(palette);
 
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;

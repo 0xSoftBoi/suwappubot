@@ -12,9 +12,12 @@ import { PairProvider } from './contexts/PairContext'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { App } from './App'
 import { initPostHog } from './lib/posthog'
+import { captureRef } from './lib/attribution'
 import './index.css'
 
 initPostHog()
+// Remember a launch/micro-product ?ref= so the eventual swap record carries it.
+captureRef(window.location.search)
 
 // Dev-only API fixtures for screenshots / design work (VITE_MOCK=1). No-op in prod.
 if (import.meta.env.DEV && import.meta.env.VITE_MOCK) {

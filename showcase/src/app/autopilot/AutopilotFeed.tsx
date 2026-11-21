@@ -7,6 +7,7 @@ import { type VerifyOutcome, verifyDecision } from './verify';
 import styles from './autopilot.module.css';
 
 const POLL_MS = 20_000;
+const FEED_PREVIEW = 8;
 
 /** Prices span cents to thousands; significant digits beat a fixed decimal count. */
 export function price(n: number): string {
@@ -100,6 +101,7 @@ export default function AutopilotFeed({
   const [decisions, setDecisions] = useState<AutopilotDecision[]>(initial);
   const [stale, setStale] = useState(false);
   const [filter, setFilter] = useState<Filter>('all');
+  const [showAll, setShowAll] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -139,6 +141,21 @@ export default function AutopilotFeed({
     return decisions;
   }, [decisions, filter]);
 
+  // Presentation only: runs of consecutive refusals with the same reason collapse
+  // into one row ("x N"). Every underlying decision stays listed inside the row
+  // with its own permalink; nothing is dropped or rewritten.
+  const entries = useMemo(() => {
+    const out: AutopilotDecision[][] = [];
+    for (const d of shown) {
+      const prev = out[out.length - 1];
+      const last = prev?.[prev.length - 1];
+      if (last && !last.gate_passed && !d.gate_passed && last.rejection_reason === d.rejection_reason) prev.push(d);
+      else out.push([d]);
+    }
+    return out;
+  }, [shown]);
+  const visible = showAll ? entries : entries.slice(0, FEED_PREVIEW);
+
   if (decisions.length === 0) {
     return (
       <p className={styles.empty}>
@@ -169,7 +186,33 @@ export default function AutopilotFeed({
       )}
 
       <ul className={styles.feed}>
-        {shown.map((d) => {
+        {visible.map((group) => {
+          const d = group[0];
+          if (group.length > 1) {
+            const symbols = [...new Set(group.map((g) => g.symbol))];
+            return (
+              <li key={d.id} className={`${styles.card} ${styles.cardRefused}`}>
+                <div className={styles.cardTop}>
+                  <span className={`${styles.badge} ${styles.badgeRefused}`}>refused</span>
+                  <span className={styles.symbol}>{symbols.slice(0, 4).join(' · ')}{symbols.length > 4 ? ` +${symbols.length - 4}` : ''}</span>
+                  <span className={styles.repeat}>×{group.length}</span>
+                  <span className={styles.time}>latest {relativeTime(d.sealed_at)}</span>
+                </div>
+                {d.rejection_reason && <p className={styles.refusal}>refused — {d.rejection_reason}</p>}
+                <details className={styles.details}>
+                  <summary>All {group.length} refusals in this run</summary>
+                  <ul className={styles.runList}>
+                    {group.map((g) => (
+                      <li key={g.id}>
+                        <span className={styles.symbol}>{g.symbol}</span> <span className={styles.chain}>{g.chain}</span> <span className={styles.time}>{relativeTime(g.sealed_at)}</span>{' '}
+                        <a className={styles.permalink} href={`/autopilot/d/${g.id}`}>Open →</a>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              </li>
+            );
+          }
           const refused = !d.gate_passed;
           const cls = refused
             ? styles.cardRefused
@@ -254,6 +297,11 @@ export default function AutopilotFeed({
           );
         })}
       </ul>
+      {entries.length > FEED_PREVIEW && (
+        <button type="button" className={`${styles.filter} ${styles.showAll}`} aria-expanded={showAll} onClick={() => setShowAll((v) => !v)}>
+          {showAll ? 'Show fewer' : `Show all (${shown.length})`}
+        </button>
+      )}
     </>
   );
 }

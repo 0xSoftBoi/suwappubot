@@ -305,10 +305,10 @@
   height: 36px;
   padding: 0 14px;
   border-radius: 8px;
-  background: var(--nav-fg);
-  color: var(--nav-pop-bg);
+  background: #f6a93c;
+  color: #1a1208;
   font-size: 0.875rem;
-  font-weight: 600;
+  font-weight: 650;
   white-space: nowrap;
   text-decoration: none;
   touch-action: manipulation;
@@ -491,6 +491,51 @@
   outline: 2px solid var(--nav-ring);
   outline-offset: 2px;
 }
+
+/* ── Language dropdown (globe) ───────────────────────────────────── */
+
+.site-nav__langbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--nav-line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--nav-fg-dim);
+  font: 600 0.8125rem var(--font-sans);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.site-nav__langbtn:hover,
+.site-nav__langbtn[data-popup-open],
+.site-nav__langbtn[aria-expanded='true'] { background: var(--nav-hover); color: var(--nav-fg); }
+
+/* The popup is portalled out of .site-nav, so it carries its own colours. */
+.site-nav__langmenu {
+  min-width: 160px;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  background: #101a24;
+  box-shadow: 0 16px 40px -12px rgba(0, 0, 0, 0.6);
+  color: #f4f6f8;
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+}
+.site-nav__langmenu [data-slot='menu-radio-item'] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px 9px 6px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.site-nav__langmenu [data-slot='menu-radio-item']::before { content: ''; width: 14px; }
+.site-nav__langmenu [data-slot='menu-item-indicator'] { width: 14px; margin-left: -22px; color: #f6a93c; }
+.site-nav__langmenu [data-slot='menu-radio-item']:hover,
+.site-nav__langmenu [data-slot='menu-radio-item'][data-highlighted] { background: rgba(255, 255, 255, 0.09); outline: none; }
 
 /* ── Breakpoints ──────────────────────────────────────────────────── */
 

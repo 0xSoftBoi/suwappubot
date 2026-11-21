@@ -3,8 +3,9 @@
   "version": "0.9",
   "id": "bot.suwappu",
   "name": "Suwappu",
-  "description": "Cross-chain DEX and DeFi infrastructure for AI agents — swaps, perps, prediction markets, and lending across 14+ chains.",
+  "description": "Cross-chain DEX and DeFi infrastructure for AI agents — swaps, perps, prediction markets, and lending. 18 chains (EVM + Solana, Sui, TON) on the Agent API; docs at https://suwappu.bot/docs.",
   "homepage": "https://suwappu.bot",
+  "documentationUrl": "https://suwappu.bot/docs",
   "provider": {
     "name": "Suwappu",
     "url": "https://suwappu.bot"
@@ -48,6 +49,13 @@
       "name": "llms-full.txt",
       "description": "Exhaustive machine-readable endpoint reference (full variant of llms.txt).",
       "url": "https://api.suwappu.bot/llms-full.txt"
+    },
+    {
+      "type": "llms-txt",
+      "mediaType": "text/markdown",
+      "name": "llms.txt (suwappu.bot)",
+      "description": "Canonical llms.txt on the marketing domain.",
+      "url": "https://suwappu.bot/llms.txt"
     },
     {
       "type": "webmcp-page",

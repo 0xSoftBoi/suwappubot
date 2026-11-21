@@ -3,6 +3,8 @@ import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import EnterpriseContactForm from '@/components/EnterpriseContactForm';
 import DemoCallCta from '@/components/DemoCallCta';
+import { Reveal, Backdrop, BoundaryRings } from '@/components/v3';
+import '../sales-v3.css';
 import styles from './contact.module.css';
 import stats from '@/data/stats.generated.json';
 
@@ -16,42 +18,33 @@ const trust = [
   { text: 'KMS envelope encryption: managed-wallet keys are encrypted with AWS KMS, never handled in the clear.' },
   { text: 'Self-custody option: bring your own keys via the agent API for full non-custodial execution.' },
   { text: 'Spending limits, 2FA, and withdrawal allowlists on every account.' },
-  { text: `Best-price routing across ${stats.routerCount} integrated providers on ${stats.platformChains} chains.` },
+  { text: `Routing across ${stats.routerCount} integrated venues on ${stats.platformChains} chains.` },
   { text: 'SOC 2 on our roadmap: happy to walk your security team through our controls under NDA.', note: true },
 ];
 
 export default function ContactPage() {
   return (
-    <div className="summer-page docs-shell institutional-page">
+    <div className="summer-page docs-shell institutional-page v3-tone-light sv3-page">
       <SummerNav />
       <main id="main-content">
       <div className="summer-shell mkt-page">
-        <header className="mkt-hero mkt-hero--center">
-          <p className="summer-kicker">Enterprise</p>
+        <div className="sv3-heroband"><Backdrop kind="grid" /><header className="mkt-hero">
           <h1>Talk to the team.</h1>
           <p className="mkt-hero__lead">
-            For trading desks, OTC desks, funds, and teams building agent fleets: a 0.1% swap
-            fee, dedicated rate limits, and priority support. Tell us what you&rsquo;re building and
-            we&rsquo;ll get back to you fast.
+            For trading desks, funds and agent fleets: a 0.1% swap fee, dedicated rate limits and
+            priority support. Book a call or send a note.
           </p>
-        </header>
-
-        {/* Saphira-style gate: the fastest path is a 30-min call, not the form. */}
-        <section className={styles.demoCard} aria-label="Schedule a demo">
-          <div>
-            <h2 className="mkt-h2">Book a 30-min demo.</h2>
-            <p className={styles.demoBody}>
-              Skip the form: grab time with our team directly and we&rsquo;ll walk through rate
-              limits, custody model, and integration for your desk or agent fleet live.
-            </p>
+          <div className="summer-actions">
+            <DemoCallCta source="contact_page_card" className="summer-button summer-button--primary">
+              Schedule a demo
+            </DemoCallCta>
+            <a className="summer-button summer-button--secondary" href="#contact-form">Send a note</a>
           </div>
-          <DemoCallCta source="contact_page_card" className="summer-button summer-button--primary">
-            Schedule a demo
-          </DemoCallCta>
-        </section>
+        </header></div>
 
-        <section className={styles.layout} aria-label="Contact">
-          <div className={styles.pitch}>
+        <Reveal as="section" className={`${styles.layout} sv3-contact`}>
+          <div className={`${styles.pitch} sv3-next v3-tone-dark`}>
+            <div className="sv3-slab__art" aria-hidden="true"><BoundaryRings quiet /></div>
             <h2 className="mkt-h2">
               {stats.platformChains} chains, self-custody or managed keys, one agent API.
             </h2>
@@ -72,10 +65,12 @@ export default function ContactPage() {
             </ul>
           </div>
 
-          <div className={styles.panel}>
+          {/* The hero's "Send a note" jumps HERE, to the form itself: on a phone the
+              pitch stacks above it, and an anchor on the section landed on the pitch. */}
+          <div id="contact-form" className={`${styles.panel} sv3-formpanel`}>
             <EnterpriseContactForm />
           </div>
-        </section>
+        </Reveal>
       </div>
       </main>
       <SummerFooter />

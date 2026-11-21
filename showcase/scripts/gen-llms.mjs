@@ -7,18 +7,21 @@ import { fileURLToPath } from 'url';
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const docs = JSON.parse(readFileSync(join(scriptDir, '../src/data/docs.json'), 'utf-8'));
 const SITE = 'https://suwappu.bot';
+const solve = JSON.parse(readFileSync(join(scriptDir, '../src/data/solve.json'), 'utf-8'));
+const stats = JSON.parse(readFileSync(join(scriptDir, '../src/data/stats.generated.json'), 'utf-8'));
+const SOLVE_UPDATED = '2026-11-21'; // keep in step with src/data/solve.ts
 
 const H1 = '# Suwappu API';
 const SUMMARY =
-  '> Cross-chain DeFi API built for AI agents — best-price swaps, HyperLiquid market research, ' +
-  'and gasless trades across 40+ chains through one REST API, an MCP server, and a TypeScript SDK.';
+  `> Cross-chain DeFi API built for AI agents: swaps routed across ${stats.routerCount} venues, HyperLiquid market research, ` +
+  `and sponsored-gas trades. ${stats.platformChains} chains on the platform (${stats.agentApiChains} on the Agent API), through one REST API, an MCP server, and a TypeScript SDK.`;
 
 const PREAMBLE = `Base URL: https://api.suwappu.bot/v1/agent
 Auth: Bearer token — \`Authorization: Bearer suwappu_sk_...\` (get a key from \`POST /register\`, no auth required).
 
 SDK source contracts: @suwappu/sdk 0.6.x (TypeScript), suwappu 0.3.x (Python, async), @suwappu/openclaw.
 Package registries can lag the repository; verify the installed version and use REST/OpenAPI as the canonical fallback.
-MCP server: POST https://api.suwappu.bot/mcp (JSON-RPC 2.0; source 0.6.0 advertises 22 tools). MCP
+MCP server: POST https://api.suwappu.bot/mcp (JSON-RPC 2.0; source 0.6.0 advertises ${stats.mcpToolCount} tools by default). MCP
 2026-07-28 is the preferred stateless protocol revision, with legacy initialize compatibility through 2025-06-18.
 MCP execute_swap only prepares an unsigned self-custody transaction; it never signs or broadcasts.
 A2A protocol: POST https://api.suwappu.bot/a2a (JSON-RPC 2.0) — agent card at
@@ -37,9 +40,13 @@ const INSTRUCTIONS = `## Instructions for LLM Agents
 - Errors return a JSON envelope with an error code and message; rate-limited requests return HTTP 429. Always read the error body and back off on 429.
 - Do not hardcode chains or token symbols — call \`GET /chains\` and \`GET /tokens?chain=...\` for the authoritative lists.
 - Machine-readable contracts: OpenAPI 3.1 at https://api.suwappu.bot/v1/agent/openapi, A2A agent card at https://api.suwappu.bot/.well-known/agent-card.json.
-- Payment without a key: pay-per-call over HTTP 402 (x402) is available for reads and swaps — see https://suwappu.bot/pricing#agent-api for credit costs, rate limits, and subscription tiers before assuming a subscription is required.
+- Pay per call: metered calls draw prepaid credits (quote or dry run 1, swap 5; 1 credit is about $0.001), an API key is still required, and HTTP 402 means credits ran out (top up via POST /v1/agent/billing/topup). On-chain per-request x402 payment is built but not enabled. See https://suwappu.bot/pricing#agent-api for credit costs, rate limits, and subscription tiers before assuming a subscription is required.
 - Agent-surface swap fees are route/configuration-specific rather than subscription-tier discounts. Inspect the live quote; do not hardcode an EVM/Solana fee into strategy economics.
 - Every docs page is available as clean Markdown by appending \`.md\` to its URL (or sending \`Accept: text/markdown\`).`;
+
+const SKILLS = `## Agent skills
+
+- [suwappu-swaps](${SITE}/.well-known/skills/suwappu-swaps/SKILL.md): load this skill for the safe call order (get_quote, simulate_swap, execute_swap), units, limits and key registration. It grants no wallet access. Index: ${SITE}/.well-known/skills/index.json`;
 
 const ARBITER = `## Suwappu Arbiter (Proof of Done)
 
@@ -64,6 +71,22 @@ function sectionBlock(section) {
   return `## ${section.title}\n${lines.join('\n')}`;
 }
 
+// ---- Problems solved (src/data/solve.json: the same copy as /solve/<slug>) ----
+const firstSentence = (t) => t.split(/(?<=[.!?])\s/)[0];
+const solveIndex = [
+  '## Problems solved',
+  `Each page names a problem, answers it directly and links the product that solves it. Every one is also clean Markdown at <url>.md. Start: ${SITE}/start (get an API key in one call).`,
+  ...solve.pages.map((p) => `- [${p.h1}](${SITE}/solve/${p.slug}.md): ${firstSentence(p.answer)}`),
+].join('\n');
+const solveFull = solve.pages.map((p) => [
+  `\n---\n\n# ${p.h1}`, `\n> ${p.answer}\n`, `Source: ${SITE}/solve/${p.slug} (last updated ${SOLVE_UPDATED})\n`,
+  `## The problem\n\n${p.problem}\n`,
+  `## How to do it\n\n${p.steps.map((s, i) => `${i + 1}. ${s.title}. ${s.detail}`).join('\n')}\n`,
+  p.snippet ? `### ${p.snippet.label}\n\n\`\`\`${p.snippet.lang === 'telegram' ? 'text' : p.snippet.lang}\n${p.snippet.code}\n\`\`\`\n` : '',
+  `## What this does not do\n\n${p.limits.map((l) => `- ${l}`).join('\n')}\n`,
+  `## FAQ\n\n${p.faq.map((f) => `### ${f.q}\n\n${f.a}\n`).join('\n')}`,
+].join('\n')).join('\n');
+
 // ---- llms.txt (curated index) ----
 const main = docs.sections.filter((s) => !OPTIONAL_IDS.has(s.id));
 const optional = docs.sections.filter((s) => OPTIONAL_IDS.has(s.id));
@@ -79,7 +102,11 @@ const llms = [
   '',
   INSTRUCTIONS,
   '',
+  SKILLS,
+  '',
   ARBITER,
+  '',
+  solveIndex,
   '',
   ...main.map(sectionBlock).flatMap((b) => [b, '']),
   '## Optional',
@@ -88,7 +115,7 @@ const llms = [
 ].join('\n');
 
 // ---- llms-full.txt (full corpus) ----
-const fullParts = [H1, '', SUMMARY, '', PREAMBLE, '', ARBITER, ''];
+const fullParts = [H1, '', SUMMARY, '', PREAMBLE, '', ARBITER, '', '# Problems solved', solveFull, ''];
 for (const section of docs.sections) {
   fullParts.push(`\n\n# ${section.title}\n`);
   for (const page of section.pages) {

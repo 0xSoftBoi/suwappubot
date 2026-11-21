@@ -2,7 +2,11 @@ import type { Metadata } from 'next';
 import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import { GITHUB_URL, TELEGRAM_URL, TERMINAL_URL, MINI_APP_URL } from '@/lib/links';
-import styles from './products.module.css';
+import {
+  Reveal, SpotlightCard, V3Section, SectionHead, Backdrop, MiniViz, RouteMap, ToolOrbit, Sparkline,
+  type MiniKind, ProblemStrip } from '@/components/v3';
+import productStats from '@/data/stats.generated.json';
+import '../product-v3.css';
 
 export const metadata: Metadata = {
   title: 'Products',
@@ -19,7 +23,7 @@ const groups = [
       { title: 'Terminal', desc: 'Swap, route, and trade from the full Suwappu trading interface.', href: TERMINAL_URL, external: true, badge: 'Live' },
       { title: 'Telegram Bot', desc: 'Trade and manage activity directly from Telegram.', href: TELEGRAM_URL, external: true, badge: 'Live' },
       { title: 'Mini App', desc: 'Mobile-first Suwappu trading inside supported messaging surfaces.', href: MINI_APP_URL, external: true, badge: 'Live' },
-      { title: 'Cross-chain swaps', desc: 'Route assets across supported chains through Suwappu execution infrastructure.', href: '/#engine', badge: 'Live' },
+      { title: 'Cross-chain swaps', desc: 'Route assets across supported chains through Suwappu execution infrastructure.', href: '/solve/cross-chain-swap-without-a-bridge', badge: 'Live' },
       { title: 'Perpetuals', desc: 'Access perpetual markets through the Suwappu terminal.', href: '/#hyperliquid', badge: 'Live' },
       { title: 'Predictions & market surfaces', desc: 'Explore additional market interfaces exposed through the terminal.', href: TERMINAL_URL, external: true, badge: 'Live' },
       { title: 'Curve Pools', desc: 'Every pool on every chain Curve deploys to, sortable by TVL, 24h volume, or base APR, live in the Curve venue tab. Powered by the Curve Prices API and our fork of flet-curve.', href: TERMINAL_URL, external: true, badge: 'New' },
@@ -61,53 +65,116 @@ const groups = [
   },
 ];
 
-export default function ProductsPage() {
-  return (
-    <div className={`sw sw-dark ${styles.page}`}>
-      <SummerNav />
-      <main id="main-content" className="summer-shell">
-        <header className={styles.hero}>
-          <p className={styles.kicker}>Everything Suwappu ships</p>
-          <h1>One place to discover the entire Suwappu stack.</h1>
-          <p className={styles.lead}>
-            Trade, inspect market intelligence, build with APIs and agents, read research,
-            and manage your account without hunting for hidden routes.
-          </p>
-        </header>
+type Item = (typeof groups)[number]['items'][number];
 
-        {groups.map((group) => (
-          <section key={group.title} className={styles.group} aria-labelledby={`group-${group.eyebrow}`}>
-            <div className={styles.groupHead}>
-              <p className={styles.groupEyebrow}>{group.eyebrow}</p>
-              <h2 id={`group-${group.eyebrow}`} className={styles.groupTitle}>{group.title}</h2>
+const badgeCls = (b: string) =>
+  `pv3-badge${b === 'New' ? ' pv3-badge--new' : b === 'Live' ? ' pv3-badge--live' : ''}`;
+
+const ext = (item: Item) => ('external' in item && item.external ? { external: true } : {});
+
+const tradeViz: MiniKind[] = ['book', 'swap', 'agent', 'route', 'perps', 'predict', 'curve'];
+const tradeSpan = ['v3-span-2 pv3-tile--lead', '', '', '', '', '', ''];
+
+function Card({ item, visual, className = '', i }: { item: Item; visual?: React.ReactNode; className?: string; i: number }) {
+  return (
+    <SpotlightCard
+      href={item.href}
+      {...ext(item)}
+      className={className}
+      index={String(i + 1).padStart(2, '0')}
+      arrow={'external' in item && item.external ? '↗' : '→'}
+      visual={visual}
+      title={<>{item.title}<span className={badgeCls(item.badge)}>{item.badge}</span></>}
+    >
+      {item.desc}
+    </SpotlightCard>
+  );
+}
+
+export default function ProductsPage() {
+  const [trade, intel, build, company] = groups;
+  return (
+    <div className="sw sw-dark pv3-page">
+      <SummerNav />
+      <main id="main-content">
+        <div className="pv3-hero">
+          <Backdrop kind="mesh-grain" />
+          <Backdrop kind="grid" />
+          <div className="v3-wrap pv3-hero__grid">
+            <header>
+              <h1>One place to discover the entire Suwappu stack.</h1>
+              <p className="pv3-lead">
+                Trade, read market intelligence, build with APIs and agents, and manage your
+                account.
+              </p>
+              <div className="summer-actions">
+            <a className="summer-button summer-button--primary" href={TERMINAL_URL} target="_blank" rel="noopener noreferrer">Launch Terminal</a>
+            <a className="summer-button summer-button--secondary" href="/agents">For agents</a>
+          </div>
+
+
+            </header>
+            <Reveal className="pv3-hero__art" delay={120}><RouteMap /></Reveal>
+          </div>
+        </div>
+
+        <V3Section tone="dark" className="pv3-sec" labelledBy="group-Trade">
+          <SectionHead kicker={trade.eyebrow} title={trade.title} id="group-Trade" />
+          <Reveal stagger className="v3-bento">
+            {trade.items.map((item, i) => (
+              <Card key={item.title} item={item} i={i} className={tradeSpan[i]} visual={<MiniViz kind={tradeViz[i]} />} />
+            ))}
+          </Reveal>
+        </V3Section>
+
+        <V3Section tone="dark" className="pv3-sec" labelledBy="group-Intelligence" backdrop={<Backdrop kind="glow" />}>
+          <SectionHead kicker={intel.eyebrow} title={intel.title} id="group-Intelligence" />
+          <Reveal stagger className="pv3-bento3">
+            {intel.items.map((item, i) => (
+              <Card
+                key={item.title}
+                item={item}
+                i={i}
+                className={i === 0 || i === 3 ? 'pv3-span-2' : ''}
+                visual={i === 1 ? <MiniViz kind="pages" /> : i === 2 ? <MiniViz kind="services" /> : <Sparkline kind={i === 0 ? 'line' : 'ticks'} seed={i * 2 + 3} />}
+              />
+            ))}
+          </Reveal>
+        </V3Section>
+
+        <V3Section tone="dark" className="pv3-sec" labelledBy="group-Build" backdrop={<Backdrop kind="mesh" />}>
+          <div className="v3-split v3-split--wide-visual">
+            <Reveal>
+              <ToolOrbit count={productStats.mcpToolCount}><span className="v3-kicker">MCP</span></ToolOrbit>
+            </Reveal>
+            <div>
+              <SectionHead kicker={build.eyebrow} title={build.title} id="group-Build" />
+              <Reveal className="pv3-rows v3-glass" style={{ marginTop: '1.6rem' }}>
+                {build.items.map((item, i) => (
+                  <a
+                    key={item.title}
+                    href={item.href}
+                    className="pv3-row"
+                    {...('external' in item && item.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+                  >
+                    <span className="pv3-row__i">{String(i + 1).padStart(2, '0')}</span>
+                    <strong>{item.title}<span className={badgeCls(item.badge)}>{item.badge}</span></strong>
+                    <span className="pv3-row__go" aria-hidden="true">{'external' in item && item.external ? '↗' : '→'}</span>
+                    <span className="pv3-row__d">{item.desc}</span>
+                  </a>
+                ))}
+              </Reveal>
             </div>
-            <div className={styles.grid}>
-              {group.items.map((item) => (
-                <a
-                  key={item.title}
-                  href={item.href}
-                  className={styles.tile}
-                  {...(item.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-                >
-                  <span className={styles.tileHead}>
-                    <strong className={styles.tileTitle}>{item.title}</strong>
-                    <span
-                      className={`${styles.badge}${
-                        item.badge === 'New' ? ` ${styles.badgeNew}` : ''
-                      }${item.badge === 'Account' ? ` ${styles.badgeAccount}` : ''}`}
-                    >
-                      {item.badge}
-                    </span>
-                  </span>
-                  <p className={styles.tileDesc}>{item.desc}</p>
-                  <span className={styles.tileCta}>
-                    Open {item.external ? '↗' : '→'}
-                  </span>
-                </a>
-              ))}
-            </div>
-          </section>
-        ))}
+          </div>
+        </V3Section>
+
+        <V3Section tone="light" className="pv3-sec" labelledBy="group-Company" backdrop={<Backdrop kind="grain" />}>
+          <SectionHead kicker={company.eyebrow} title={company.title} id="group-Company" />
+          <Reveal stagger className="pv3-auto">
+            {company.items.map((item, i) => <Card key={item.title} item={item} i={i} />)}
+          </Reveal>
+        </V3Section>
+      <div className="summer-shell"><ProblemStrip surface="products" slugs={["telegram-trading-bot-cross-chain", "mcp-server-for-crypto-swaps", "treasury-swaps-api-for-desks"]} /></div>
       </main>
       <SummerFooter />
     </div>

@@ -322,3 +322,21 @@
     margin-left: 0;
   }
 }
+
+/* Phone: replace the 1122px canvas with a vertical spine of labelled groups. */
+.stack { display: none; }
+@media (max-width: 720px) {
+  .scroller { display: none; }
+  .stack { display: block; list-style: none; margin: 0; padding: 0 0 0 14px; border-left: 2px solid #2a3942; }
+  .stackGroup { position: relative; padding: 0 0 18px 14px; }
+  .stackGroup::before { content: ''; position: absolute; left: -22px; top: 3px; width: 10px; height: 10px; border-radius: 50%; background: #0f1417; border: 2px solid #6b7d87; }
+  .stackGroup[data-gate]::before { border-color: #e09b52; background: #e09b52; }
+  .stackTitle { display: block; margin-bottom: 8px; font-family: var(--font-mono, ui-monospace, monospace); font-size: 11px; letter-spacing: 0.14em; color: #8fa3ad; }
+  .stackGroup[data-gate] .stackTitle { color: #e09b52; }
+  .stackList { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .stackNode { display: grid; gap: 1px; padding: 8px 10px; border: 1px solid #2a3942; border-radius: 4px; background: rgba(255, 255, 255, 0.03); }
+  .stackNode b { font-family: var(--font-mono, ui-monospace, monospace); font-size: 12px; font-weight: 600; color: #e6eef1; overflow-wrap: anywhere; }
+  .stackNode span { font-size: 12px; color: #9fb1ba; }
+  .stackNode[data-gated] { border-style: dashed; }
+  .stackNode[data-hot], .stackNode[data-live] { border-color: #e09b52; background: rgba(224, 155, 82, 0.1); }
+}

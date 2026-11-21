@@ -493,3 +493,16 @@
   white-space: nowrap;
   vertical-align: bottom;
 }
+
+/* ── v3 fix pass B: feed preview, grouped refusals, PAPER chip, explainers up top ── */
+.repeat { font-family: var(--font-mono, ui-monospace, monospace); font-size: 0.75rem; font-weight: 700; color: var(--sw-accent-bright); border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 999px; padding: 0.05rem 0.5rem; }
+.runList { list-style: none; margin: 0.6rem 0 0; padding: 0; display: grid; gap: 0.4rem; font-size: 0.85rem; }
+.showAll { display: block; margin: 1rem auto 0; padding: 0.55rem 1.3rem; font-size: 0.85rem; }
+.paper { font-family: var(--font-mono, ui-monospace, monospace); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.14em; color: var(--sw-accent-bright); border: 1px solid var(--sw-accent); border-radius: 6px; padding: 0.2rem 0.55rem; }
+.live { padding-top: 0.2rem; }
+.explainTop { margin: 1.8rem 0 0; padding-top: 1.4rem; }
+.explainTop .explainItem h3 { font-size: 1.02rem; }
+.explainTop .explainItem p { font-size: 0.95rem; }
+.stats > .stat:last-child:nth-child(odd) { grid-column: 1 / -1; }
+@media (min-width: 900px) { .stats > .stat:last-child:nth-child(odd) { grid-column: auto; } }
+@media (max-width: 640px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

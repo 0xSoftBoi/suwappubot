@@ -48,12 +48,12 @@ import {
 const GET_QUOTE_INPUT = mcpInputSchema(QuoteRequestSchema, {
 	from_token: 'Source token symbol (e.g. ETH, SOL, USDC)',
 	to_token: 'Destination token symbol',
-	amount: 'Amount to swap in human units (e.g. "0.5")',
-	chain: 'Chain name (ethereum, base, arbitrum, polygon, bsc, optimism, avalanche, solana). Defaults to ethereum.',
-	from_chain: 'Source chain for cross-chain swaps (optional)',
-	to_chain: 'Destination chain for cross-chain swaps (optional)',
+	amount: 'Amount of from_token in human units, not base units/wei (e.g. "0.5" ETH)',
+	chain: 'Chain key for same-chain swaps, from list_chains (e.g. ethereum, base, arbitrum, solana). Defaults to ethereum.',
+	from_chain: 'Source chain key for cross-chain swaps (e.g. base). Overrides chain.',
+	to_chain: 'Destination chain key for cross-chain swaps (e.g. arbitrum). Optional.',
 	wallet_address: 'Wallet address to get executable transaction data (optional)',
-	slippage: 'Slippage tolerance as decimal (0.03 = 3%). Default 0.03',
+	slippage: 'Slippage tolerance as a decimal fraction, not percent or bps (0.03 = 3%, 0.005 = 0.5%). Max 0.5. Default 0.03.',
 }, {
 	properties: {
 		// tokenAmountSchema .refine() dropped by z.toJSONSchema.
@@ -64,15 +64,15 @@ const GET_QUOTE_INPUT = mcpInputSchema(QuoteRequestSchema, {
 })
 
 const SIMULATE_SWAP_INPUT = mcpInputSchema(SimulateSwapSchema, {
-	quote_id: 'Quote ID from a previous get_quote call (optional — if omitted, from_token/to_token/amount are required)',
+	quote_id: 'Quote ID from get_quote, valid ~60s (optional — if omitted, from_token/to_token/amount are required)',
 	from_token: 'Source token symbol (e.g. ETH, SOL, USDC)',
 	to_token: 'Destination token symbol',
-	amount: 'Amount to swap in human units (e.g. "0.5")',
-	chain: 'Chain name (ethereum, base, arbitrum, polygon, bsc, optimism, avalanche, solana). Defaults to ethereum.',
-	from_chain: 'Source chain for cross-chain swaps (optional)',
-	to_chain: 'Destination chain for cross-chain swaps (optional)',
+	amount: 'Amount of from_token in human units, not base units/wei (e.g. "0.5" ETH)',
+	chain: 'Chain key for same-chain swaps, from list_chains (e.g. ethereum, base, arbitrum, solana). Defaults to ethereum.',
+	from_chain: 'Source chain key for cross-chain swaps (e.g. base). Overrides chain.',
+	to_chain: 'Destination chain key for cross-chain swaps (e.g. arbitrum). Optional.',
 	wallet_address: 'Wallet address to run balance/allowance/gas/eth_call checks against. Strongly recommended — without it those checks are skipped.',
-	slippage: 'Slippage tolerance as decimal (0.03 = 3%). Default 0.03',
+	slippage: 'Slippage tolerance as a decimal fraction, not percent or bps (0.03 = 3%, 0.005 = 0.5%). Max 0.5. Default 0.03.',
 }, {
 	// Top-level .refine() dropped — re-state the either/or requirement.
 	description: 'Provide either quote_id, or from_token + to_token + amount.',
@@ -83,7 +83,7 @@ const SIMULATE_SWAP_INPUT = mcpInputSchema(SimulateSwapSchema, {
 
 const PERPS_QUOTE_INPUT = mcpInputSchema(PerpsQuoteSchema, {
 	market:
-		'Perp market name (e.g. "ETH-USD", "BTC-USD") returned by perps_markets',
+		'Perp market name (e.g. "ETH-USD", "BTC-USD") as returned by perps_markets',
 	side: 'Position direction',
 	size: 'Position size in the base asset',
 	leverage:
@@ -135,11 +135,11 @@ const PREDICT_TRADES_INPUT = mcpInputSchema(McpPredictTradesSchema, {
 })
 
 const GET_SWAP_STATUS_INPUT = mcpInputSchema(McpGetSwapStatusSchema, {
-	"swap_id": "Managed swap ID returned by POST /v1/agent/swap/execute",
+	"swap_id": "Managed swap ID returned by POST /v1/agent/swap/execute (not a quote_id)",
 })
 
 const GET_SWAP_HISTORY_INPUT = mcpInputSchema(McpGetSwapHistorySchema, {
-	"status": "Filter by swap status (e.g. \"pending\", \"completed\", \"failed\"). Optional.",
+	"status": "Filter by swap status: pending, completed or failed. Optional.",
 	"limit": "Max results (default 20). Values above 100 are clamped to 100.",
 	"offset": "Pagination offset (default 0)",
 })
@@ -151,43 +151,43 @@ const LIST_WALLET_POLICIES_INPUT = mcpInputSchema(McpListWalletPoliciesSchema, {
 const TOOLS = [
 	{
 		name: 'get_quote',
-		description: 'Get a swap quote for exchanging tokens. Supports EVM chains (Ethereum, Base, Arbitrum, Polygon, BSC, Optimism, Avalanche) via Li.Fi and Solana via Jupiter.',
+		description: "Get a priced swap quote and a quote_id, moving no funds. Use first in the flow get_quote -> simulate_swap -> execute_swap; for token prices only, use get_prices instead. Same-chain or cross-chain (EVM via Li.Fi, Solana via Jupiter). Pass wallet_address to get a quote that execute_swap can turn into a transaction. The quote_id is valid for about 60 seconds and is only redeemable by the authenticated agent that requested it; anonymous callers (no API key) get a quote without an executable quote_id. Same-chain results include sign_url: show it to the user so they can review and confirm the trade in the Suwappu terminal (it only pre-fills the form; nothing executes until the user confirms). Amounts are human units, slippage is a decimal fraction (0.03 = 3%, max 0.5).",
 		inputSchema: GET_QUOTE_INPUT,
 	},
 	{
 		name: 'get_portfolio',
-		description: 'Get token balances and portfolio value for a wallet address across all supported chains.',
+		description: "Read token balances and USD portfolio value for one wallet address across supported chains. Read-only, no side effects. Use to check holdings before swapping; for prices alone use get_prices, for past swaps use get_swap_history. wallet_address is 0x... for EVM or base58 for Solana; chain optionally narrows the result.",
 		inputSchema: GET_PORTFOLIO_INPUT,
 	},
 	{
 		name: 'get_prices',
-		description: 'Get current token prices in USD with 24h change. Supported: ETH, SOL, BNB, USDC, USDT, BTC, DAI, WBTC, ARB, OP, AVAX, MATIC, WETH, BONK, JUP, RAY.',
+		description: "Read current USD prices with 24h change for up to 20 token symbols. Read-only. Use for quick price checks; use get_quote when you need an executable swap price with fees and slippage. Supported: ETH, SOL, BNB, USDC, USDT, BTC, DAI, WBTC, ARB, OP, AVAX, MATIC, WETH, BONK, JUP, RAY. Pass symbols comma-separated, e.g. \"ETH,SOL\".",
 		inputSchema: GET_PRICES_INPUT,
 	},
 	{
 		name: 'list_chains',
-		description: 'List all supported blockchain networks for swapping. Free and public — no API key required.',
+		description: "List every blockchain network Suwappu can quote swaps on, with id, key, name and native token. Read-only, free, no API key. Call this to find valid chain keys (e.g. base, arbitrum, solana) for get_quote, list_tokens and get_portfolio. Takes no arguments.",
 		inputSchema: { type: 'object', properties: {} },
 	},
 	{
 		name: 'list_tokens',
-		description: 'List available tokens on a specific chain. Free and public — no API key required.',
+		description: "List tokens on a chain, optionally filtered by symbol. Read-only, free, no API key. Solana returns symbol, address and decimals; a known EVM chain returns chain info plus a pointer to GET /v1/agent/tokens for the full list; no chain returns the available chain names. Use list_chains for chain keys, get_tempo_tokens for Tempo.",
 		inputSchema: {
 			type: 'object',
 			properties: {
-				chain: { type: 'string', description: 'Chain name (e.g. "base", "solana"). If omitted, returns all chains.' },
+				chain: { type: 'string', description: 'Chain key from list_chains (e.g. "base", "solana"). If omitted, returns available chain names.' },
 				search: { type: 'string', description: 'Filter tokens by symbol substring (optional)' },
 			},
 		},
 	},
 	{
 		name: 'execute_swap',
-		description: 'Prepare an unsigned self-custody swap transaction from a previously obtained quote_id. This tool never signs or broadcasts; the caller reviews, signs, and submits the returned transaction.',
+		description: "Build an UNSIGNED swap transaction from a quote_id; it never signs or broadcasts, so you must sign and submit it yourself. Call after get_quote (and ideally simulate_swap), within about 60 seconds. The quote must have been made with the same wallet_address. The org spend policy is evaluated first and may block the request or require approval, returned as an error. Does not create a managed swap record.",
 		inputSchema: {
 			type: 'object',
 			properties: {
-				quote_id: { type: 'string', description: 'Quote ID from a previous get_quote call' },
-				wallet_address: { type: 'string', description: 'Wallet address to sign the transaction' },
+				quote_id: { type: 'string', description: 'Quote ID from get_quote, valid about 60 seconds and owned by this agent. The quote must have been made with the same wallet_address.' },
+				wallet_address: { type: 'string', description: 'Address that will sign and send the transaction (0x... EVM or base58 Solana); must match the wallet_address used in get_quote' },
 				idempotency_key: { type: 'string', description: 'Optional intent key echoed back with the unsigned transaction so the caller can carry it into its submission workflow. MCP preparation itself does not submit or dedupe an on-chain transaction.' },
 			},
 			required: ['quote_id', 'wallet_address'],
@@ -195,12 +195,12 @@ const TOOLS = [
 	},
 	{
 		name: 'simulate_swap',
-		description: 'Dry-run a swap with zero funds moved. Fetches (or reuses a quote_id from get_quote) and returns expected output, price impact, and safety checks (balance, ERC-20 allowance, gas affordability, eth_call revert simulation, slippage sanity) — never signs or broadcasts anything.',
+		description: "Dry-run a swap with zero funds moved: returns expected output, price impact and safety checks (balance, ERC-20 allowance, gas, eth_call revert, slippage sanity). Use after get_quote and before execute_swap. Pass quote_id, or from_token + to_token + amount. Always pass wallet_address, otherwise balance/allowance/gas checks are skipped. Never signs or broadcasts.",
 		inputSchema: SIMULATE_SWAP_INPUT,
 	},
 	{
 		name: 'get_tempo_tokens',
-		description: 'Get TIP-20 token list on Tempo mainnet (chain ID 4217) with addresses, decimals, and TIP-20 metadata (currency code, isTip20 flag). Tempo uses USD-denominated TIP-20 stablecoins (6 decimals); pathUSD is the one listed on mainnet. Free and public — no API key required.',
+		description: "List TIP-20 tokens on Tempo mainnet (chain ID 4217) with address, decimals and TIP-20 metadata. Read-only, free, no API key. Tempo uses USD-denominated TIP-20 stablecoins with 6 decimals; pathUSD is listed on mainnet. Use list_tokens for other chains.",
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -210,7 +210,7 @@ const TOOLS = [
 	},
 	{
 		name: 'browse_mpp_directory',
-		description: 'Browse the third-party MPP (Machine Payments Protocol, directory.mpp.dev) service directory to discover available services and their payment requirements. Unrelated to Suwappu\'s own pathUSD micropayment auth. Free and public — no API key required.',
+		description: "Browse the third-party MPP (Machine Payments Protocol, directory.mpp.dev) directory of paid services and their payment requirements. Read-only, free, no API key. Unrelated to Suwappu swaps and to Suwappu's own pathUSD micropayment auth. Optionally filter by category (e.g. defi, ai, data).",
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -221,75 +221,75 @@ const TOOLS = [
 	},
 	{
 		name: 'predict_markets',
-		description: 'Search and browse prediction markets on Polymarket. Returns active markets with live prices, volumes, and CLOB token IDs.',
+		description: "Search active Polymarket prediction markets by keyword or category tag, returning live prices, volumes and CLOB token IDs. Read-only. Start here to find a market, then use the returned id with predict_market, predict_price, predict_book or predict_trades. Does not place bets.",
 		inputSchema: PREDICT_MARKETS_INPUT,
 	},
 	{
 		name: 'predict_market',
-		description: 'Get detailed prediction market info including live CLOB midpoint prices for each outcome. Requires a market condition ID.',
+		description: "Get detail for one Polymarket market, including live CLOB midpoint price per outcome. Read-only. market_id is the id field from predict_markets (not conditionId). For only prices use predict_price; for depth use predict_book.",
 		inputSchema: PREDICT_MARKET_INPUT,
 	},
 	{
 		name: 'perps_markets',
-		description: 'List available Hyperliquid perpetual futures markets with mark price, funding rate, max leverage, and size decimals.',
+		description: "List Hyperliquid perpetual futures markets with mark price, funding rate, max leverage and size decimals. Read-only. Use to find valid market names (e.g. ETH-USD) and max leverage before perps_quote.",
 		inputSchema: { type: 'object', properties: {} },
 	},
 	{
 		name: 'perps_quote',
-		description: 'Quote a Hyperliquid perpetual position: entry price, margin required, liquidation price, funding rate, and fees. Requires authentication.',
+		description: "Quote a Hyperliquid perp position without opening it: entry price, required margin, liquidation price, funding rate and fees. Requires authentication. Read-only estimate, no order placed. Get market names and max leverage from perps_markets; side is the direction, size is in the base asset, leverage is a multiplier (max 20).",
 		inputSchema: PERPS_QUOTE_INPUT,
 	},
 	{
 		name: 'perps_positions',
-		description: 'List open Hyperliquid perpetual positions for a wallet address, with size, entry price, unrealized PnL, and liquidation price.',
+		description: "List open Hyperliquid perp positions for a wallet, with size, entry price, unrealized PnL and liquidation price. Read-only. address must be your own managed EVM wallet (0x...). For available markets use perps_markets.",
 		inputSchema: PERPS_POSITIONS_INPUT,
 	},
 	{
 		name: 'lend_markets',
 		description:
-			'List Morpho lending markets on a chain with current APY/utilization, explicit USD supply/borrow/liquidity, listing status, and Morpho warnings. Read-only.',
+			"List Morpho lending markets on one EVM chain with APY, utilization, USD supply/borrow/liquidity, listing status and warnings. Read-only; does not lend or borrow. chain_id is the numeric EVM chain ID (default 8453 = Base). Use lend_market for one market's detail.",
 		inputSchema: LEND_MARKETS_INPUT,
 	},
 	{
 		name: 'lend_market',
 		description:
-			'Get current read-only detail for a Morpho lending market by market ID and chain, including USD liquidity, listing status, warnings, oracle, and IRM.',
+			"Get read-only detail for one Morpho lending market, including USD liquidity, listing status, warnings, oracle and IRM. Use market_id from lend_markets and the same chain_id (default 8453 = Base). Does not lend or borrow.",
 		inputSchema: LEND_MARKET_INPUT,
 	},
 	{
 		name: 'get_swap_status',
-		description: 'Get the status of a managed swap created by POST /v1/agent/swap/execute (pending, completed, failed), with tx hash and amounts. MCP execute_swap only prepares an unsigned transaction and does not create this managed swap record.',
+		description: "Check status (pending, completed, failed), tx hash and amounts of a managed swap created via POST /v1/agent/swap/execute. Read-only. Not for MCP execute_swap, which only builds an unsigned transaction and creates no managed swap record. For many swaps use get_swap_history.",
 		inputSchema: GET_SWAP_STATUS_INPUT,
 	},
 	{
 		name: 'get_swap_history',
-		description: 'List paginated managed-swap history for the authenticated agent, optionally filtered by status. Self-custody transactions prepared by MCP execute_swap are not managed swap records.',
+		description: "List the authenticated agent's managed swaps, newest first, optionally filtered by status, with pagination (limit max 100, offset). Read-only. Swaps prepared by MCP execute_swap are self-custody and not listed. For one swap use get_swap_status.",
 		inputSchema: GET_SWAP_HISTORY_INPUT,
 	},
 	{
 		name: 'predict_book',
-		description: 'Get the live CLOB order book for every outcome of a prediction market.',
+		description: "Get the live CLOB order book (bids and asks) for every outcome of a Polymarket market. Read-only. market_id is the id from predict_markets. For just the midpoint use predict_price.",
 		inputSchema: PREDICT_BOOK_INPUT,
 	},
 	{
 		name: 'predict_price',
-		description: 'Get live CLOB midpoint prices for every outcome of a prediction market.',
+		description: "Get live CLOB midpoint prices for every outcome of a Polymarket market. Read-only and lightweight. market_id is the id from predict_markets. For depth use predict_book; for full metadata use predict_market.",
 		inputSchema: PREDICT_PRICE_INPUT,
 	},
 	{
 		name: 'predict_trades',
-		description: 'Get recent trades across all outcomes of a prediction market.',
+		description: "Get recent trades across all outcomes of a Polymarket market (limit default 20, max 100). Read-only. market_id is the id from predict_markets. For current prices use predict_price.",
 		inputSchema: PREDICT_TRADES_INPUT,
 	},
 	{
 		name: 'list_wallet_policies',
-		description: 'List Turnkey spending/whitelist policies configured on the agent\'s managed wallet.',
+		description: "List the Turnkey spending and whitelist policies on the agent's managed wallet. Read-only. Use to understand what the wallet may spend before attempting swaps. Always reports the authenticated agent's own managed wallet; errors if none exists.",
 		inputSchema: LIST_WALLET_POLICIES_INPUT,
 	},
 	{
 		name: 'near_resolve_asset',
 		description:
-			'Resolve a NEAR Intents asset (symbol, defuse asset id, or NEAR contract id) to exactly ONE asset with its defuse_asset_id and decimals. Symbols are not unique across chains (USDC exists on ~17): if ambiguous this returns every candidate instead of guessing — pass `chain` or the exact id. Use before any OutLayer /intents/swap or withdraw. Free.',
+			"Resolve a NEAR Intents asset (symbol, defuse asset id or NEAR contract id) to exactly one asset with its defuse_asset_id and decimals. Read-only, free. Symbols are not unique across chains (USDC exists on ~17): if ambiguous it returns every candidate instead of guessing, so pass chain or the exact id. Use before OutLayer /intents/swap or withdraw.",
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -303,7 +303,7 @@ const TOOLS = [
 	{
 		name: 'near_convert_amount',
 		description:
-			'Convert between human and atomic amounts for a NEAR Intents asset (wNEAR is 24 decimals, USDC/USDT 6). Give exactly one of `human` or `atomic`. OutLayer endpoints take atomic integer strings. Free.',
+			"Convert between human and atomic (smallest-unit) amounts for a NEAR Intents asset, e.g. wNEAR has 24 decimals, USDC/USDT 6. Read-only, free, pure calculation. Give exactly one of human or atomic. OutLayer endpoints take atomic integer strings. Resolve ambiguous symbols with near_resolve_asset first.",
 		inputSchema: {
 			type: 'object',
 			properties: {

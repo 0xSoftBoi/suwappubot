@@ -57,7 +57,7 @@ Do this for me end to end.
        "headers": { "Authorization": "Bearer <my key>" } } }
 
 4. WHAT YOU CAN DO ONCE CONNECTED
-   Best-price spot swaps across ${productStats.platformChains} chains. ${productStats.routerCount} routing providers are integrated
+   Cross-chain spot swaps across ${productStats.platformChains} chains. ${productStats.routerCount} routing providers are integrated
    (Li.Fi, CoW, OKX, 1inch, KyberSwap, Jupiter, Across, Wormhole, CCTP and
    more); providers are chain-gated, so each swap races the subset that
    supports its route.
@@ -79,8 +79,8 @@ Do this for me end to end.
    historical name; it never signs or broadcasts and creates no managed swap.
    A2A returns quote/price/discovery artifacts and never executes trades.
    Errors come back as a JSON envelope with an error code. On HTTP 429, back
-   off and retry. HTTP 402 means pay-per-call (x402) is available without a
-   subscription.
+   off and retry. HTTP 402 means prepaid credits have run out: top up with
+   POST /v1/agent/billing/topup (an API key is still required).
    Ask me before executing anything that moves real funds.
 
 When you are done, confirm the MCP server is connected and show me my

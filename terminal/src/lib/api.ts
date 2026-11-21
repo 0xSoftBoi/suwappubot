@@ -1,4 +1,5 @@
 import { getAuthToken } from './auth'
+import { getRef } from './attribution'
 import type {
   BridgeBuildRequest,
   BridgeBuildResult,
@@ -423,9 +424,11 @@ export const api = {
   },
 
   recordSwap(req: SwapRecordRequest) {
+    // Attach the launch/micro-product attribution captured on landing (if any).
+    const ref = req.ref ?? getRef()
     return request<SwapRecordResult>('/webapp/swap/record', {
       method: 'POST',
-      body: JSON.stringify(req),
+      body: JSON.stringify(ref ? { ...req, ref } : req),
     })
   },
 

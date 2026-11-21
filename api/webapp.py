@@ -9,6 +9,7 @@ import hmac
 import hashlib
 import json
 import logging
+import math
 import re
 import time
 import uuid
@@ -599,6 +600,12 @@ class WebAppSwapBuildResponse(BaseModel):
 class WebAppSwapRecordRequest(BaseModel):
     quoteId: str
     txHash: str
+    # Launch/micro-product attribution label (e.g. "mcp", "producthunt").
+    # Optional and sanitized server-side: a bad value is dropped, never rejected,
+    # so attribution can never block recording a swap the user already signed.
+    # Typed Any on purpose: any value (too long, non-string) is accepted here and
+    # discarded by _record_swap_attribution instead of 422-ing the record.
+    ref: Optional[Any] = None
 
 
 class WebAppSwapRecordResponse(BaseModel):
@@ -787,6 +794,42 @@ def _token_symbol_for_address(chain: str, address_or_symbol: str) -> str:
         status_code=400,
         detail=f"Unsupported token {address_or_symbol} on {chain}",
     )
+
+
+def _human_min_received(quote) -> str:
+    """``quote.to_amount_min`` in the same human units as ``toAmount``.
+
+    Swap engines report ``to_amount_min`` in raw base units (wei, lamports),
+    while the terminal API returns every other amount human-scaled. Shipping
+    the raw value made the UI show e.g. "3181682787316662 ETH" as the minimum
+    received. Scale it by the same factor that produced ``to_amount_human``
+    (to_amount_human / to_amount), which needs no decimals lookup. Display-only:
+    execution enforces slippage from the cached quote, never from this string.
+    """
+    raw_min = str(getattr(quote, "to_amount_min", "") or "").strip()
+    try:
+        if "." in raw_min or "e" in raw_min.lower():
+            return raw_min  # already human-scaled by the provider
+        raw_to = int(str(quote.to_amount))
+        to_human = float(quote.to_amount_human)
+        if raw_to <= 0 or to_human <= 0:
+            return raw_min
+        # Recover the integer token decimals from the float ratio, then shift the
+        # integer minimum exactly. Multiplying by the float ratio directly leaked
+        # its rounding into the display (e.g. "0.003160603370747483999999999999").
+        exp = math.log10(raw_to / to_human)
+        decimals = round(exp)
+        if abs(exp - decimals) < 0.01 and 0 <= decimals <= 36:
+            # Build the Decimal with its exponent set and format without context
+            # arithmetic: scaleb()/normalize() round to the 28-digit default
+            # precision, which truncates 18-decimal tokens like PEPE.
+            human = format(Decimal(f"{int(raw_min)}e{-decimals}"), "f")
+            return human.rstrip("0").rstrip(".") if "." in human else human
+        # Not a clean power of ten (unexpected): scale, then trim float noise.
+        human = Decimal(str(to_human)) * Decimal(int(raw_min)) / Decimal(raw_to)
+        return format(round(human, 12).normalize(), "f")
+    except Exception:
+        return raw_min
 
 
 def _webapp_swap_token(symbol: str, chain: str) -> WebAppSwapToken:
@@ -4127,7 +4170,7 @@ async def create_terminal_swap_quote(
         priceImprovementUsd=getattr(quote, "price_improvement_usd", None),
         runnerUpProvider=getattr(quote, "runner_up_provider", None),
         expiresAt=expires_at.isoformat(),
-        minReceived=str(quote.to_amount_min),
+        minReceived=_human_min_received(quote),
         slippage=body.slippage or 0.5,
         estimatedDuration=quote.estimated_time,
     )
@@ -4297,7 +4340,7 @@ async def build_terminal_swap(
         toToken=_webapp_swap_token(to_symbol, body.toChain),
         fromAmount=str(quote.from_amount_human),
         toAmount=str(quote.to_amount_human),
-        minReceived=str(quote.to_amount_min),
+        minReceived=_human_min_received(quote),
         priceImpact=float(quote.price_impact),
         gasUsd=float(quote.gas_cost_usd),
         route=quote.provider,
@@ -4357,6 +4400,45 @@ async def submit_jito_swap(
     return {"signature": signature}
 
 
+_SWAP_REF_RE = re.compile(r"^[a-z0-9_-]{1,32}$")
+
+
+def _record_swap_attribution(db: Session, raw_ref: Any, chain: str) -> None:
+    """Log which launch / micro product drove a recorded swap. Best-effort.
+
+    Writes one ``web_events`` row (name ``swap_recorded``, ``utm_source`` = ref)
+    so ``GET /admin/growth`` can count swaps per source without a schema change.
+    Keeps the table's privacy contract: no user id, no wallet, no tx hash.
+    Never raises: attribution must not affect recording the swap itself.
+    """
+    if not isinstance(raw_ref, str):
+        return
+    ref = raw_ref.strip().lower()
+    if not _SWAP_REF_RE.match(ref):
+        return
+    try:
+        from bot.models.web_event import WebEvent
+
+        db.add(
+            WebEvent(
+                name="swap_recorded",
+                path="/terminal/swap",
+                session_id="server",
+                utm_source=ref,
+                props_json=json.dumps({"chain": str(chain)[:32]}),
+            )
+        )
+        db.commit()
+    except Exception as e:  # pragma: no cover - attribution is best-effort
+        # The swap is already committed and its quote consumed; a failing
+        # rollback must not turn the response into a 500 the client can't retry.
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        logger.warning(f"swap attribution not recorded: {e}")
+
+
 @router.post("/swap/record", response_model=WebAppSwapRecordResponse)
 async def record_terminal_swap(
     body: WebAppSwapRecordRequest,
@@ -4413,6 +4495,8 @@ async def record_terminal_swap(
 
     # One-shot: drop the quote so the same broadcast can't be recorded twice.
     _terminal_quote_cache.pop(body.quoteId, None)
+
+    _record_swap_attribution(db, body.ref, from_chain)
 
     explorer = None
     chain = get_chain_by_name(from_chain)

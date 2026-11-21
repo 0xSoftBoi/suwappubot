@@ -60,6 +60,14 @@ class Settings(BaseSettings):
         default=3.0,
         description="RSS (GB) above which tracemalloc is armed and allocation reports are logged.",
     )
+    deposit_backfill: str = Field(
+        default="",
+        description=(
+            "One-off deposit backfill, 'chain:block,chain:block'. Re-reads each chain "
+            "from <block> up to the live deposit cursor and credits anything missed. "
+            "Idempotent and resumable; remove once the logs report it complete."
+        ),
+    )
     memory_guard_hard_gb: float = Field(
         default=6.0,
         description="RSS (GB) above which the process exits 137 (MEMORY_GUARD_HARD_ACTION=exit) or logs.",
@@ -892,7 +900,7 @@ class Settings(BaseSettings):
         """
         Get the Alchemy network identifier for a chain.
 
-        Returns None for chains not supported by Alchemy (e.g. BSC).
+        Returns None for chains not mapped here (e.g. Avalanche).
         """
         # Default Alchemy network mappings
         alchemy_networks = {
@@ -901,6 +909,8 @@ class Settings(BaseSettings):
             "arbitrum": "arb-mainnet",
             "optimism": "opt-mainnet",
             "base": "base-mainnet",
+            # Alchemy names BSC "bnb-mainnet" (bsc-mainnet does not resolve).
+            "bsc": "bnb-mainnet",
             "solana": "solana-mainnet",
             # Confirmed live on Alchemy (alchemy.com/rpc/robinhood, 2026-08-04) —
             # not a guess. Robinhood Chain's 2-validator set (Offchain Labs +
@@ -1109,7 +1119,10 @@ class Settings(BaseSettings):
 
     # Telegram Mini App
     webapp_url: str = Field(
-        default="https://app.suwappu.bot", description="URL for the Telegram Mini App dashboard"
+        # app.suwappu.bot has no deployment (404 as of 2026-11-20). The terminal
+        # signs in via Telegram initData, so it is the Mini App surface now.
+        default="https://terminal.suwappu.bot",
+        description="URL for the Telegram Mini App dashboard",
     )
 
     # Terminal (non-custodial trading web app, served on its own subdomain)

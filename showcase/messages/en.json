@@ -22,13 +22,10 @@
     "menu": {
       "products": "Products",
       "developers": "Developers",
-      "company": "Why Suwappu",
       "grpTrade": "Trade",
       "grpMarkets": "Markets",
       "grpBuild": "Build",
       "grpReference": "Reference",
-      "grpWhy": "The case",
-      "grpMore": "More",
       "terminalTitle": "Terminal",
       "terminalDesc": "The full web trading desk",
       "botTitle": "Telegram bot",
@@ -77,7 +74,6 @@
       "autopilotDesc": "Watch the autonomous agent trade, and check its calls",
       "signalsTitle": "Signal Intelligence",
       "signalsDesc": "Explainable on-chain signals and evidence",
-      "grpTrust": "Agent trust",
       "passportTitle": "Agent Passport",
       "passportDesc": "Proof a human stands behind the agent",
       "arbiterTitle": "Arbiter",
@@ -86,6 +82,34 @@
       "label": "Main",
       "open": "Open menu",
       "close": "Close menu",
+      "startTitle": "Get an API key",
+      "startDesc": "One call, no form",
+      "solveTitle": "Problems solved",
+      "solveDesc": "Exact steps for real tasks",
+      "solutions": "Solutions",
+      "resources": "Resources",
+      "grpAgents": "Agents",
+      "grpAudience": "By audience",
+      "grpExplore": "Explore",
+      "grpLearn": "Learn",
+      "grpCompany": "Company",
+      "forTradersTitle": "For traders",
+      "forTradersDesc": "Swaps, perps and automation",
+      "forBuildersTitle": "For agent builders",
+      "forBuildersDesc": "Wire an agent to the API",
+      "forDesksTitle": "For desks",
+      "forDesksDesc": "Orgs, roles and scoped keys",
+      "governmentTitle": "Government",
+      "governmentDesc": "Procurement and assurance",
+      "openapiTitle": "OpenAPI spec",
+      "openapiDesc": "Machine-readable, 3.1",
+      "aboutTitle": "About",
+      "aboutDesc": "Who is building this",
+      "careersTitle": "Careers",
+      "careersDesc": "Open roles",
+      "contactTitle": "Contact",
+      "contactDesc": "Talk to the team",
+      "language": "Language",
       "mobileTitle": "Menu"
     }
   },
@@ -105,16 +129,16 @@
   },
   "home": {
     "hero": {
-      "eyebrow": "Full-stack trading platform",
-      "h1": "The full-stack trading platform for cross-chain markets.",
-      "lead": "Execution, routing, research, and portfolio management across 45 chains, from one venue. Trade through Terminal or Telegram, or integrate through REST, MCP, and typed SDKs.",
+      "h1": "Swap any token across {platformChains} chains.",
+      "lead": "One venue for people and AI agents: a Terminal and Telegram bot to trade, an API and MCP server to build.",
       "ctaTerminal": "Launch Terminal",
-      "ctaApi": "Read the docs",
+      "ctaApi": "Get an API key",
       "ctaTelegram": "Trade in Telegram",
       "telegramNav": "Telegram",
       "ticketLabel": "Execution ticket · production quote",
       "ticketStatus": "Production data · freshness labeled",
-      "ticketNote": "This ticket only displays a quote. Simulation and authorization are separate steps; unavailable live data is never replaced with demo pricing."
+      "ticketNote": "This ticket only displays a quote. Simulation and authorization are separate steps; unavailable live data is never replaced with demo pricing.",
+      "ctaAgents": "For agents"
     },
     "quote": {
       "stateChecking": "Checking quote",
@@ -146,14 +170,15 @@
       "platformChains": "platform chains",
       "routingVenues": "integrated routing venues",
       "agentApiChains": "Agent API chains",
-      "routeNote": "Platform coverage and Agent API coverage differ. Every route uses only compatible venues.",
       "status": "Service status",
       "statusMeta": "Live health",
       "openapi": "OpenAPI",
-      "openapiMeta": "Machine-readable schema",
-      "githubMeta": "Source",
+      "openapiMeta": "OpenAPI 3.1",
+      "githubMeta": "Open source",
       "changelog": "Changelog",
-      "changelogMeta": "What shipped"
+      "changelogMeta": "Latest {date}",
+      "routesThrough": "ROUTES THROUGH",
+      "statsLine": "{platformChains} platform chains · {routerCount} routing venues · {agentApiChains} Agent API chains — as of {date}"
     },
     "interfaces": {
       "eyebrow": "Capability 06",
@@ -186,8 +211,8 @@
       "authorizeBody": "Self-custody returns an unsigned transaction for you to sign. Managed REST execution can sign and broadcast under server-side controls.",
       "screenshotAlt": "Suwappu Terminal showing an ETH/USDC chart, order book, and swap ticket.",
       "screenshotCaption": "Suwappu Terminal · product capture · 31 Jul 2026",
-      "mevTitle": "In-house MEV searcher",
-      "mevBody": "A Rust-based searcher screens pending routes for sandwich risk before execution, in-house rather than outsourced.",
+      "mevTitle": "MEV-aware routing",
+      "mevBody": "The bot prefers MEV-resistant routes such as CoW batch auctions (EVM) and Jito (Solana) where the pair is eligible. This does not apply to the Agent API.",
       "benchTitle": "Executor benchmarking",
       "benchBody": "Every execution path is benchmarked against measured latency and slippage, not simulated numbers."
     },
@@ -208,7 +233,7 @@
       "curveBody": "The terminal's Curve venue lists every pool on every chain Curve deploys to, straight from the Curve Prices API, sortable by TVL, 24h volume, or base APR, searchable, and one click from the swap desk. Built on our fork of flet-curve.",
       "screenshotAlt": "Suwappu perps desk showing HyperLiquid markets, market data, and an order ticket.",
       "screenshotCaption": "HyperLiquid perps inside Suwappu · product capture · 31 Jul 2026",
-      "lead": "Smart route priority orders venues, including Tempo's enshrined DEX for zero-fee stable swaps and CoW's MEV-protected batch auctions, before CCTP and Across settle a bridge leg. A failover RPC manager keeps every one of the 45 chains routable if a provider degrades."
+      "lead": "Smart route priority orders venues, including Tempo's enshrined DEX for zero-fee stable swaps and CoW's MEV-resistant batch auctions, before CCTP and Across settle a bridge leg. A failover RPC manager keeps every one of the 45 chains routable if a provider degrades."
     },
     "security": {
       "eyebrow": "Security model",
@@ -218,7 +243,7 @@
       "selfCustodyTitle": "Self-custody",
       "selfCustodyBody": "Unsigned transaction flows keep signing and broadcasting with the caller, nothing server-side ever holds that key.",
       "managedTitle": "Managed signing",
-      "managedBody": "Managed execution signs through KMS envelope encryption (kms_aesgcm_v2), Turnkey TEE signing, or an MPC signer, depending on the wallet path.",
+      "managedBody": "Managed execution signs through KMS envelope encryption (kms_aesgcm_v2), Turnkey-held keys (opt-in per wallet), or an MPC signer, depending on the wallet path.",
       "policiesTitle": "Server-side policies",
       "policiesBody": "2FA, spending limits, circuit breakers, and social recovery are enforced at the server boundary; approval monitoring auto-revokes what it flags.",
       "boundaryTitle": "Current assurance boundary",
@@ -240,7 +265,12 @@
       "eyebrow": "Choose the authority model",
       "title": "Send intent. Keep execution authority explicit.",
       "lead": "Start with the interface that matches who should review, sign, and broadcast.",
-      "telegram": "Or trade in Telegram"
+      "telegram": "Or trade in Telegram",
+      "tradersLead": "Swap, bridge, trade perps, automate and copy, from one account.",
+      "seeRouting": "See how routing works",
+      "tradeLabel": "Trade now",
+      "buildLabel": "Build with it",
+      "desks": "Talk to the team (desks)"
     },
     "useCases": {
       "eyebrow": "What you can do",
@@ -260,7 +290,7 @@
       "item06Title": "Predict",
       "item06Body": "Trade Polymarket positions from the same venue as everything else.",
       "item07Title": "Trade as an agent",
-      "item07Body": "REST, MCP, and A2A routes with x402 metered billing for programmatic execution.",
+      "item07Body": "REST, MCP, and A2A routes with prepaid-credit metered billing for programmatic execution.",
       "item08Title": "Compete & earn",
       "item08Body": "Battles, seasons and XP, referrals, rewards, and membership NFTs."
     },
@@ -301,15 +331,8 @@
       "fedrampBody": "An evidence package with a NIST SP 800-53 control crosswalk and a fail-closed government deployment profile.",
       "cta": "See the protocol"
     },
-    "atmosphere": {
-      "soundOn": "Sound on",
-      "soundOff": "Sound off",
-      "videoLabel": "Slow aerial footage of open ocean water"
-    },
-    "announce": {
-      "tag": "New · WebMCP",
-      "copy": "The Agent Desk: give the agent in your browser a mandate, not your keys. No login."
-    }
+    "schematic": "Schematic",
+    "rankCaption": "Schematic · order varies per request"
   },
   "cta": {
     "kicker": "Start free",
@@ -333,7 +356,7 @@
     "referral_body": "Refer active traders and earn 30% of their fees, on every chain, paid automatically. Grab your link with /ref inside the bot.",
     "referral_cta": "Get your referral link",
     "enterprise_heading": "Need a custom plan?",
-    "enterprise_body": "Dedicated infrastructure, volume-based pricing, and SLA for trading desks and agent fleets.",
+    "enterprise_body": "Dedicated infrastructure and volume-based pricing for trading desks and agent fleets. Support and service terms are scoped with the team.",
     "enterprise_cta": "Talk to us"
   },
   "languageSwitcher": {

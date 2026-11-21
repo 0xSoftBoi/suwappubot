@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
+import '../../content-v3.css';
 
 export const metadata: Metadata = {
   title: 'Risk Disclosure',
@@ -10,7 +11,7 @@ export const metadata: Metadata = {
 
 export default function RiskDisclosurePage() {
   return (
-    <div className="summer-page docs-shell institutional-page">
+    <div className="summer-page docs-shell institutional-page cv3-legal">
       <SummerNav />
       <main id="main-content">
       <div className="summer-shell mkt-page">
@@ -60,7 +61,7 @@ export default function RiskDisclosurePage() {
           <p>Trading digital assets, and especially using leverage, perpetual futures, or cross-chain routes, can result in the rapid and total loss of the funds involved. Only use the Service with funds you can afford to lose in full.</p>
 
           <h2>11. Questions</h2>
-          <p>Questions about this disclosure? Reach us through the official Suwappu Telegram or at <code>legal@suwappu.bot</code>.</p>
+          <p>Questions about this disclosure? Reach us through the official Suwappu Telegram or at <a href="mailto:legal@suwappu.bot">legal@suwappu.bot</a>.</p>
         </div>
         </article>
       </div>

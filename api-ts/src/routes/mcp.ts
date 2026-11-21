@@ -27,6 +27,7 @@ import { type AgentErrorCode } from '../lib/agentError'
 import { checkEvmWalletOwnership, enforcePolicyGateForFreshQuote, agentIdentifierOf, quoteBoundToWallet } from './agent'
 import type { Context } from 'hono'
 import { chargeAgentForCall, costForTool, refundChargedCall, setX402Headers } from '../middleware/x402Payment'
+import { resolveRequestIp } from '../middleware/ipRateLimit'
 import { EnvService } from '../config/EnvService'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
 import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
@@ -73,6 +74,13 @@ const PUBLIC_READ_TOOLS = new Set([
 	'browse_mpp_directory',
 	'near_resolve_asset',
 	'near_convert_amount',
+	// Read-only market data. Anonymous callers get a price/route quote (and, with
+	// wallet_address, the unsigned self-custody tx — what public Li.Fi/Jupiter
+	// APIs return anyway). Anonymous quotes are NOT cached, so execute_swap can
+	// never redeem them; that still needs an authenticated agent. /mcp is behind
+	// ipRateLimit(60) in app.ts.
+	'get_quote',
+	'get_prices',
 ])
 
 // ---------------------------------------------------------------
@@ -115,6 +123,17 @@ const MPP_ENABLED = process.env.MPP_ENABLED === 'true'
 const MPP_DIRECTORY_URL = process.env.MPP_DIRECTORY_URL || 'https://directory.mpp.dev/v1'
 
 const ADVERTISED_TOOLS = TOOLS.filter((t) => MPP_ENABLED || t.name !== 'browse_mpp_directory')
+export { ADVERTISED_TOOLS as MCP_ADVERTISED_TOOLS }
+
+// Agent-facing server guidance, returned in `initialize` (legacy handshake) and
+// `server/discover` (modern). Discoverability metadata only — no behaviour.
+const MCP_INSTRUCTIONS =
+	'Suwappu is a cross-chain DEX and DeFi API for agents: swap quotes, swap simulation, unsigned transaction preparation, prices, portfolio, Hyperliquid perps, Polymarket and Morpho reads. ' +
+	'Safe swap order: list_chains / list_tokens (find chain keys) -> get_quote (pass wallet_address; quote_id lasts about 60s) -> simulate_swap (dry run, moves nothing) -> execute_swap. ' +
+	'execute_swap only BUILDS an unsigned transaction for you to sign and submit; it never signs or broadcasts, and it is gated by the organisation spend policy, so it can be blocked or require approval. ' +
+	'Amounts are human units (e.g. "0.5"), slippage is a decimal fraction (0.03 = 3%). Treat tool annotations as hints and enforce an application-owned allowlist. ' +
+	'Discovery tools (list_chains, list_tokens, get_tempo_tokens) are free without a key; other calls need a Bearer key from POST https://api.suwappu.bot/v1/agent/register. ' +
+	'Docs: https://suwappu.bot/docs . OpenAPI: https://api.suwappu.bot/v1/agent/openapi . LLM summary: https://suwappu.bot/llms.txt'
 
 const TOOLS_WITH_ANNOTATIONS = MPP_ENABLED
 	? ALL_TOOLS_WITH_ANNOTATIONS
@@ -513,7 +532,72 @@ export async function handleBrowseMppDirectory(args: Record<string, unknown>) {
 	}
 }
 
-async function handleGetQuote(args: Record<string, unknown>, agent: Agent) {
+// Human-in-the-loop hand-off. Every same-chain quote carries a terminal deep
+// link that PRE-FILLS the swap form; the user still reviews and signs in their
+// own wallet (terminal/src/routes/AlertSwap.tsx never auto-submits). This is
+// what lets any MCP client — Claude, ChatGPT, an agent — turn a quote into a
+// real, self-custodial trade with one tap. The terminal pairs every token with
+// USDC, so the side/amount are only prefilled when one leg is USDC.
+const NATIVE_PLACEHOLDERS = new Set([
+	'0x0000000000000000000000000000000000000000',
+	'0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+	'so11111111111111111111111111111111111111112',
+	'11111111111111111111111111111111',
+])
+function isNativePlaceholder(address: string): boolean {
+	return NATIVE_PLACEHOLDERS.has(address.trim().toLowerCase())
+}
+
+const ANON_QUOTE_LIMIT = 10
+const ANON_QUOTE_WINDOW_MS = 60_000
+const anonQuoteWindows = new Map<string, { count: number; resetAt: number }>()
+function allowAnonymousQuote(ip: string): boolean {
+	const now = Date.now()
+	if (anonQuoteWindows.size > 10_000) {
+		for (const [k, w] of anonQuoteWindows) if (w.resetAt <= now) anonQuoteWindows.delete(k)
+	}
+	const w = anonQuoteWindows.get(ip)
+	if (!w || w.resetAt <= now) {
+		anonQuoteWindows.set(ip, { count: 1, resetAt: now + ANON_QUOTE_WINDOW_MS })
+		return true
+	}
+	if (w.count >= ANON_QUOTE_LIMIT) return false
+	w.count++
+	return true
+}
+
+const TERMINAL_URL = (process.env.TERMINAL_URL || 'https://terminal.suwappu.bot').replace(/\/+$/, '')
+export function buildSignUrl(p: {
+	fromToken: string; toToken: string; amount: string; chain: string; toChain?: string
+	/** Resolved contract/mint of the from/to tokens, so the deep link pins the exact asset quoted. */
+	fromAddress?: string; toAddress?: string
+}): string | undefined {
+	if (p.toChain && p.toChain.toLowerCase() !== p.chain.toLowerCase()) return undefined
+	const from = p.fromToken.toUpperCase().trim()
+	const to = p.toToken.toUpperCase().trim()
+	const q = new URLSearchParams({ chain: p.chain.toLowerCase(), ref: 'mcp' })
+	// The terminal pairs every token with USDC, and its amount handoff always
+	// opens a BUY with the amount in USDC. So only a USDC -> X quote can carry an
+	// amount; X -> USDC carries side=sell with no amount (the user types it), and
+	// any other pair only selects the token. Never prefill an amount the form
+	// would read in a different unit or direction than the quote.
+	const set = (symbol: string, address?: string) => {
+		q.set('token', symbol)
+		// Native legs use aggregator placeholders (0x0, 0xEeee…, the wSOL mint)
+		// the terminal doesn't index; pinning them would only break the prefill.
+		if (address && !isNativePlaceholder(address)) q.set('token_address', address)
+	}
+	if (from === 'USDC' && to !== 'USDC') {
+		set(p.toToken, p.toAddress); q.set('side', 'buy'); q.set('amount', p.amount)
+	} else if (to === 'USDC' && from !== 'USDC') {
+		set(p.fromToken, p.fromAddress); q.set('side', 'sell')
+	} else {
+		set(p.toToken, p.toAddress)
+	}
+	return `${TERMINAL_URL}/alert-swap?${q.toString()}`
+}
+
+async function handleGetQuote(args: Record<string, unknown>, agent: Agent | undefined) {
 	const { from_token, to_token, amount, chain, from_chain, to_chain, wallet_address, slippage } = args as {
 		from_token: string; to_token: string; amount: string; chain?: string
 		from_chain?: string; to_chain?: string; wallet_address?: string; slippage?: number
@@ -546,7 +630,7 @@ async function handleGetQuote(args: Record<string, unknown>, agent: Agent) {
 				}).pipe(Effect.mapError((e) => new ValidationError({ message: e.message })))
 
 				const quoteId = `jupiter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-				cacheAgentQuote(quoteId, quote, agent.id, true, {
+				if (agent) cacheAgentQuote(quoteId, quote, agent.id, true, {
 					fromDecimals: fromInfo.decimals,
 					toDecimals: toInfo.decimals,
 				})
@@ -559,6 +643,7 @@ async function handleGetQuote(args: Record<string, unknown>, agent: Agent) {
 					price_impact: `${quote.priceImpactPct}%`,
 					route: quote.routePlan.map((r: any) => r.swapInfo.label).join(' -> '),
 					expires_in_seconds: 60,
+					sign_url: buildSignUrl({ fromToken: from_token, toToken: to_token, amount, chain: 'solana', fromAddress: fromInfo.address, toAddress: toInfo.address }),
 				}
 			})
 		)
@@ -600,7 +685,7 @@ async function handleGetQuote(args: Record<string, unknown>, agent: Agent) {
 			// /internal/tempo/quote endpoint must exist (it currently does NOT) and
 			// /swap/execute needs a provider: 'tempo' quote_data branch; only then
 			// populate decimals here from TEMPO_TOKEN_DECIMALS.
-			cacheAgentQuote(quoteId, quote, agent.id, false)
+			if (agent) cacheAgentQuote(quoteId, quote, agent.id, false)
 			return {
 				content: [{
 					type: 'text',
@@ -646,7 +731,7 @@ async function handleGetQuote(args: Record<string, unknown>, agent: Agent) {
 				agent,
 			} as QuoteParams).pipe(Effect.mapError((e) => new ValidationError({ message: e.message })))
 
-			cacheAgentQuote(quote.quoteId, quote, agent.id, false, {
+			if (agent) cacheAgentQuote(quote.quoteId, quote, agent.id, false, {
 				fromDecimals: fromInfo.decimals,
 				toDecimals: toInfo.decimals,
 			})
@@ -659,6 +744,10 @@ async function handleGetQuote(args: Record<string, unknown>, agent: Agent) {
 				amount_in: amount, amount_out: outHuman.toFixed(6),
 				exchange_rate: quote.exchangeRate, gas_usd: quote.estimatedGasUsd,
 				route: quote.route, expires_in_seconds: 60,
+				// Use the RESOLVED chains: aliases/IDs (arb, 8453) map to the terminal's
+				// canonical key, and a defaulted bridge (from_chain only) never yields a
+				// same-chain link.
+				sign_url: buildSignUrl({ fromToken: from_token, toToken: to_token, amount, chain: srcInfo.key, toChain: dstInfo.key, fromAddress: fromInfo.address, toAddress: toInfo.address }),
 				...(wallet_address ? {
 					transaction: {
 						to: quote.transactionRequest.to, value: quote.transactionRequest.value,
@@ -1476,8 +1565,12 @@ mcpRoutes.post('/', async (c) => {
 	// tools must not require payment-capable auth (registry acceptance criteria).
 	const isPublicToolCall =
 		req.method === 'tools/call' && PUBLIC_READ_TOOLS.has(((req.params || {}).name as string) || '')
+	// A public read tool stays keyless for anonymous callers, but a caller that
+	// presents a key is still authenticated: its quotes must be cached for
+	// execute_swap, it is metered, and it keeps agent fee discounts.
+	const hasAuthHeader = Boolean(c.req.header('Authorization'))
 	let agent: Agent | undefined
-	if (!PUBLIC_MCP_METHODS.has(req.method) && !isPublicToolCall) {
+	if (!PUBLIC_MCP_METHODS.has(req.method) && (!isPublicToolCall || hasAuthHeader)) {
 		try {
 			await agentBearerAuth()(c, async () => {})
 		} catch (e) {
@@ -1497,14 +1590,24 @@ mcpRoutes.post('/', async (c) => {
 		}))
 	}
 
+	// Anonymous get_quote hits upstream aggregators on the shared Li.Fi/Jupiter
+	// keys, so it gets a tighter per-IP budget than the router-wide floor.
+	if (isPublicToolCall && !agent && ((req.params || {}).name as string) === 'get_quote') {
+		if (!allowAnonymousQuote(resolveRequestIp(c))) {
+			return c.json(
+				rpcErr(req.id, -32029, 'Anonymous quote rate limit reached. Register an agent at https://suwappu.bot/agents for a higher limit.', undefined, 'RATE_LIMITED'),
+				429,
+			)
+		}
+	}
+
 	switch (req.method) {
 		case 'server/discover':
 			if (!modern) return c.json(rpcErr(req.id, -32601, 'Unknown method: server/discover', undefined, 'NOT_FOUND'), 200)
 			return c.json(rpcOk(req.id, completeModernMcpResult({
 				supportedVersions: [...SUPPORTED_MCP_VERSIONS],
 				capabilities: { tools: {}, resources: {}, prompts: {} },
-				instructions:
-					'Suwappu provides market reads, quotes, simulation, and unsigned transaction preparation. execute_swap never signs or broadcasts. Treat tool annotations as hints and enforce an application-owned allowlist.',
+				instructions: MCP_INSTRUCTIONS,
 			}, { ttlMs: MCP_DISCOVERY_TTL_MS, cacheScope: 'public' })), 200)
 
 		case 'initialize':
@@ -1513,6 +1616,7 @@ mcpRoutes.post('/', async (c) => {
 				protocolVersion: negotiateProtocolVersion((req.params || {}).protocolVersion),
 				capabilities: { tools: {}, resources: {}, prompts: {} },
 				serverInfo: MCP_SERVER_INFO,
+				instructions: MCP_INSTRUCTIONS,
 			}), 200)
 
 		case 'tools/list':
@@ -1676,7 +1780,7 @@ mcpRoutes.post('/', async (c) => {
 			try {
 				switch (name) {
 					case 'get_quote':
-						result = await handleGetQuote(args || {}, callAgent)
+						result = await handleGetQuote(args || {}, agent)
 						break
 					case 'get_portfolio':
 						result = await handleGetPortfolio(args || {}, callAgent)

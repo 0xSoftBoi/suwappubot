@@ -119,7 +119,15 @@ function cleanupExpired() {
  * IP-based sliding window rate limiter for public endpoints.
  * Keyed by client IP from x-forwarded-for header.
  */
+let nextLimiterId = 0
+
 export function ipRateLimit(limit: number = DEFAULT_LIMIT) {
+	// Each limiter keeps its OWN per-IP window. They used to share one bucket
+	// keyed by IP alone, so traffic to a high-limit route counted against every
+	// low-limit route: a visitor whose page views posted a handful of events to
+	// /v1/web/event (limit 120) had already "used up" POST /v1/agent/register
+	// (limit 5) and got a 429 on their first sign-up attempt.
+	const scope = nextLimiterId++
 	return async (c: Context, next: Next) => {
 		const cfIp = c.req.header('cf-connecting-ip')
 		const forwarded = c.req.header('x-forwarded-for')
@@ -137,7 +145,7 @@ export function ipRateLimit(limit: number = DEFAULT_LIMIT) {
 			undefined,
 			c.req.header('cf-provenance'),
 		)
-		const key = `ip:${ip}`
+		const key = `ip:${scope}:${ip}`
 		const now = Date.now()
 
 		cleanupExpired()

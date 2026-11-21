@@ -11,7 +11,9 @@ import type {
   AutopilotDecision,
   AutopilotPosition,
 } from './types';
+import { Reveal, AuthorityFlow } from '@/components/v3';
 import styles from './autopilot.module.css';
+import '../product-v3.css';
 
 export const metadata: Metadata = {
   title: { absolute: 'Autopilot: the Suwappu autonomous trading agent | Suwappu' },
@@ -78,6 +80,9 @@ export default async function AutopilotPage() {
               </p>
             </div>
             <span className={styles.live}>
+              {agent?.mode === 'paper' && (
+                <span className={styles.paper} title="Paper mode: simulated trading, no real funds">PAPER</span>
+              )}
               <span
                 className={`${styles.dot} ${agent?.status === 'active' ? '' : styles.dotIdle}`}
                 aria-hidden="true"
@@ -85,6 +90,40 @@ export default async function AutopilotPage() {
               {agent ? `${agent.status} · ${agent.mode}` : 'no agent running'}
             </span>
           </header>
+
+          <Reveal className="v3-tone-dark pv3-panel pv3-authority pv3-inpage">
+            <div className="pv3-panel__bar"><i /><i /><i /><span>Hash first, trade second, every refusal published</span></div>
+            <div className="pv3-stagebox">
+              <AuthorityFlow lanes={[['Thesis', 'Hash published', 'Trade'], ['Gate fails', 'Refusal published', 'No trade']]} caption="Every decision is hashed before it acts" />
+            </div>
+          </Reveal>
+
+          <Reveal><section className={`${styles.explain} ${styles.explainTop}`}>
+            <div className={styles.explainItem}>
+              <h3>Why the order matters</h3>
+              <p>
+                The thesis is hashed and stored before any execution attempt, and revealed
+                afterwards. A matching hash proves the argument predates the trade — nobody has to
+                take our word for the timing.
+              </p>
+            </div>
+            <div className={styles.explainItem}>
+              <h3>Check it yourself</h3>
+              <p>
+                Every revealed decision above carries a badge your browser produced: it recomputed{' '}
+                <code>sha256(&quot;sha256-canonical-v1|&quot; + nonce + &quot;|&quot; + canonical_thesis)</code>{' '}
+                with WebCrypto and compared it to the published commitment. No API was asked
+                whether the hash was valid.
+              </p>
+            </div>
+            <div className={styles.explainItem}>
+              <h3>Refusals are the data</h3>
+              <p>
+                Every thesis that fails a risk gate is sealed, revealed and published with the full
+                rule-by-rule verdict. What an agent declines to buy says more than what it buys.
+              </p>
+            </div>
+          </section></Reveal>
 
           {!agent ? (
             <p className={styles.empty}>
@@ -147,32 +186,6 @@ export default async function AutopilotPage() {
             </>
           )}
 
-          <section className={styles.explain}>
-            <div className={styles.explainItem}>
-              <h3>Why the order matters</h3>
-              <p>
-                The thesis is hashed and stored before any execution attempt, and revealed
-                afterwards. A matching hash proves the argument predates the trade — nobody has to
-                take our word for the timing.
-              </p>
-            </div>
-            <div className={styles.explainItem}>
-              <h3>Check it yourself</h3>
-              <p>
-                Every revealed decision above carries a badge your browser produced: it recomputed{' '}
-                <code>sha256(&quot;sha256-canonical-v1|&quot; + nonce + &quot;|&quot; + canonical_thesis)</code>{' '}
-                with WebCrypto and compared it to the published commitment. No API was asked
-                whether the hash was valid.
-              </p>
-            </div>
-            <div className={styles.explainItem}>
-              <h3>Refusals are the data</h3>
-              <p>
-                Every thesis that fails a risk gate is sealed, revealed and published with the full
-                rule-by-rule verdict. What an agent declines to buy says more than what it buys.
-              </p>
-            </div>
-          </section>
         </div>
       </main>
       <SummerFooter />
