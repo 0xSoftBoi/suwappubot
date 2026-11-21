@@ -3,6 +3,8 @@ import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import EnterpriseContactForm from '@/components/EnterpriseContactForm';
 import DemoCallCta from '@/components/DemoCallCta';
+import { Reveal, Backdrop, BoundaryRings } from '@/components/v3';
+import '../sales-v3.css';
 import styles from './contact.module.css';
 import stats from '@/data/stats.generated.json';
 
@@ -22,11 +24,11 @@ const trust = [
 
 export default function ContactPage() {
   return (
-    <div className="summer-page docs-shell institutional-page">
+    <div className="summer-page docs-shell institutional-page v3-tone-light sv3-page">
       <SummerNav />
       <main id="main-content">
       <div className="summer-shell mkt-page">
-        <header className="mkt-hero mkt-hero--center">
+        <div className="sv3-heroband"><Backdrop kind="grid" /><header className="mkt-hero mkt-hero--center">
           <p className="summer-kicker">Enterprise</p>
           <h1>Talk to the team.</h1>
           <p className="mkt-hero__lead">
@@ -34,10 +36,10 @@ export default function ContactPage() {
             fee, dedicated rate limits, and priority support. Tell us what you&rsquo;re building and
             we&rsquo;ll get back to you fast.
           </p>
-        </header>
+        </header></div>
 
         {/* Saphira-style gate: the fastest path is a 30-min call, not the form. */}
-        <section className={styles.demoCard} aria-label="Schedule a demo">
+        <Reveal as="section" className={`${styles.demoCard} sv3-demo`}>
           <div>
             <h2 className="mkt-h2">Book a 30-min demo.</h2>
             <p className={styles.demoBody}>
@@ -48,10 +50,11 @@ export default function ContactPage() {
           <DemoCallCta source="contact_page_card" className="summer-button summer-button--primary">
             Schedule a demo
           </DemoCallCta>
-        </section>
+        </Reveal>
 
-        <section className={styles.layout} aria-label="Contact">
-          <div className={styles.pitch}>
+        <Reveal as="section" className={`${styles.layout} sv3-contact`}>
+          <div className={`${styles.pitch} sv3-next v3-tone-dark`}>
+            <div className="sv3-slab__art" aria-hidden="true"><BoundaryRings /></div>
             <h2 className="mkt-h2">
               {stats.platformChains} chains, self-custody or managed keys, one agent API.
             </h2>
@@ -72,10 +75,10 @@ export default function ContactPage() {
             </ul>
           </div>
 
-          <div className={styles.panel}>
+          <div className={`${styles.panel} sv3-formpanel`}>
             <EnterpriseContactForm />
           </div>
-        </section>
+        </Reveal>
       </div>
       </main>
       <SummerFooter />
