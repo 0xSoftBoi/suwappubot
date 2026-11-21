@@ -376,6 +376,9 @@ export async function broadcastRawTx(
 	const localHash = keccak256(signedTx as Hex)
 	let lastErr: Error = new Error('broadcast failed')
 	let attempts = 0
+	// True once any attempt ended without a definitive answer (timeout, network
+	// error, non-2xx, transient RPC code) — the node may have accepted the tx.
+	let uncertain = false
 	for (let i = 0; i < urls.length; i++) {
 		const url = urls[i]!
 		attempts++
@@ -397,12 +400,17 @@ export async function broadcastRawTx(
 			return { hash: data.result, url }
 		} catch (e) {
 			lastErr = e instanceof Error ? e : new Error(String(e))
-			if ((lastErr as Error & { final?: boolean }).final || i === urls.length - 1) break
+			const isFinal = (lastErr as Error & { final?: boolean }).final
+			if (!isFinal) uncertain = true
+			if (isFinal || i === urls.length - 1) break
 			logger.warn(`[rpc] broadcast via ${new URL(url).host} failed (${terse(e)}), failing over`)
 		}
 	}
-	// Last resort: an earlier timed-out attempt may have landed.
-	if (attempts > 1) {
+	// Last resort: an attempt that timed out / dropped may still have landed.
+	// Gate on uncertainty, NOT attempt count: a single overridden endpoint (e.g.
+	// one paid ETH_RPC_URL) that times out is exactly the case where reporting
+	// failure makes the user retry and execute the swap twice.
+	if (uncertain || attempts > 1) {
 		const found = await findTxUrl(urls, localHash)
 		if (found) return { hash: localHash, url: found }
 	}
