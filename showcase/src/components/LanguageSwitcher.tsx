@@ -2,17 +2,29 @@
 
 import styles from './LanguageSwitcher.module.css';
 
-const LOCALES = [
-  { code: 'en', label: 'EN' },
-  { code: 'es', label: 'ES' },
-  { code: 'fr', label: 'FR' },
-  { code: 'zh', label: '中文' },
+export const LOCALES = [
+  { code: 'en', label: 'EN', name: 'English' },
+  { code: 'es', label: 'ES', name: 'Español' },
+  { code: 'fr', label: 'FR', name: 'Français' },
+  { code: 'zh', label: '中文', name: '中文' },
 ] as const;
 
-type Locale = (typeof LOCALES)[number]['code'];
+export type Locale = (typeof LOCALES)[number]['code'];
 
 interface Props {
   current: string;
+}
+
+export function switchLocale(locale: Locale, current: string) {
+  if (locale === current) return;
+  // Persist to cookie (read by i18n/request.ts on the server).
+  const secure = window.location.protocol === 'https:' ? ';Secure' : '';
+  document.cookie = `NEXT_LOCALE=${locale};path=/;max-age=31536000;SameSite=Lax${secure}`;
+  // Mirror to localStorage so client code can read it without a round-trip.
+  try { localStorage.setItem('NEXT_LOCALE', locale); } catch {}
+  // Hard navigation: full document request so the server sees the cookie
+  // and re-renders layout + route together. Preserve any query string.
+  window.location.assign(window.location.pathname + window.location.search);
 }
 
 /**
@@ -25,25 +37,13 @@ interface Props {
  * fresh document request after the cookie is set renders Spanish).
  */
 export default function LanguageSwitcher({ current }: Props) {
-  function switchLocale(locale: Locale) {
-    if (locale === current) return;
-    // Persist to cookie (read by i18n/request.ts on the server).
-    const secure = window.location.protocol === 'https:' ? ';Secure' : '';
-    document.cookie = `NEXT_LOCALE=${locale};path=/;max-age=31536000;SameSite=Lax${secure}`;
-    // Mirror to localStorage so client code can read it without a round-trip.
-    try { localStorage.setItem('NEXT_LOCALE', locale); } catch {}
-    // Hard navigation: full document request so the server sees the cookie
-    // and re-renders layout + route together. Preserve any query string.
-    window.location.assign(window.location.pathname + window.location.search);
-  }
-
   return (
     <div className={styles.switcher} aria-label="Select language" role="group">
       {LOCALES.map(({ code, label }) => (
         <button
           key={code}
           className={`${styles.option} ${current === code ? styles.active : ''}`}
-          onClick={() => switchLocale(code)}
+          onClick={() => switchLocale(code, current)}
           aria-pressed={current === code}
           aria-label={code.toUpperCase()}
         >

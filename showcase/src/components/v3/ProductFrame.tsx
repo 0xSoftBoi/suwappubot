@@ -16,6 +16,7 @@ export default function ProductFrame({
   title,
   flow,
   aside,
+  calm,
 }: {
   src: string;
   width: number;
@@ -24,9 +25,11 @@ export default function ProductFrame({
   title?: string;
   flow?: string[];
   aside?: ReactNode;
+  /** Flat, untilted, no glow: the hero treatment where the capture is the only artifact. */
+  calm?: boolean;
 }) {
   return (
-    <div className="v3-desk">
+    <div className={calm ? 'v3-desk v3-desk--calm' : 'v3-desk'}>
       <span className="v3-desk__glow" aria-hidden="true" />
       <div className="v3-desk__stage">
         <figure className="v3-desk__frame">

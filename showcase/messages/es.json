@@ -22,7 +22,6 @@
     "menu": {
       "products": "Productos",
       "developers": "Desarrolladores",
-      "company": "Por qué Suwappu",
       "grpTrade": "Operar",
       "grpMarkets": "Mercados",
       "grpBuild": "Construir",
@@ -90,7 +89,31 @@
       "startTitle": "Obtener una clave API",
       "startDesc": "Una llamada, sin formulario",
       "solveTitle": "Problemas resueltos",
-      "solveDesc": "Los pasos exactos para tareas reales"
+      "solveDesc": "Los pasos exactos para tareas reales",
+      "solutions": "Soluciones",
+      "resources": "Recursos",
+      "grpAgents": "Agentes",
+      "grpAudience": "Por perfil",
+      "grpExplore": "Explorar",
+      "grpLearn": "Aprender",
+      "grpCompany": "Empresa",
+      "forTradersTitle": "Para traders",
+      "forTradersDesc": "Swaps, perps y automatización",
+      "forBuildersTitle": "Para creadores de agentes",
+      "forBuildersDesc": "Conecta un agente a la API",
+      "forDesksTitle": "Para mesas",
+      "forDesksDesc": "Organizaciones, roles y claves acotadas",
+      "governmentTitle": "Gobierno",
+      "governmentDesc": "Adquisiciones y garantías",
+      "openapiTitle": "Especificación OpenAPI",
+      "openapiDesc": "Legible por máquina, 3.1",
+      "aboutTitle": "Acerca de",
+      "aboutDesc": "Quién lo construye",
+      "careersTitle": "Empleo",
+      "careersDesc": "Puestos abiertos",
+      "contactTitle": "Contacto",
+      "contactDesc": "Habla con el equipo",
+      "language": "Idioma"
     }
   },
   "hero": {
@@ -109,16 +132,16 @@
   },
   "home": {
     "hero": {
-      "eyebrow": "Plataforma de trading full-stack",
-      "h1": "La plataforma de trading full-stack para mercados cross-chain.",
-      "lead": "Ejecución, enrutamiento, investigación y gestión de portafolio en 45 cadenas, desde un solo lugar. Opera desde Terminal o Telegram, o integra mediante REST, MCP y SDK tipados.",
+      "h1": "Intercambia cualquier token en {platformChains} cadenas.",
+      "lead": "Un solo lugar para personas y agentes de IA: un Terminal y un bot de Telegram para operar, una API y un servidor MCP para construir.",
       "ctaTerminal": "Abrir Terminal",
       "ctaApi": "Obtener una clave API",
       "ctaTelegram": "Operar en Telegram",
       "telegramNav": "Telegram",
       "ticketLabel": "Ticket de ejecución · cotización de producción",
       "ticketStatus": "Datos de producción · vigencia indicada",
-      "ticketNote": "Este ticket solo muestra una cotización. La simulación y la autorización son pasos separados; si no hay datos en vivo, nunca se sustituyen por precios de demostración."
+      "ticketNote": "Este ticket solo muestra una cotización. La simulación y la autorización son pasos separados; si no hay datos en vivo, nunca se sustituyen por precios de demostración.",
+      "ctaAgents": "Para agentes"
     },
     "quote": {
       "stateChecking": "Comprobando cotización",
@@ -150,14 +173,15 @@
       "platformChains": "cadenas de plataforma",
       "routingVenues": "rutas integradas",
       "agentApiChains": "cadenas de Agent API",
-      "routeNote": "La cobertura de plataforma y de Agent API es distinta. Cada ruta usa solo proveedores compatibles.",
       "status": "Estado del servicio",
       "statusMeta": "Salud en vivo",
       "openapi": "OpenAPI",
-      "openapiMeta": "Esquema legible por máquinas",
-      "githubMeta": "Código fuente",
+      "openapiMeta": "OpenAPI 3.1",
+      "githubMeta": "Código abierto",
       "changelog": "Novedades",
-      "changelogMeta": "Lo publicado"
+      "changelogMeta": "Último: {date}",
+      "routesThrough": "RUTAS A TRAVÉS DE",
+      "statsLine": "{platformChains} cadenas de plataforma · {routerCount} proveedores de enrutamiento · {agentApiChains} cadenas de Agent API — a fecha de {date}"
     },
     "interfaces": {
       "eyebrow": "Capacidad 06",
@@ -244,7 +268,12 @@
       "eyebrow": "Elige el modelo de autoridad",
       "title": "Envía la intención. Mantén explícita la autoridad de ejecución.",
       "lead": "Empieza con la interfaz que corresponda a quien debe revisar, firmar y transmitir.",
-      "telegram": "O opera en Telegram"
+      "telegram": "O opera en Telegram",
+      "tradersLead": "Swaps, bridges, perps, automatización y copy trading, desde una sola cuenta.",
+      "seeRouting": "Ver cómo funciona el enrutamiento",
+      "tradeLabel": "Opera ahora",
+      "buildLabel": "Constrúyelo",
+      "desks": "Habla con el equipo (mesas)"
     },
     "useCases": {
       "eyebrow": "Qué puedes hacer",
@@ -306,16 +335,7 @@
       "fedrampBody": "Un paquete de evidencias con correspondencia NIST SP 800-53 y un perfil de despliegue gubernamental fail-closed."
     },
     "schematic": "Esquema",
-    "rankCaption": "Esquema · el orden varía según la solicitud",
-    "atmosphere": {
-      "soundOn": "Sonido activado",
-      "soundOff": "Sonido apagado",
-      "videoLabel": "Vista aérea lenta del océano abierto"
-    },
-    "announce": {
-      "tag": "Nuevo · WebMCP",
-      "copy": "El Agent Desk: dale al agente de tu navegador un mandato, no tus claves. Sin registro."
-    }
+    "rankCaption": "Esquema · el orden varía según la solicitud"
   },
   "cta": {
     "kicker": "Empieza ahora",

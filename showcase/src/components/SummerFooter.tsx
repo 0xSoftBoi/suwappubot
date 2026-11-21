@@ -1,5 +1,7 @@
 import { TELEGRAM_URL } from '@/lib/links';
+import { useLocale } from 'next-intl';
 import FooterNewsletterForm from './FooterNewsletterForm';
+import LanguageSwitcher from './LanguageSwitcher';
 import stats from '@/data/stats.generated.json';
 
 const TERMINAL_URL = 'https://terminal.suwappu.bot';
@@ -67,6 +69,7 @@ const columns: { title: string; links: { label: string; href: string; external?:
 ];
 
 export default function SummerFooter() {
+  const locale = useLocale();
   return (
     <footer className="summer-footer" aria-label="Site footer">
       <div className="summer-footer__inner">
@@ -107,6 +110,7 @@ export default function SummerFooter() {
 
       {/* Legal line: prose only. No compliance badges we do not actually hold. */}
       <div className="summer-footer__legal">
+        <LanguageSwitcher current={locale} />
         <p>
           Suwappu is execution software, not a broker, exchange, investment adviser, or custodian.
           Connect your own wallet and you keep your keys; we never take discretionary control of your

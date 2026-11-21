@@ -22,7 +22,6 @@
     "menu": {
       "products": "Produits",
       "developers": "Développeurs",
-      "company": "Pourquoi Suwappu",
       "grpTrade": "Trader",
       "grpMarkets": "Marchés",
       "grpBuild": "Construire",
@@ -90,7 +89,31 @@
       "startTitle": "Obtenir une clé API",
       "startDesc": "Un appel, aucun formulaire",
       "solveTitle": "Problèmes résolus",
-      "solveDesc": "Les étapes exactes pour de vraies tâches"
+      "solveDesc": "Les étapes exactes pour de vraies tâches",
+      "solutions": "Solutions",
+      "resources": "Ressources",
+      "grpAgents": "Agents",
+      "grpAudience": "Par profil",
+      "grpExplore": "Explorer",
+      "grpLearn": "Apprendre",
+      "grpCompany": "Entreprise",
+      "forTradersTitle": "Pour les traders",
+      "forTradersDesc": "Swaps, perps et automatisation",
+      "forBuildersTitle": "Pour les builders d'agents",
+      "forBuildersDesc": "Brancher un agent sur l'API",
+      "forDesksTitle": "Pour les desks",
+      "forDesksDesc": "Organisations, rôles et clés limitées",
+      "governmentTitle": "Secteur public",
+      "governmentDesc": "Achats et assurance",
+      "openapiTitle": "Spécification OpenAPI",
+      "openapiDesc": "Lisible par machine, 3.1",
+      "aboutTitle": "À propos",
+      "aboutDesc": "Qui construit Suwappu",
+      "careersTitle": "Carrières",
+      "careersDesc": "Postes ouverts",
+      "contactTitle": "Contact",
+      "contactDesc": "Parler à l'équipe",
+      "language": "Langue"
     }
   },
   "hero": {
@@ -109,16 +132,16 @@
   },
   "home": {
     "hero": {
-      "eyebrow": "Plateforme de trading full-stack",
-      "h1": "La plateforme de trading full-stack pour les marchés cross-chain.",
-      "lead": "Exécution, routage, recherche et gestion de portefeuille sur 45 chaînes, depuis un seul endroit. Tradez depuis le Terminal ou Telegram, ou intégrez via REST, MCP et des SDK typés.",
+      "h1": "Échangez n'importe quel jeton sur {platformChains} chaînes.",
+      "lead": "Un seul lieu pour les humains et les agents IA : un Terminal et un bot Telegram pour trader, une API et un serveur MCP pour construire.",
       "ctaTerminal": "Lancer le Terminal",
       "ctaApi": "Obtenir une clé API",
       "ctaTelegram": "Trader dans Telegram",
       "telegramNav": "Telegram",
       "ticketLabel": "Ticket d’exécution · cotation de production",
       "ticketStatus": "Données de production · fraîcheur indiquée",
-      "ticketNote": "Ce ticket affiche uniquement une cotation. La simulation et l’autorisation sont des étapes distinctes ; des données indisponibles ne sont jamais remplacées par des prix de démonstration."
+      "ticketNote": "Ce ticket affiche uniquement une cotation. La simulation et l’autorisation sont des étapes distinctes ; des données indisponibles ne sont jamais remplacées par des prix de démonstration.",
+      "ctaAgents": "Pour les agents"
     },
     "quote": {
       "stateChecking": "Vérification de la cotation",
@@ -150,14 +173,15 @@
       "platformChains": "chaînes de la plateforme",
       "routingVenues": "routes intégrées",
       "agentApiChains": "chaînes de l’Agent API",
-      "routeNote": "La couverture de la plateforme diffère de celle de l’Agent API. Chaque route utilise uniquement les fournisseurs compatibles.",
       "status": "État du service",
       "statusMeta": "Santé en direct",
       "openapi": "OpenAPI",
-      "openapiMeta": "Schéma lisible par machine",
-      "githubMeta": "Source",
+      "openapiMeta": "OpenAPI 3.1",
+      "githubMeta": "Open source",
       "changelog": "Nouveautés",
-      "changelogMeta": "Dernières livraisons"
+      "changelogMeta": "Dernière : {date}",
+      "routesThrough": "ROUTE VIA",
+      "statsLine": "{platformChains} chaînes de plateforme · {routerCount} fournisseurs de routage · {agentApiChains} chaînes Agent API — au {date}"
     },
     "interfaces": {
       "eyebrow": "Capacité 06",
@@ -244,7 +268,12 @@
       "eyebrow": "Choisissez le modèle d’autorité",
       "title": "Envoyez l’intention. Gardez l’autorité d’exécution explicite.",
       "lead": "Commencez avec l’interface adaptée à la personne ou au système qui doit vérifier, signer et diffuser.",
-      "telegram": "Ou tradez dans Telegram"
+      "telegram": "Ou tradez dans Telegram",
+      "tradersLead": "Swaps, bridges, perps, automatisation et copy trading, depuis un seul compte.",
+      "seeRouting": "Voir comment fonctionne le routage",
+      "tradeLabel": "Trader maintenant",
+      "buildLabel": "Construire avec",
+      "desks": "Parler à l'équipe (desks)"
     },
     "useCases": {
       "eyebrow": "Ce que vous pouvez faire",
@@ -306,16 +335,7 @@
       "fedrampBody": "Un dossier de preuves avec correspondance NIST SP 800-53 et un profil de déploiement gouvernemental fail-closed."
     },
     "schematic": "Schéma",
-    "rankCaption": "Schéma · l'ordre varie selon la demande",
-    "atmosphere": {
-      "soundOn": "Son activé",
-      "soundOff": "Son coupé",
-      "videoLabel": "Vue aérienne lente de l’océan"
-    },
-    "announce": {
-      "tag": "Nouveau · WebMCP",
-      "copy": "L'Agent Desk : donnez un mandat à l'agent de votre navigateur, pas vos clés. Sans connexion."
-    }
+    "rankCaption": "Schéma · l'ordre varie selon la demande"
   },
   "cta": {
     "kicker": "Commencez maintenant",

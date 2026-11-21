@@ -10,14 +10,21 @@ site (wrong nav, wrong palette, "some old library" look).
 Every page MUST use, unless it already deliberately doesn't:
 
 - **Nav:** `@/components/SummerNav` — the ONLY header. Sticky glass bar:
-  brand · three panels (Products / Developers / Why Suwappu) · Pricing · Docs ·
-  language · one "Launch Terminal" CTA. Behaviour is `@ui-sdk/react`
+  brand · four panels (Products / Solutions / Developers / Resources) ·
+  Pricing · a globe language menu (`LanguageMenu`, `@ui-sdk/react` menu) · one
+  orange "Launch Terminal" CTA. Behaviour is `@ui-sdk/react`
   (`navigation-menu`, `dialog`, `accordion`); styles are `src/app/nav.css`,
   keyed on `data-slot` + state attributes. Dark pages get the dark header from
   an ancestor `.sw-dark` / `.summer-page--cosmic` / `.summer-page--passport`,
   or `<SummerNav tone="dark" />` — never re-patch header colours per page.
   New routes go in `NavMenuData.ts` (+ `nav.menu.*` in all four locales), not
-  in the top row.
+  in the top row. The four-pill `LanguageSwitcher` lives in the mobile sheet
+  and the footer only.
+- **Home hero is one idea:** a headline of seven words or fewer, one line of
+  subhead, exactly two buttons (primary action + "For agents"), one product
+  capture. No kicker, announcement bar, floating chips or ambient audio. Proof
+  under it is the "ROUTES THROUGH" text row (real venues from generated stats,
+  never third-party logos, never "trusted by") and dated real counts.
 - **Interactive widgets:** build menus, dialogs, accordions, comboboxes, tabs
   and form fields on `@ui-sdk/react/<name>` (live examples: `SummerNav`,
   `docs/DocsSearch`, `EnterpriseContactForm`, `FooterNewsletterForm`) (version-matched docs in

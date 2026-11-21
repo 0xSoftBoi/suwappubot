@@ -1,17 +1,17 @@
 import type { Metadata } from 'next';
-import { getTranslations } from 'next-intl/server';
+import { getLocale, getTranslations } from 'next-intl/server';
 import StructuredData from '@/components/StructuredData';
 import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import LiveQuote from '@/components/LiveQuote';
-import OceanAtmosphere from '@/components/OceanAtmosphere';
+import TrackedLink from '@/components/solve/TrackedLink';
 import ProofShot from '@/components/ProofShot';
 import {
-  Reveal, CountUp, SpotlightCard, V3Section, SectionHead, Backdrop, MiniViz, RouteMap, PipelineFlow,
-  VenueRank, ChainRing, SparkCard, ToolOrbit, BoundaryRings, ProductFrame,
-  type MiniKind, ProblemStrip } from '@/components/v3';
+  Reveal, CountUp, SpotlightCard, V3Section, SectionHead, Backdrop, RouteMap, PipelineFlow,
+  VenueRank, SparkCard, ToolOrbit, ProductFrame, ProblemStrip } from '@/components/v3';
 import FaqAccordion from '@/components/FaqAccordion';
 import productStats from '@/data/stats.generated.json';
+import { entries as changelogEntries } from '@/data/changelog';
 import { GITHUB_URL, TELEGRAM_URL, TERMINAL_URL, MINI_APP_URL } from '@/lib/links';
 import './hero-d/hero-d.css';
 import './site.css';
@@ -29,6 +29,12 @@ export const revalidate = 60;
 export default async function Home() {
   const h = await getTranslations('home');
 
+  const locale = await getLocale();
+  const fmtDate = (iso: string) =>
+    new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(`${iso}T00:00:00Z`));
+
+  // Real values only: the spec version is what GET /v1/agent/openapi serves,
+  // the changelog date is the newest entry, status is a link (no live datum).
   const proofLinks = [
     { label: h('evidence.status'), meta: h('evidence.statusMeta'), href: '/status', external: false },
     {
@@ -38,8 +44,17 @@ export default async function Home() {
       external: true,
     },
     { label: 'GitHub', meta: h('evidence.githubMeta'), href: GITHUB_URL, external: true },
-    { label: h('evidence.changelog'), meta: h('evidence.changelogMeta'), href: '/changelog', external: false },
+    {
+      label: h('evidence.changelog'),
+      meta: h('evidence.changelogMeta', { date: fmtDate(changelogEntries[0].date) }),
+      href: '/changelog',
+      external: false,
+    },
   ];
+
+  // Venues and bridges the router really calls (stats.routers), in a fixed order.
+  const routeVenues = ['Jupiter', '0x', '1inch', 'Li.Fi', 'CoW', 'KyberSwap', 'Across', 'CCTP', 'Wormhole', 'LayerZero', 'OKX', 'Socket']
+    .filter((v) => productStats.routers.includes(v));
 
   const executionSteps = [
     { number: '01', title: h('execution.intentTitle'), body: h('execution.intentBody') },
@@ -71,26 +86,10 @@ export default async function Home() {
     { title: h('government.fedrampTitle'), body: h('government.fedrampBody') },
   ];
 
-  // 01–08: what you can DO. Each links down to the capability deep-dive that
-  // powers it, so the grid reads as a table of contents for the rest of the page.
-  const useKinds: MiniKind[] = ['swap', 'bridge', 'perps', 'copy', 'automate', 'predict', 'agent', 'compete'];
-  const useSpans = ['v3-span-2', '', '', '', '', 'v3-span-2', 'v3-span-2', 'v3-span-2'];
-  const capKinds: MiniKind[] = ['route', 'book', 'peg', 'curve'];
   // Real routing venues (stats.routers) for the rank diagram, in a fixed order.
   const rankVenues = ['Jupiter', 'Li.Fi', 'CoW', '1inch', 'Across', 'KyberSwap', 'OKX'].filter((v) =>
     productStats.routers.includes(v)
   );
-  const useCases = [
-    { number: '01', title: h('useCases.item01Title'), body: h('useCases.item01Body'), href: '#engine' },
-    { number: '02', title: h('useCases.item02Title'), body: h('useCases.item02Body'), href: '#routing' },
-    { number: '03', title: h('useCases.item03Title'), body: h('useCases.item03Body'), href: '#hyperliquid' },
-    { number: '04', title: h('useCases.item04Title'), body: h('useCases.item04Body'), href: '#portfolio' },
-    { number: '05', title: h('useCases.item05Title'), body: h('useCases.item05Body'), href: '#research' },
-    { number: '06', title: h('useCases.item06Title'), body: h('useCases.item06Body'), href: '#routing' },
-    { number: '07', title: h('useCases.item07Title'), body: h('useCases.item07Body'), href: '#terminal' },
-    { number: '08', title: h('useCases.item08Title'), body: h('useCases.item08Body'), href: '#portfolio' },
-  ];
-
   // Real surfaces without a public destination link yet (no App Store/Web
   // Store listing on the marketing site) render as plain text, matching the
   // precedent set by WHATSAPP_ENABLED in lib/links.ts: real, but not linked
@@ -157,90 +156,58 @@ export default async function Home() {
 
   return (
     <>
-      {/* The hero poster is the largest contentful paint. Preloading it here
-          (Next hoists this into <head>) starts the fetch with the document
-          rather than after React hydrates and mounts the atmosphere layer. */}
-      <link rel="preload" as="image" href="/media/ocean-poster.webp" type="image/webp" />
       <StructuredData />
       <div className="hd sw sw-dark">
         <SummerNav />
 
-        <a href="/agent-terminal" className="home-announce">
-          <span className="home-announce__tag">{h('announce.tag')}</span>
-          <span className="home-announce__copy">{h('announce.copy')}</span>
-          <span className="home-announce__arrow" aria-hidden="true">
-            →
-          </span>
-        </a>
-
         <main id="main-content">
+          {/* One idea above the fold: a headline, a line, two doors, and the real
+              Terminal. The background is a flat deep-ocean wash with one soft
+              glow (no photo/video, so nothing competes with the capture). */}
           <div className="home-stage">
-            <OceanAtmosphere
-              labels={{
-                soundOn: h('atmosphere.soundOn'),
-                soundOff: h('atmosphere.soundOff'),
-                videoLabel: h('atmosphere.videoLabel'),
-              }}
-            />
             <section className="home-hero" aria-labelledby="home-hero-title">
               <div className="home-hero__copy">
-                <p className="home-eyebrow">{h('hero.eyebrow')}</p>
-                <h1 id="home-hero-title">{h('hero.h1')}</h1>
+                <h1 id="home-hero-title">{h('hero.h1', { platformChains: productStats.platformChains })}</h1>
                 <p className="home-hero__lead">{h('hero.lead')}</p>
 
                 <div className="home-actions">
-                  <a className="hd__btn" href={TERMINAL_URL}>{h('hero.ctaTerminal')}</a>
-                  <a className="hd__btn hd__btn--ghost" href="/start">
-                    {h('hero.ctaApi')}
-                  </a>
+                  <TrackedLink className="hd__btn hd__btn--primary" href={TERMINAL_URL} sameTab surface="home_hero" slug="home" kind="primary">
+                    {h('hero.ctaTerminal')}
+                  </TrackedLink>
+                  <TrackedLink className="hd__btn hd__btn--ghost" href="/agents" surface="home_hero" slug="home" kind="secondary">
+                    {h('hero.ctaAgents')} <span aria-hidden="true">→</span>
+                  </TrackedLink>
                 </div>
-                <a
-                  className="home-hero__telegram"
-                  href={TELEGRAM_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  {h('hero.ctaTelegram')} <span aria-hidden="true">→</span>
-                </a>
               </div>
             </section>
 
-            {/* The hero's visual is the real trading desk (a capture of the
-                shipped product), now framed, lit and given depth. The live
-                quote widget stays down in the engine section: it renders an
-                honest "unavailable" state and must not be the first thing seen. */}
+            {/* The real trading desk, large and flat. The live quote widget
+                stays down in the engine section: it renders an honest
+                "unavailable" state and must not be the first thing seen. */}
             <div className="hv3-heroshot">
               <ProductFrame
+                calm
                 src="/proof/spot-desk.png"
                 width={3160}
                 height={940}
                 alt={h('execution.screenshotAlt')}
                 title="ETH/USDC"
-                flow={executionSteps.map((s) => s.title)}
-                aside={<RouteMap />}
               />
             </div>
           </div>
 
-          {/* Evidence: real numbers from stats.generated.json, counted up. */}
+          {/* Proof: honest, for a company with no customer logos. Venues we really
+              route through (text wordmarks from stats.generated.json), then the
+              open artifacts, then the three real numbers on one dated line. */}
           <section className="hv3-proof" aria-label={h('evidence.ariaLabel')}>
-            <Reveal className="hv3-proof__inner v3-glass">
-              <div className="hv3-proof__stats">
-                <dl>
-                  <div>
-                    <dd><CountUp value={productStats.platformChains} /></dd>
-                    <dt>{h('evidence.platformChains')}</dt>
-                  </div>
-                  <div>
-                    <dd><CountUp value={productStats.routerCount} /></dd>
-                    <dt>{h('evidence.routingVenues')}</dt>
-                  </div>
-                  <div>
-                    <dd><CountUp value={productStats.agentApiChains} /></dd>
-                    <dt>{h('evidence.agentApiChains')}</dt>
-                  </div>
-                </dl>
-                <small>{h('evidence.routeNote')}</small>
+            <Reveal className="hv3-proof__inner">
+              <div className="hv3-proof__routes">
+                <p className="hv3-proof__label">{h('evidence.routesThrough')}</p>
+                <ul>
+                  {routeVenues.map((v) => (
+                    <li key={v}><a href="/architecture">{v}</a></li>
+                  ))}
+                </ul>
               </div>
               <div className="hv3-proof__links">
                 {proofLinks.map((item) => (
@@ -255,38 +222,33 @@ export default async function Home() {
                   </a>
                 ))}
               </div>
+              <p className="hv3-proof__line">
+                {h('evidence.statsLine', {
+                  platformChains: productStats.platformChains,
+                  routerCount: productStats.routerCount,
+                  agentApiChains: productStats.agentApiChains,
+                  date: fmtDate(productStats.generatedAt),
+                })}
+              </p>
             </Reveal>
           </section>
 
-          {/* 01 Use cases: bento with a pictogram per card. */}
-          <V3Section id="use-cases" labelledBy="usecases-title" backdrop={<Backdrop kind="glow" className="hv3-bd-top" />}>
+          {/* 3 How a trade routes: the one technical advantage, merged from the old
+              pipeline, venue-rank, MEV/benchmark and route sections. */}
+          <V3Section id="engine" labelledBy="execution-title" variant="bleed" backdrop={<Backdrop kind="grid" />}>
             <Reveal>
-              <SectionHead id="usecases-title" title={h('useCases.title')} lead={h('useCases.lead')} />
-            </Reveal>
-            <Reveal stagger className="v3-bento hv3-usecases">
-              {useCases.map((item, i) => (
-                <SpotlightCard
-                  key={item.number}
-                  className={useSpans[i]}
-                  href={item.href}
-                  index={item.number}
-                  title={item.title}
-                  arrow="→"
-                  visual={<MiniViz kind={useKinds[i]} />}
-                >
-                  {item.body}
-                </SpotlightCard>
-              ))}
-            </Reveal>
-          </V3Section>
-
-          {/* 02 Engine: the animated intent -> authorize flow. */}
-          <V3Section id="engine" labelledBy="execution-title" variant="bleed" backdrop={<><Backdrop kind="mesh" /><Backdrop kind="grain" /></>}>
-            <Reveal>
-              <SectionHead id="execution-title" title={h('execution.title')} lead={h('execution.lead')} />
+              <SectionHead id="execution-title" title={h('markets.title')} lead={h('markets.lead')} />
             </Reveal>
             <Reveal className="hv3-flowwrap">
               <PipelineFlow steps={executionSteps} />
+            </Reveal>
+            <Reveal id="routing" className="hv3-stage v3-glass" delay={80}>
+              <div className="hv3-stage__rank">
+                <VenueRank venues={rankVenues} caption={h('rankCaption')} />
+              </div>
+              <div className="hv3-stage__map">
+                <RouteMap />
+              </div>
             </Reveal>
             <div className="hv3-engine">
               <Reveal stagger className="hv3-engine__facts">
@@ -297,8 +259,7 @@ export default async function Home() {
                   </article>
                 ))}
               </Reveal>
-              {/* The live execution ticket: this section is literally about how
-                  an intent becomes an inspectable execution. */}
+              {/* The live execution ticket: honest "unavailable" state, never mocked. */}
               <Reveal className="hv3-ticket v3-glass" delay={120}>
                 <p className="home-product-label">
                   <span>{h('hero.ticketLabel')}</span>
@@ -308,38 +269,30 @@ export default async function Home() {
                 <p className="home-product-note">{h('hero.ticketNote')}</p>
               </Reveal>
             </div>
+            <Reveal className="home-actions">
+              <a className="hd__btn hd__btn--ghost" href="/architecture">{h('close.seeRouting')} <span aria-hidden="true">→</span></a>
+            </Reveal>
           </V3Section>
 
-          {/* 03 Routing: full-bleed stage (venue rank + route map), then the
-              four capability cards, then the real perps capture. */}
-          <V3Section id="routing" labelledBy="markets-title" variant="bleed" backdrop={<Backdrop kind="grid" />}>
+          {/* 4 For traders: capability cards (anchors kept for redirects), the real
+              perps capture, portfolio (moved here from the cream band), CTAs. */}
+          <V3Section id="terminal" labelledBy="usecases-title" backdrop={<Backdrop kind="mesh" />}>
             <Reveal>
-              <SectionHead id="markets-title" title={h('markets.title')} lead={h('markets.lead')} />
+              <SectionHead id="usecases-title" title={h('useCases.title')} lead={h('close.tradersLead')} />
             </Reveal>
-            <Reveal className="hv3-stage v3-glass" delay={80}>
-              <div className="hv3-stage__rank">
-                <VenueRank venues={rankVenues} caption={h('rankCaption')} />
-              </div>
-              <div className="hv3-stage__map">
-                <RouteMap />
-              </div>
-            </Reveal>
-
             <Reveal stagger className="v3-bento hv3-caps">
-              {capabilities.map((capability, i) => (
+              {capabilities.map((capability) => (
                 <SpotlightCard
                   key={capability.id}
                   id={capability.id}
                   className="v3-span-2 v3-tile--row"
                   index={capability.kicker}
                   title={capability.title}
-                  visual={<MiniViz kind={capKinds[i]} />}
                 >
                   {capability.body}
                 </SpotlightCard>
               ))}
             </Reveal>
-
             <Reveal className="hv3-proofshot">
               <ProofShot
                 src="/proof/perps-desk.png"
@@ -350,79 +303,27 @@ export default async function Home() {
                 mobileHint={h('proof.mobileHint')}
               />
             </Reveal>
-          </V3Section>
-
-          {/* 04 Research: split, signal traces on the right. */}
-          <V3Section id="research" labelledBy="research-title">
-            <div className="v3-split v3-split--wide-visual">
-              <Reveal>
-                <SectionHead id="research-title" title={h('research.title')} lead={h('research.lead')} />
-                <div className="home-actions">
-                  <a className="hd__btn hd__btn--ghost" href="/research">{h('research.ctaResearch')}</a>
-                  <a className="hd__btn hd__btn--ghost" href="/signals">{h('research.ctaSignals')}</a>
-                </div>
-              </Reveal>
-              <Reveal stagger className="hv3-sparks">
-                {researchFacts.map((fact, i) => (
-                  <SparkCard key={fact.title} title={fact.title} body={fact.body} kind={(['ticks', 'line', 'bars'] as const)[i]} seed={i * 2 + 1} tag={h('schematic')} />
+            <Reveal id="portfolio" className="hv3-portfolio">
+              <h3 className="hv3-portfolio__title">{h('portfolio.title')}</h3>
+              <ul className="hv3-facts">
+                {portfolioFacts.map((fact) => (
+                  <li key={fact.title}>
+                    <strong>{fact.title}</strong>
+                    <p>{fact.body}</p>
+                  </li>
                 ))}
-              </Reveal>
-            </div>
-          </V3Section>
-
-          {/* 05 Portfolio: a cream interlude, ring composition. */}
-          <V3Section id="portfolio" labelledBy="portfolio-title" tone="light" variant="bleed" backdrop={<><Backdrop kind="mesh" /><Backdrop kind="grain" /></>}>
-            <div className="v3-split v3-split--reverse">
-              <Reveal>
-                <SectionHead id="portfolio-title" title={h('portfolio.title')} lead={h('portfolio.lead')} />
-                <ul className="hv3-facts">
-                  {portfolioFacts.map((fact) => (
-                    <li key={fact.title}>
-                      <strong>{fact.title}</strong>
-                      <p>{fact.body}</p>
-                    </li>
-                  ))}
-                </ul>
-                <div className="home-actions">
-                  <a className="hd__btn" href={TERMINAL_URL}>{h('portfolio.cta')}</a>
-                </div>
-              </Reveal>
-              <Reveal delay={100}>
-                <ChainRing>
-                  <span className="hv3-ring-num"><CountUp value={productStats.platformChains} /></span>
-                  <span className="hv3-ring-label">{h('evidence.platformChains')}</span>
-                </ChainRing>
-              </Reveal>
-            </div>
-          </V3Section>
-
-          {/* 06 Security: authority rings behind the intro. */}
-          <V3Section id="security" labelledBy="security-title" backdrop={<Backdrop kind="glow" className="hv3-bd-bottom" />}>
-            <Reveal className="hv3-security v3-glass">
-              <div className="hv3-security__intro">
-                <BoundaryRings />
-                <p className="v3-kicker">{h('security.eyebrow')}</p>
-                <h2 id="security-title" className="v3-head__title">{h('security.title')}</h2>
-                <p className="v3-head__lead">{h('security.lead')}</p>
-                <a className="hd__btn hd__btn--ghost" href="/security">{h('security.cta')}</a>
-              </div>
-              <div className="hv3-security__facts">
-                {security.map((item) => (
-                  <article key={item.title}>
-                    <h3>{item.title}</h3>
-                    <p>{item.body}</p>
-                  </article>
-                ))}
-                <aside>
-                  <strong>{h('security.boundaryTitle')}</strong>
-                  <p>{h('security.boundaryBody')}</p>
-                </aside>
-              </div>
+              </ul>
+            </Reveal>
+            <Reveal className="home-actions">
+              <a className="hd__btn hd__btn--primary" href={TERMINAL_URL}>{h('hero.ctaTerminal')}</a>
+              <a className="hd__btn hd__btn--ghost" href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer">
+                {h('hero.ctaTelegram')} <span aria-hidden="true">→</span>
+              </a>
             </Reveal>
           </V3Section>
 
-          {/* 07 Interfaces: the MCP tool orbit (exactly mcpToolCount nodes). */}
-          <V3Section id="terminal" labelledBy="interfaces-title" variant="bleed" backdrop={<Backdrop kind="mesh" />}>
+          {/* 5 For agents and developers: the surfaces and the MCP tool orbit. */}
+          <V3Section id="developers" labelledBy="interfaces-title" variant="bleed" backdrop={<Backdrop kind="mesh" />}>
             <div className="v3-split v3-split--reverse">
               <Reveal>
                 <SectionHead id="interfaces-title" title={h('interfaces.title')} lead={h('interfaces.lead')} />
@@ -450,6 +351,10 @@ export default async function Home() {
                     )
                   )}
                 </ul>
+                <div className="home-actions">
+                  <a className="hd__btn hd__btn--primary" href="/start">{h('hero.ctaApi')}</a>
+                  <a className="hd__btn hd__btn--ghost" href="/agents">{h('hero.ctaAgents')} <span aria-hidden="true">→</span></a>
+                </div>
               </Reveal>
               <Reveal delay={100}>
                 <ToolOrbit count={productStats.mcpToolCount}>
@@ -460,7 +365,31 @@ export default async function Home() {
             </div>
           </V3Section>
 
-          {/* 08 Government: quiet band. */}
+          {/* 6 Control and authority. */}
+          <V3Section id="security" labelledBy="security-title">
+            <Reveal className="hv3-security v3-glass">
+              <div className="hv3-security__intro">
+                <p className="v3-kicker">{h('security.eyebrow')}</p>
+                <h2 id="security-title" className="v3-head__title">{h('security.title')}</h2>
+                <p className="v3-head__lead">{h('security.lead')}</p>
+                <a className="hd__btn hd__btn--ghost" href="/security">{h('security.cta')}</a>
+              </div>
+              <div className="hv3-security__facts">
+                {security.map((item) => (
+                  <article key={item.title}>
+                    <h3>{item.title}</h3>
+                    <p>{item.body}</p>
+                  </article>
+                ))}
+                <aside>
+                  <strong>{h('security.boundaryTitle')}</strong>
+                  <p>{h('security.boundaryBody')}</p>
+                </aside>
+              </div>
+            </Reveal>
+          </V3Section>
+
+          {/* 7 For desks (and government): one quiet band. */}
           <V3Section id="government" labelledBy="government-title" variant="band" backdrop={<Backdrop kind="grid" />}>
             <Reveal>
               <SectionHead id="government-title" align="center" title={h('government.title')} lead={h('government.lead')} />
@@ -476,10 +405,29 @@ export default async function Home() {
             </Reveal>
             <Reveal className="home-actions hv3-center">
               <a className="hd__btn hd__btn--ghost" href="/government">{h('government.cta')}</a>
+              <a className="hd__btn hd__btn--ghost" href="/enterprise">{h('close.desks')} <span aria-hidden="true">→</span></a>
             </Reveal>
           </V3Section>
 
-          {/* 09 FAQ + close. */}
+          {/* 8 Research and signals, in the open. */}
+          <V3Section id="research" labelledBy="research-title">
+            <div className="v3-split v3-split--wide-visual">
+              <Reveal>
+                <SectionHead id="research-title" title={h('research.title')} lead={h('research.lead')} />
+                <div className="home-actions">
+                  <a className="hd__btn hd__btn--ghost" href="/research">{h('research.ctaResearch')}</a>
+                  <a className="hd__btn hd__btn--ghost" href="/signals">{h('research.ctaSignals')}</a>
+                </div>
+              </Reveal>
+              <Reveal stagger className="hv3-sparks">
+                {researchFacts.map((fact, i) => (
+                  <SparkCard key={fact.title} title={fact.title} body={fact.body} kind={(['ticks', 'line', 'bars'] as const)[i]} seed={i * 2 + 1} tag={h('schematic')} />
+                ))}
+              </Reveal>
+            </div>
+          </V3Section>
+
+          {/* 9 FAQ + audience-split close. */}
           <V3Section labelledBy="faq-title" className="hv3-finish">
             <Reveal className="home-faq">
               <div className="home-section__head">
@@ -490,20 +438,20 @@ export default async function Home() {
           </V3Section>
 
           <div className="v3-wrap"><ProblemStrip surface="home" slugs={["cross-chain-swap-api", "telegram-trading-bot-cross-chain", "let-ai-agent-swap-tokens", "swap-usdc-base-to-solana"]} /></div>
-      <section className="hv3-close v3-tone-dark" aria-label={h('close.title')}>
-            <Backdrop kind="mesh" />
-            <Backdrop kind="grain" />
+          <section className="hv3-close v3-tone-dark" aria-label={h('close.title')}>
             <Reveal className="hv3-close__inner">
-              <p className="v3-kicker">{h('close.eyebrow')}</p>
               <h2 className="v3-head__title">{h('close.title')}</h2>
-              <p className="v3-head__lead">{h('close.lead')}</p>
-              <div className="home-actions hv3-center">
-                <a className="hd__btn" href={TERMINAL_URL}>{h('hero.ctaTerminal')}</a>
-                <a className="hd__btn hd__btn--ghost" href="/start">{h('hero.ctaApi')}</a>
+              <div className="hv3-split-cta">
+                <div>
+                  <p className="v3-kicker">{h('close.tradeLabel')}</p>
+                  <TrackedLink className="hd__btn hd__btn--primary" href={TERMINAL_URL} sameTab surface="home_close" slug="home" kind="primary">{h('hero.ctaTerminal')}</TrackedLink>
+                </div>
+                <div>
+                  <p className="v3-kicker">{h('close.buildLabel')}</p>
+                  <TrackedLink className="hd__btn hd__btn--ghost" href="/start" surface="home_close" slug="home" kind="secondary">{h('hero.ctaApi')}</TrackedLink>
+                </div>
               </div>
-              <a className="home-close__telegram" href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer">
-                {h('close.telegram')} <span aria-hidden="true">→</span>
-              </a>
+              <a className="home-close__telegram" href="/contact">{h('close.desks')} <span aria-hidden="true">→</span></a>
             </Reveal>
           </section>
         </main>
