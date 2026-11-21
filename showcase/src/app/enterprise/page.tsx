@@ -2,10 +2,9 @@ import type { Metadata } from 'next';
 import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import stats from '@/data/stats.generated.json';
-import { ENTERPRISE_CONTACT_PATH, GITHUB_URL } from '@/lib/links';
+import { ENTERPRISE_CONTACT_PATH, GITHUB_URL, DEMO_CALL_URL } from '@/lib/links';
 import {
-  Reveal, CountUp, Backdrop, PipelineFlow, VenueRank, ToolOrbit, AuthorityFlow, EvidenceStack, TierLadder,
-} from '@/components/v3';
+  Reveal, CountUp, Backdrop, PipelineFlow, VenueRank, ToolOrbit, AuthorityFlow, EvidenceStack, TierLadder, ProblemStrip } from '@/components/v3';
 import '../sales-v3.css';
 
 /** Real venue names from the generated router list (no internal ids). */
@@ -40,7 +39,7 @@ const criteria = [
     label: 'Authority',
     title: 'Choose where signing authority lives.',
     body:
-      'Bring your own keys and receive unsigned transactions, or use managed wallets with TEE-backed signing. Spending policies, chain/pair restrictions, 2FA and withdrawal allowlists constrain managed authority.',
+      'Bring your own keys and receive unsigned transactions, or use managed wallets whose keys are held with Turnkey. Spending policies, chain/pair restrictions, 2FA and withdrawal allowlists constrain managed authority.',
   },
   {
     label: 'Integration',
@@ -227,9 +226,13 @@ export default function EnterprisePage() {
             <a className="summer-button summer-button--secondary" href="/docs/api-reference/overview">
               Read the API contract
             </a>
+            <a className="summer-button summer-button--secondary" href={DEMO_CALL_URL} target="_blank" rel="noopener noreferrer">
+              Book a demo call
+            </a>
           </div>
         </section>
       </div>
+      <div className="summer-shell"><ProblemStrip surface="enterprise" slugs={["spending-limits-ai-agent-wallet", "approval-workflow-onchain-trades", "audit-log-for-trading-agents", "agent-kill-switch-for-trading-agents", "treasury-swaps-api-for-desks"]} /></div>
       </main>
       <SummerFooter />
     </div>

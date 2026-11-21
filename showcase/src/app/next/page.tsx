@@ -9,7 +9,7 @@ export const metadata: Metadata = {
   // already ends with, so the rendered tab read '...terminal | Suwappu'.
   title: { absolute: 'The cross-chain execution terminal | Suwappu' },
   description:
-    'Nine routers race for every swap. Non-custodial, sub-second, 42 chains. The best price wins, and you sign.',
+    'Routes across 21 venues, chain-gated. Non-custodial, 45 chains. You see the route, and you sign.',
   // Unlinked CRT art-direction experiment. Reachable for the team, kept out of
   // search so it cannot compete with the real homepage.
   robots: { index: false, follow: false },
@@ -270,8 +270,8 @@ export default function KakisPage() {
                       │
              ┌────────▼────────┐
              │  suwappu engine │
-             │  42 chains · 9  │
-             │  routers · MPC  │
+             │  45 chains · 21 │
+             │  venues · MPC   │
              └────────┬────────┘
                       │
            ┌──────────┴────────────┐

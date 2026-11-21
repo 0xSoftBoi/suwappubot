@@ -9,7 +9,7 @@ import '../content-v3.css';
 
 export const metadata: Metadata = {
   title: 'About',
-  description: `Suwappu is cross-chain execution infrastructure for agents and humans: best-price swaps, HyperLiquid perps, and gasless trades across ${stats.platformChains} chains, from a bot, a terminal, or one API.`,
+  description: `Suwappu is cross-chain execution infrastructure for agents and humans: swaps routed across venues, HyperLiquid perps, and sponsored-gas trades across ${stats.platformChains} chains, from a bot, a terminal, or one API.`,
 };
 
 const metrics = [
@@ -49,7 +49,7 @@ export default function AboutPage() {
               <h1>Cross-chain execution for <em>agents</em> and humans.</h1>
               <p className="cv3-lead">
                 Liquidity is fragmented across dozens of chains and venues. Suwappu makes it
-                feel like one: best-price swaps, HyperLiquid perps, and gasless trades across
+                feel like one: swaps routed across venues, HyperLiquid perps, and sponsored-gas trades across
                 {' '}{stats.platformChains} chains, from a bot, a terminal, or a single API call.
               </p>
             </header>

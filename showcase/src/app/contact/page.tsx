@@ -18,7 +18,7 @@ const trust = [
   { text: 'KMS envelope encryption: managed-wallet keys are encrypted with AWS KMS, never handled in the clear.' },
   { text: 'Self-custody option: bring your own keys via the agent API for full non-custodial execution.' },
   { text: 'Spending limits, 2FA, and withdrawal allowlists on every account.' },
-  { text: `Best-price routing across ${stats.routerCount} integrated providers on ${stats.platformChains} chains.` },
+  { text: `Routing across ${stats.routerCount} integrated venues on ${stats.platformChains} chains.` },
   { text: 'SOC 2 on our roadmap: happy to walk your security team through our controls under NDA.', note: true },
 ];
 

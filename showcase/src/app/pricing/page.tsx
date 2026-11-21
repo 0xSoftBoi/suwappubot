@@ -8,7 +8,7 @@ import { TELEGRAM_URL, ENTERPRISE_CONTACT_PATH } from '@/lib/links';
 import DemoCallCta from '@/components/DemoCallCta';
 import UpgradeCta from '@/components/UpgradeCta';
 import FeeCalculator from '@/components/FeeCalculator';
-import { Reveal, Backdrop, BoundaryRings, SpotlightCard, MiniViz, CountUp } from '@/components/v3';
+import { Reveal, Backdrop, BoundaryRings, SpotlightCard, MiniViz, CountUp, ProblemStrip } from '@/components/v3';
 import '../sales-v3.css';
 import styles from './pricing.module.css';
 
@@ -41,9 +41,9 @@ const tiers: Tier[] = [
     cta: 'Start free',
     highlight: false,
     features: [
-      `Best-price routing across ${stats.routerCount} providers`,
+      `Routing across ${stats.routerCount} venues, with the route shown`,
       'HyperLiquid perps & funding',
-      'Gasless first swaps on Tempo',
+      'Sponsored-gas swaps on Tempo',
       'Agent API, SDK & MCP access: 30 req/min',
       '1× loyalty points: redeem for fee credits',
     ],
@@ -60,7 +60,7 @@ const tiers: Tier[] = [
       'Everything in Free',
       '0.5% account trading swap fee: half of Free',
       '500 API requests/min',
-      'Copy trading & DCA',
+      'Limit orders, DCA, trailing stops, sniping & copy trading',
       '1.1× loyalty points on every trade',
     ],
   },
@@ -86,7 +86,7 @@ const tiers: Tier[] = [
     price: 'Custom',
     cadence: '',
     fee: '0.1%',
-    blurb: '0.1% account trading swap fee, org accounts with RBAC, and 10,000 Agent API requests/min.',
+    blurb: '0.1% account trading swap fee, org accounts and members, and 10,000 Agent API requests/min.',
     cta: 'Talk to sales',
     href: ENTERPRISE_CONTACT_PATH,
     highlight: false,
@@ -94,13 +94,12 @@ const tiers: Tier[] = [
     features: [
       'Everything in Premium',
       '0.1% account trading swap fee (vs 1% industry standard)',
-      'Multi-user org accounts with RBAC (Owner / Admin / Member / Viewer)',
-      'Up to 10 seats per org (configurable)',
-      'Programmatic API keys with scoped permissions',
+      'Multi-user org accounts with members',
+      'Org API keys',
       'Agent key: 10,000 API requests/min',
       `${stats.platformChains}-chain execution (competitors offer 1-2)`,
       'KMS envelope encryption: institutional-grade custody',
-      'Dedicated support + SLA: first in category',
+      'Dedicated support (terms scoped with the team)',
       'Usage dashboard: API calls, rate-limit monitoring',
       'Custom RPC / dedicated node: contact for pricing',
       'White-label available: contact for pricing',
@@ -144,16 +143,15 @@ const featuredIndex = tiers.findIndex((t) => t.highlight);
 const enterpriseStats: { value: string; label: string }[] = [
   { value: '0.1%', label: 'Swap fee: a tenth of the 1% category standard' },
   { value: '10,000', label: 'Agent API requests per minute on the Enterprise tier' },
-  { value: '10', label: 'Seats per org with RBAC roles (configurable)' },
 ];
 
 const comparison: { category: string; rows: { label: string; values: string[] }[] }[] = [
   {
     category: 'Trading',
     rows: [
-      { label: 'Swap fee', values: ['1.0%', '0.5%', '0.3%', '0.1%'] },
+      { label: 'Platform swap fee (bot and Terminal; the Agent API fee is route-specific)', values: ['1.0%', '0.5%', '0.3%', '0.1%'] },
       { label: `Cross-chain routing (${stats.routerCount} providers)`, values: ['✓', '✓', '✓', '✓'] },
-      { label: 'Limit orders & DCA', values: ['✓', '✓', '✓', '✓'] },
+      { label: 'Limit orders, DCA, trailing stops & sniping (Telegram bot)', values: ['-', '✓', '✓', '✓'] },
       { label: 'Copy trading', values: ['-', '✓', '✓', '✓'] },
     ],
   },
@@ -169,15 +167,14 @@ const comparison: { category: string; rows: { label: string; values: string[] }[
     rows: [
       { label: 'REST API, SDK & MCP server', values: ['✓', '✓', '✓', '✓'] },
       { label: 'Agent key rate limit', values: ['30 req/min', '500 req/min', '2,000 req/min', '10,000 req/min'] },
-      { label: 'Managed wallets & policy guardrails', values: ['✓', '✓', '✓', '✓'] },
+      { label: 'Org spend policies (enforced for org API keys)', values: ['-', '-', '-', '✓'] },
     ],
   },
   {
     category: 'Team & Org (Enterprise only)',
     rows: [
       { label: 'Multi-user org accounts', values: ['-', '-', '-', '✓'] },
-      { label: 'RBAC roles (Owner / Admin / Member / Viewer)', values: ['-', '-', '-', '✓'] },
-      { label: 'Programmatic API keys with scoped access', values: ['-', '-', '-', '✓'] },
+      { label: 'Org API keys', values: ['-', '-', '-', '✓'] },
       { label: 'Usage dashboard & rate-limit monitoring', values: ['-', '-', '-', '✓'] },
       { label: 'Custom RPC / dedicated node', values: ['-', '-', '-', 'Contact'] },
       { label: 'White-label', values: ['-', '-', '-', 'Contact'] },
@@ -196,7 +193,7 @@ const comparison: { category: string; rows: { label: string; values: string[] }[
     rows: [
       { label: 'KMS-backed key management', values: ['✓', '✓', '✓', '✓'] },
       { label: 'Spending limits, 2FA, withdrawal allowlist', values: ['✓', '✓', '✓', '✓'] },
-      { label: 'Support', values: ['Community', 'Community', 'Email', 'Dedicated + SLA'] },
+      { label: 'Support', values: ['Community', 'Community', 'Email', 'Dedicated'] },
     ],
   },
 ];
@@ -224,7 +221,7 @@ const faqs = [
   },
   {
     q: 'What does the Enterprise tier include that competitors do not?',
-    a: 'Suwappu Enterprise is the only offering in the DeFi bot space with multi-user org accounts, RBAC roles, scoped programmatic API keys, a per-org usage dashboard, a dedicated SLA, and white-label options. BullX, Photon, Banana Gun, Maestro, Trojan, and Axiom have no enterprise tier at all. On top of that, Enterprise users get 0.1% swap fees (versus the 1% industry standard), multi-chain execution, and KMS envelope encryption for institutional-grade custody.',
+    a: 'Suwappu Enterprise adds multi-user org accounts, org API keys, org spend policies and a per-org usage dashboard. BullX, Photon, Banana Gun, Maestro, Trojan, and Axiom have no enterprise tier at all. On top of that, Enterprise users get 0.1% swap fees (versus the 1% industry standard), multi-chain execution, and KMS envelope encryption for institutional-grade custody.',
   },
   {
     q: 'How do referrals work?',
@@ -392,8 +389,8 @@ export default function PricingPage() {
               </h2>
               <p className={styles.enterpriseBody}>
                 BullX, Photon, Banana Gun, Maestro, Trojan, and Axiom ship no enterprise tier at
-                all: no org accounts, no scoped API keys, no SLA. Enterprise is built for trading
-                desks, agent fleets, and institutions that need all three.
+                all: no org accounts and no org API keys. Enterprise is built for trading
+                desks, agent fleets, and institutions that need them.
               </p>
               <div className={styles.enterpriseStats}>
                 {enterpriseStats.map((s) => (
@@ -504,7 +501,7 @@ export default function PricingPage() {
           <h2 className="compare__title">Three ways for an agent to pay.</h2>
           <p className="mkt-hero__lead" style={{ margin: '0 0 1.5rem', textAlign: 'left' }}>
             No human sign-up required. Register at{' '}
-            <code>POST /v1/agent/register</code> and start on pay-per-call, or add credits or a
+            <code>POST /v1/agent/register</code> (<a href="/start">get a key in one call</a>) and start on pay-per-call, or add credits or a
             subscription when your agent needs a higher rate limit.
           </p>
 
@@ -599,10 +596,11 @@ export default function PricingPage() {
             <a className="summer-button summer-button--primary" href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer">
               Open Telegram Bot
             </a>
-            <a className="summer-button summer-button--secondary" href="/docs">Read the docs</a>
+            <a className="summer-button summer-button--secondary" href="/start">Get an API key</a>
           </div>
         </section>
       </div>
+      <div className="summer-shell"><ProblemStrip surface="pricing" slugs={["swap-fee-tiers-break-even", "x402-pay-per-call-api", "free-swap-quote-api"]} /></div>
       </main>
       <SummerFooter />
     </div>

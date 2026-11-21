@@ -160,3 +160,8 @@
   .sv-proof a, .sv-faq__trigger svg { transition: none; }
   .sv-proof a:hover { translate: none; }
 }
+
+/* strip on dark pages (home): tiles follow the dark kit surface */
+.sw-dark .sv-tile, .v3-tone-dark .sv-tile { background: radial-gradient(120% 90% at 0% 0%, var(--v3-surface-hi), transparent 60%), var(--v3-surface); }
+.sw-dark .sv-tile .v3-tile__index, .v3-tone-dark .sv-tile .v3-tile__index { color: var(--v3-accent); }
+.sw-dark .sv-strip__all, .v3-tone-dark .sv-strip__all { color: var(--v3-ink); }

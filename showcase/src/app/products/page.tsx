@@ -4,8 +4,7 @@ import SummerFooter from '@/components/SummerFooter';
 import { GITHUB_URL, TELEGRAM_URL, TERMINAL_URL, MINI_APP_URL } from '@/lib/links';
 import {
   Reveal, SpotlightCard, V3Section, SectionHead, Backdrop, MiniViz, RouteMap, ToolOrbit, Sparkline,
-  type MiniKind,
-} from '@/components/v3';
+  type MiniKind, ProblemStrip } from '@/components/v3';
 import productStats from '@/data/stats.generated.json';
 import '../product-v3.css';
 
@@ -24,7 +23,7 @@ const groups = [
       { title: 'Terminal', desc: 'Swap, route, and trade from the full Suwappu trading interface.', href: TERMINAL_URL, external: true, badge: 'Live' },
       { title: 'Telegram Bot', desc: 'Trade and manage activity directly from Telegram.', href: TELEGRAM_URL, external: true, badge: 'Live' },
       { title: 'Mini App', desc: 'Mobile-first Suwappu trading inside supported messaging surfaces.', href: MINI_APP_URL, external: true, badge: 'Live' },
-      { title: 'Cross-chain swaps', desc: 'Route assets across supported chains through Suwappu execution infrastructure.', href: '/#engine', badge: 'Live' },
+      { title: 'Cross-chain swaps', desc: 'Route assets across supported chains through Suwappu execution infrastructure.', href: '/solve/cross-chain-swap-without-a-bridge', badge: 'Live' },
       { title: 'Perpetuals', desc: 'Access perpetual markets through the Suwappu terminal.', href: '/#hyperliquid', badge: 'Live' },
       { title: 'Predictions & market surfaces', desc: 'Explore additional market interfaces exposed through the terminal.', href: TERMINAL_URL, external: true, badge: 'Live' },
       { title: 'Curve Pools', desc: 'Every pool on every chain Curve deploys to, sortable by TVL, 24h volume, or base APR, live in the Curve venue tab. Powered by the Curve Prices API and our fork of flet-curve.', href: TERMINAL_URL, external: true, badge: 'New' },
@@ -170,6 +169,7 @@ export default function ProductsPage() {
             {company.items.map((item, i) => <Card key={item.title} item={item} i={i} />)}
           </Reveal>
         </V3Section>
+      <div className="summer-shell"><ProblemStrip surface="products" slugs={["telegram-trading-bot-cross-chain", "mcp-server-for-crypto-swaps", "treasury-swaps-api-for-desks"]} /></div>
       </main>
       <SummerFooter />
     </div>

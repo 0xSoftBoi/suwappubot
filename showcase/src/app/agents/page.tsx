@@ -6,7 +6,7 @@ import AgentQuickstart from './AgentQuickstart';
 import { ENTERPRISE_CONTACT_PATH } from '@/lib/links';
 import DemoCallCta from '@/components/DemoCallCta';
 import stats from '@/data/stats.generated.json';
-import { Reveal, Backdrop, ToolOrbit, AuthorityFlow, CountUp } from '@/components/v3';
+import { Reveal, Backdrop, ToolOrbit, AuthorityFlow, CountUp, ProblemStrip } from '@/components/v3';
 import styles from './agents.module.css';
 import '../sales-v3.css';
 import '../product-v3.css';
@@ -25,7 +25,7 @@ const CAPABILITIES = [
   },
   {
     title: 'Swap execution',
-    body: 'Quote and execute in two calls. Best-price routing, unsigned-tx mode for self-custody, or managed-wallet mode for zero key handling.',
+    body: 'Quote and execute in two calls. Routing across 21 venues, unsigned-tx mode for self-custody, or managed-wallet mode for zero key handling.',
   },
   {
     title: 'Managed wallets & spending policies',
@@ -87,7 +87,7 @@ const PAYMENT_MODES = [
 const FAQS = [
   {
     q: 'What is the Suwappu MCP server?',
-    a: 'A hosted Model Context Protocol endpoint at POST https://api.suwappu.bot/mcp. Source 0.6.0 advertises 22 tools; clients should call tools/list at runtime. Its historical execute_swap tool prepares an unsigned self-custody transaction: it never signs or broadcasts a managed swap.',
+    a: `A hosted Model Context Protocol endpoint at POST https://api.suwappu.bot/mcp. Source 0.6.0 advertises ${stats.mcpToolCount} tools by default; clients should call tools/list at runtime. Its historical execute_swap tool prepares an unsigned self-custody transaction: it never signs or broadcasts a managed swap.`,
   },
   {
     q: 'Which AI clients work with it?',
@@ -138,11 +138,11 @@ export default function AgentsPage() {
             pay only for the calls you make.
           </p>
           <div className="summer-actions summer-cta__actions">
-            <a className="summer-button summer-button--primary" href="/docs/protocols/mcp">
-              Connect MCP
-            </a>
-            <a className="summer-button summer-button--secondary" href="/docs/quick-start/overview">
+            <a className="summer-button summer-button--primary" href="/start">
               Get an API key
+            </a>
+            <a className="summer-button summer-button--secondary" href="/docs/protocols/mcp">
+              Connect MCP
             </a>
           </div>
         </header>
@@ -340,8 +340,8 @@ curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \\
           <p className="mkt-callout__eyebrow">Enterprise</p>
           <p className="mkt-callout__body">
             Running an agent fleet or a trading desk at volume? Enterprise adds multi-user org
-            accounts with RBAC, scoped programmatic API keys, higher per-org rate limits,
-            unmetered Agent API calls while the tier is active, and a dedicated support SLA.
+            accounts and members, org API keys, higher per-org rate limits,
+            unmetered Agent API calls while the tier is active, and priority support.
           </p>
           <div className="summer-actions">
             <DemoCallCta source="agents_page_callout" className="summer-button summer-button--primary">
@@ -353,6 +353,7 @@ curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \\
           </div>
         </section></Reveal>
       </div>
+      <div className="summer-shell"><ProblemStrip surface="agents" slugs={["let-ai-agent-swap-tokens", "mcp-server-for-crypto-swaps", "a2a-crypto-trading-agent", "x402-pay-per-call-api"]} /></div>
       </main>
       <SummerFooter />
     </div>

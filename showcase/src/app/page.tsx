@@ -9,8 +9,7 @@ import ProofShot from '@/components/ProofShot';
 import {
   Reveal, CountUp, SpotlightCard, V3Section, SectionHead, Backdrop, MiniViz, RouteMap, PipelineFlow,
   VenueRank, ChainRing, SparkCard, ToolOrbit, BoundaryRings, ProductFrame,
-  type MiniKind,
-} from '@/components/v3';
+  type MiniKind, ProblemStrip } from '@/components/v3';
 import FaqAccordion from '@/components/FaqAccordion';
 import productStats from '@/data/stats.generated.json';
 import { GITHUB_URL, TELEGRAM_URL, TERMINAL_URL, MINI_APP_URL } from '@/lib/links';
@@ -22,7 +21,7 @@ export const metadata: Metadata = {
   title: 'Suwappu | The full-stack cross-chain trading platform',
   description:
     'Suwappu is the full-stack cross-chain trading platform: execution, routing, research, ' +
-    'and portfolio management across 7+ chains, from one venue.',
+    `and portfolio management across ${productStats.platformChains} chains, from one venue.`,
 };
 
 export const revalidate = 60;
@@ -191,7 +190,7 @@ export default async function Home() {
 
                 <div className="home-actions">
                   <a className="hd__btn" href={TERMINAL_URL}>{h('hero.ctaTerminal')}</a>
-                  <a className="hd__btn hd__btn--ghost" href="/docs">
+                  <a className="hd__btn hd__btn--ghost" href="/start">
                     {h('hero.ctaApi')}
                   </a>
                 </div>
@@ -490,7 +489,8 @@ export default async function Home() {
             </Reveal>
           </V3Section>
 
-          <section className="hv3-close v3-tone-dark" aria-label={h('close.title')}>
+          <div className="v3-wrap"><ProblemStrip surface="home" slugs={["cross-chain-swap-api", "telegram-trading-bot-cross-chain", "let-ai-agent-swap-tokens", "swap-usdc-base-to-solana"]} /></div>
+      <section className="hv3-close v3-tone-dark" aria-label={h('close.title')}>
             <Backdrop kind="mesh" />
             <Backdrop kind="grain" />
             <Reveal className="hv3-close__inner">
@@ -499,7 +499,7 @@ export default async function Home() {
               <p className="v3-head__lead">{h('close.lead')}</p>
               <div className="home-actions hv3-center">
                 <a className="hd__btn" href={TERMINAL_URL}>{h('hero.ctaTerminal')}</a>
-                <a className="hd__btn hd__btn--ghost" href="/docs">{h('hero.ctaApi')}</a>
+                <a className="hd__btn hd__btn--ghost" href="/start">{h('hero.ctaApi')}</a>
               </div>
               <a className="home-close__telegram" href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer">
                 {h('close.telegram')} <span aria-hidden="true">→</span>

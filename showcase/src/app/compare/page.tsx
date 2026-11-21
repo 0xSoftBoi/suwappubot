@@ -4,7 +4,7 @@ import { Fragment } from 'react';
 import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import { TELEGRAM_URL } from '@/lib/links';
-import { Reveal, Backdrop, BoundaryRings } from '@/components/v3';
+import { Reveal, Backdrop, BoundaryRings, ProblemStrip } from '@/components/v3';
 import '../sales-v3.css';
 import styles from './compare.module.css';
 
@@ -44,7 +44,7 @@ const GROUPS: {
         cells: { suwappu: 'yes', bots: 'partial', terminals: 'partial', infra: 'yes' },
       },
       {
-        label: `Best-price routing across ${stats.routerCount} providers`,
+        label: `Routing across ${stats.routerCount} venues, with the route shown`,
         cells: { suwappu: 'yes', bots: 'partial', terminals: 'partial', infra: 'yes' },
       },
       {
@@ -52,7 +52,7 @@ const GROUPS: {
         cells: { suwappu: 'yes', bots: 'no', terminals: 'partial', infra: 'no' },
       },
       {
-        label: 'Gasless / sponsored-gas swaps',
+        label: 'Sponsored-gas swaps (Tempo)',
         cells: { suwappu: 'yes', bots: 'no', terminals: 'no', infra: 'partial' },
       },
     ],
@@ -431,23 +431,19 @@ export default function ComparePage() {
             the table above is something you can check in the next five minutes.
           </p>
           <div className={styles.ctaActions}>
-            <a
-              className="summer-button summer-button--primary"
-              href={TELEGRAM_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
+            <a className="summer-button summer-button--primary" href={TERMINAL_URL} target="_blank" rel="noopener noreferrer">
+              Open the Terminal
+            </a>
+            <a className="summer-button summer-button--secondary" href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer">
               Open Telegram Bot
             </a>
-            <a className="summer-button summer-button--secondary" href={TERMINAL_URL} target="_blank" rel="noopener noreferrer">
-              Open the terminal
-            </a>
-            <a className="summer-button summer-button--secondary" href="/docs">
-              Read the docs
+            <a className="summer-button summer-button--secondary" href="/start">
+              Get an API key
             </a>
           </div>
         </section>
       </div>
+      <div className="summer-shell"><ProblemStrip surface="compare" slugs={["telegram-trading-bot-cross-chain", "routing-transparency-best-execution", "cross-chain-swap-api"]} /></div>
       </main>
       <SummerFooter />
     </div>

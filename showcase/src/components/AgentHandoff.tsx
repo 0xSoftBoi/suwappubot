@@ -57,7 +57,7 @@ Do this for me end to end.
        "headers": { "Authorization": "Bearer <my key>" } } }
 
 4. WHAT YOU CAN DO ONCE CONNECTED
-   Best-price spot swaps across ${productStats.platformChains} chains. ${productStats.routerCount} routing providers are integrated
+   Cross-chain spot swaps across ${productStats.platformChains} chains. ${productStats.routerCount} routing providers are integrated
    (Li.Fi, CoW, OKX, 1inch, KyberSwap, Jupiter, Across, Wormhole, CCTP and
    more); providers are chain-gated, so each swap races the subset that
    supports its route.

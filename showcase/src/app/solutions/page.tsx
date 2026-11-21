@@ -3,7 +3,7 @@ import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import { TELEGRAM_URL } from '@/lib/links';
 import stats from '@/data/stats.generated.json';
-import { Reveal, Backdrop, CountUp, RouteMap, ChainRing, AuthorityFlow } from '@/components/v3';
+import { Reveal, Backdrop, CountUp, RouteMap, ChainRing, AuthorityFlow, ProblemStrip } from '@/components/v3';
 import '../sales-v3.css';
 import styles from './solutions.module.css';
 
@@ -204,7 +204,7 @@ export default function SolutionsPage() {
         <section className="mkt-cta">
           <h2>Pick your lane. Start in a minute.</h2>
           <div className="summer-actions summer-cta__actions">
-            <a className="summer-button summer-button--primary" href="/docs/quick-start/overview">
+            <a className="summer-button summer-button--primary" href="/start">
               Get an API key
             </a>
             <a className="summer-button summer-button--secondary" href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer">
@@ -214,6 +214,7 @@ export default function SolutionsPage() {
           </div>
         </section>
       </div>
+      <div className="summer-shell"><ProblemStrip surface="solutions" slugs={["let-ai-agent-swap-tokens", "spending-limits-ai-agent-wallet", "simulate-swap-before-signing"]} /></div>
       </main>
       <SummerFooter />
     </div>

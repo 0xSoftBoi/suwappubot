@@ -1,5 +1,6 @@
 import { getSolvePage, teaser } from '@/data/solve';
 import TrackedLink from '../solve/TrackedLink';
+import '@/app/solve/solve-v3.css';
 
 /**
  * "Problems this solves": 2-4 contextual /solve links for a marketing page.

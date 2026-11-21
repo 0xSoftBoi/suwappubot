@@ -113,7 +113,7 @@
       "h1": "La plateforme de trading full-stack pour les marchés cross-chain.",
       "lead": "Exécution, routage, recherche et gestion de portefeuille sur 45 chaînes, depuis un seul endroit. Tradez depuis le Terminal ou Telegram, ou intégrez via REST, MCP et des SDK typés.",
       "ctaTerminal": "Lancer le Terminal",
-      "ctaApi": "Lire la documentation",
+      "ctaApi": "Obtenir une clé API",
       "ctaTelegram": "Trader dans Telegram",
       "telegramNav": "Telegram",
       "ticketLabel": "Ticket d’exécution · cotation de production",

@@ -84,7 +84,6 @@ export const metadata: Metadata = {
     'Solana',
     'Arbitrum',
     'cross-chain bridge',
-    'MEV protection',
     'Suwappu',
   ],
   authors: [{ name: 'Suwappu', url: 'https://suwappu.bot' }],

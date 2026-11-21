@@ -1,6 +1,7 @@
 import type { MetadataRoute } from 'next';
 import docsData from '../data/docs.json';
 import { publishedPosts } from '../content/research';
+import { SOLVE_PAGES, SOLVE_UPDATED } from '../data/solve';
 
 const SITE = 'https://suwappu.bot';
 
@@ -61,5 +62,18 @@ export default function sitemap(): MetadataRoute.Sitemap {
     })),
   );
 
-  return [...staticPages, ...researchPages, ...docPages];
+  // Conversion + discovery layer: the problem hub, the key page and every answer page.
+  const solveLastModified = new Date(SOLVE_UPDATED);
+  const solveRoutes: MetadataRoute.Sitemap = [
+    { url: `${SITE}/start`, lastModified: solveLastModified, changeFrequency: 'monthly', priority: 0.9 },
+    { url: `${SITE}/solve`, lastModified: solveLastModified, changeFrequency: 'weekly', priority: 0.85 },
+    ...SOLVE_PAGES.map((p) => ({
+      url: `${SITE}/solve/${p.slug}`,
+      lastModified: solveLastModified,
+      changeFrequency: 'monthly' as const,
+      priority: 0.8,
+    })),
+  ];
+
+  return [...staticPages, ...solveRoutes, ...researchPages, ...docPages];
 }
