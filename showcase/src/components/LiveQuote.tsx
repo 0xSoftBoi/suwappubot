@@ -137,6 +137,7 @@ export default function LiveQuote({ variant = 'dark' }: { variant?: 'dark' | 'wa
       {state === 'error' && (
         <div className="lq__body lq__body--error">
           <p role="status">{t('unavailable')}</p>
+          <a className="lq__retry" href="/products/agent-api#try">{t('keyCta')}</a>
           <button type="button" className="lq__retry" onClick={() => void load(pair)}>
             {t('retry')}
           </button>
@@ -182,6 +183,7 @@ export default function LiveQuote({ variant = 'dark' }: { variant?: 'dark' | 'wa
             </div>
           </dl>
 
+          {quote.stale && <a className="lq__retry" href="/products/agent-api#try">{t('keyCta')}</a>}
           {(expired || quote.stale) && (
             <button type="button" className="lq__retry" onClick={() => void load(pair)}>
               {t('freshQuote')}

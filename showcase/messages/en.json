@@ -171,7 +171,8 @@
       "quoteExpires": "Quote expires",
       "expired": "expired",
       "seconds": "{seconds}s",
-      "freshQuote": "Get a fresh quote"
+      "freshQuote": "Get a fresh quote",
+      "keyCta": "Run a live quote with a free key"
     },
     "evidence": {
       "ariaLabel": "Checkable product evidence",

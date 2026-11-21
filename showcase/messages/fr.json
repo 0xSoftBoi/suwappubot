@@ -171,7 +171,8 @@
       "quoteExpires": "Expiration",
       "expired": "expirée",
       "seconds": "{seconds}s",
-      "freshQuote": "Obtenir une nouvelle cotation"
+      "freshQuote": "Obtenir une nouvelle cotation",
+      "keyCta": "Lancez une cotation réelle avec une clé gratuite"
     },
     "evidence": {
       "ariaLabel": "Preuves produit vérifiables",

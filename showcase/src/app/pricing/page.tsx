@@ -18,6 +18,8 @@ export const metadata: Metadata = {
     'Account trading plans for Suwappu, plus separate Agent API credit, rate-limit, and route-fee pricing for developers.',
 };
 
+import { tierFee, tierPrice } from '@/data/pricingTiers';
+
 type Tier = {
   name: string;
   price: string;
@@ -34,9 +36,9 @@ type Tier = {
 const tiers: Tier[] = [
   {
     name: 'Free',
-    price: '$0',
+    price: tierPrice('Free'),
     cadence: '',
-    fee: '1.0%',
+    fee: tierFee('Free'),
     blurb: `1.0% account trading swap fee on ${stats.platformChains} chains. No card, no seat count, no trial clock.`,
     cta: 'Start free',
     highlight: false,
@@ -50,9 +52,9 @@ const tiers: Tier[] = [
   },
   {
     name: 'Pro',
-    price: '$9.99',
+    price: tierPrice('Pro'),
     cadence: '/mo',
-    fee: '0.5%',
+    fee: tierFee('Pro'),
     blurb: '', // derived from the fee ladder: see ladderBlurb()
     cta: 'Upgrade to Pro',
     highlight: false,
@@ -66,9 +68,9 @@ const tiers: Tier[] = [
   },
   {
     name: 'Premium',
-    price: '$29.99',
+    price: tierPrice('Premium'),
     cadence: '/mo',
-    fee: '0.3%',
+    fee: tierFee('Premium'),
     blurb: '', // derived from the fee ladder: see ladderBlurb()
     cta: 'Go Premium',
     highlight: true,
@@ -83,9 +85,9 @@ const tiers: Tier[] = [
   },
   {
     name: 'Enterprise',
-    price: 'Custom',
+    price: tierPrice('Enterprise'),
     cadence: '',
-    fee: '0.1%',
+    fee: tierFee('Enterprise'),
     blurb: '0.1% account trading swap fee, org accounts with roles, and 10,000 Agent API requests/min.',
     cta: 'Talk to sales',
     href: ENTERPRISE_CONTACT_PATH,
