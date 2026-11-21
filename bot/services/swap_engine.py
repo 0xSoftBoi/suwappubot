@@ -52,6 +52,7 @@ from bot.services.tempo_dex_api import tempo_dex_api
 from bot.services.tempo_fee_sponsor import (
     tempo_fee_sponsor,
     TempoSponsorSubmittedError,
+    TempoSponsorUnavailableError,
 )
 from bot.services.okx_dex_api import OKXDEXAPI, OKX_CHAIN_IDS
 from bot.services.oneinch_api import (
@@ -4676,6 +4677,34 @@ class SwapEngine:
             except Exception as e:
                 logger.error(f"Swap execution failed: {e}", exc_info=True)
 
+                # An ambiguous broadcast carries the hash of the signed payload
+                # (recovered locally BEFORE the send, so it exists even when the
+                # RPC returned nothing). Adopt it as broadcast_tx_hash so
+                # _mark_failed below takes its UNKNOWN + persist-the-hash branch
+                # instead of writing FAILED with tx_hash NULL — which the
+                # idempotency guard reads as "safe to retry" and would let the
+                # next request broadcast a second swap while the first mines.
+                #
+                # The hash may sit a few links down the chain: the Tempo path
+                # raises SwapError(...) from TempoSponsorSubmittedError, so walk
+                # __cause__/__context__ rather than inspecting only `e`.
+                if broadcast_tx_hash is None:
+                    seen = set()
+                    cursor = e
+                    while cursor is not None and id(cursor) not in seen:
+                        seen.add(id(cursor))
+                        candidate = getattr(cursor, "tx_hash", None)
+                        if candidate:
+                            broadcast_tx_hash = candidate
+                            logger.error(
+                                "Swap %s failed ambiguously after broadcast — adopting tx "
+                                "%s so the row is reconciled from the chain, NOT retried.",
+                                swap_id,
+                                candidate,
+                            )
+                            break
+                        cursor = cursor.__cause__ or cursor.__context__
+
                 # Classify the failure cause for analytics (best-effort — never
                 # let diagnosis raise over the original error).
                 try:
@@ -5007,12 +5036,31 @@ class SwapEngine:
         try:
             tx_hash = await asyncio.to_thread(lambda: web3.eth.send_raw_transaction(raw_bytes))
         except Exception as e:
+            # "Already known" is not a failure — it is the node telling us it
+            # already holds THIS tx, under this exact hash. It is the expected
+            # answer when the private relay above submitted the same signed
+            # bytes first, so treating it as ambiguous would report a swap that
+            # is sitting in the mempool as failed. The locally-derived hash is
+            # authoritative here (same signed payload, deterministic keccak).
+            #
+            # Deliberately NOT included: "nonce too low". That can mean some
+            # OTHER tx took this nonce, in which case this one will never mine,
+            # so returning its hash would be a lie. It stays ambiguous.
+            message = str(e).lower()
+            if "already known" in message or "already in the pool" in message:
+                logger.info(
+                    "Swap tx %s already known to the node (expected after private "
+                    "relay submission) — treating as broadcast.",
+                    precomputed_hash,
+                )
+                return precomputed_hash
             raise PostBroadcastAmbiguous(
                 f"send_raw_transaction failed ambiguously (the swap tx may already be "
                 f"broadcast): {e}",
                 tx_hash=precomputed_hash,
             ) from e
-        return tx_hash.hex()
+        broadcast_hex = tx_hash.hex()
+        return broadcast_hex if broadcast_hex.startswith("0x") else "0x" + broadcast_hex
 
     @staticmethod
     def _is_retryable_rpc_error(error: Exception) -> bool:
@@ -5630,9 +5678,6 @@ class SwapEngine:
                         chain_id=chain.chain_id,
                         access_key=access_key,
                     )
-                    # Tempo gas is sub-$0.001; record against the daily budget.
-                    tempo_fee_sponsor.record_sponsored_tx(user_id, fee_usd=0.001)
-                    return tx_hash
                 except TempoSponsorSubmittedError as e:
                     # eth_sendRawTransaction raised AFTER the signed type-0x76 tx
                     # may already have reached the node (read timeout / reset on a
@@ -5677,6 +5722,30 @@ class SwapEngine:
                         f"Tempo sponsored (gasless) swap failed before broadcast; "
                         f"falling back to user-paid path: {e}"
                     )
+                else:
+                    # ONLY the call above may live in that try. Anything else in
+                    # it that can raise AFTER a successful broadcast would be
+                    # caught by `except Exception` and mis-labelled "before
+                    # broadcast", and the fallback would send a second swap —
+                    # the very bug this split exists to close.
+                    #
+                    # record_sponsored_tx is exactly such a statement: it is
+                    # DB-backed (bot/services/tempo_fee_sponsor.py), so a commit
+                    # that hits a dropped connection or an exhausted pool raises
+                    # long after the swap is in the mempool. It belongs here, on
+                    # the success path, where a failure cannot reach the
+                    # fallback. Tempo gas is sub-$0.001, so losing the budget
+                    # write is far cheaper than double-swapping.
+                    try:
+                        tempo_fee_sponsor.record_sponsored_tx(user_id, fee_usd=0.001)
+                    except Exception:  # noqa: BLE001 — must never reach the fallback
+                        logger.exception(
+                            "Sponsored Tempo swap %s succeeded but recording it against "
+                            "the daily budget failed (continuing — the swap is already "
+                            "broadcast and must NOT be re-sent)",
+                            tx_hash,
+                        )
+                    return tx_hash
             else:
                 logger.debug(f"Tempo sponsorship declined for {user_id}: {decision.reason}")
 
@@ -5708,16 +5777,46 @@ class SwapEngine:
                 }
             )
             signed = await self.wallet_service.sign_evm_transaction(wallet, tx)
-            sent = await asyncio.to_thread(
-                lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed.replace("0x", "")))
-            )
+            raw_signed = bytes.fromhex(signed.replace("0x", ""))
+            leg_hash = Web3.keccak(raw_signed).hex()
+            if not leg_hash.startswith("0x"):
+                leg_hash = "0x" + leg_hash
+            try:
+                sent = await asyncio.to_thread(lambda: web3.eth.send_raw_transaction(raw_signed))
+            except Exception as e:
+                raise PostBroadcastAmbiguous(
+                    f"Tempo {label} broadcast failed ambiguously (the tx may already be "
+                    f"propagated): {e}",
+                    tx_hash=leg_hash,
+                ) from e
             logger.info(f"Tempo {label} tx: {sent.hex()}")
-            rcpt = await asyncio.to_thread(
-                lambda: web3.eth.wait_for_transaction_receipt(sent, timeout=120)
-            )
-            if rcpt["status"] != 1:
-                raise SwapError(f"Tempo {label} failed (tx: {sent.hex()})")
+
+            # The nonce is consumed the moment the node ACCEPTS the tx, not when
+            # it mines successfully. Incrementing only after a status==1 receipt
+            # (the previous behaviour) meant a landed-but-reverted leg, or one
+            # whose receipt wait timed out, left `nonce` pointing at a value the
+            # chain had already used — so the next leg (notably the approve()
+            # fallback when the permit leg fails below) reused it and died on
+            # "nonce too low" / "replacement underpriced", bricking the swap.
             nonce += 1
+
+            try:
+                rcpt = await asyncio.to_thread(
+                    lambda: web3.eth.wait_for_transaction_receipt(sent, timeout=120)
+                )
+            except Exception as e:
+                # TimeExhausted and friends: the tx is broadcast and may mine
+                # later. Ambiguous, not failed — callers must not take another
+                # broadcasting path on it.
+                raise PostBroadcastAmbiguous(
+                    f"Tempo {label} was broadcast but its receipt could not be read "
+                    f"({e}) — it may still confirm.",
+                    tx_hash=leg_hash,
+                ) from e
+            if rcpt["status"] != 1:
+                # Definitively on-chain and reverted: not ambiguous, and the
+                # nonce above is already accounted for.
+                raise SwapError(f"Tempo {label} failed (tx: {sent.hex()})")
 
         # Step 1: approval — gasless EIP-2612 permit (TIP-1004) when enabled and the
         # wallet can sign locally; otherwise a standard approve() tx. A permit folds
@@ -5753,7 +5852,16 @@ class SwapEngine:
                 await _send_and_wait(permit_bundle["permit_tx"], 120_000, "permit")
                 swap_source = permit_bundle
                 permit_used = True
+            except PostBroadcastAmbiguous:
+                # The permit tx may be on-chain. Falling back to approve() would
+                # broadcast another leg against a nonce we cannot account for,
+                # and the swap below would run against an allowance state we
+                # cannot know. Abort and let the row be reconciled instead.
+                raise
             except Exception as e:
+                # Pre-broadcast (signature build, calldata build) or a permit
+                # that definitively reverted — approve() is safe from here, and
+                # the nonce is already correct either way.
                 logger.warning(f"Tempo permit approval failed, falling back to approve(): {e}")
             finally:
                 if owner_key:
@@ -5861,7 +5969,9 @@ class SwapEngine:
         addr_in = get_token_address(token_in, "tempo")
         addr_out = get_token_address(token_out, "tempo")
         if not addr_in or not addr_out:
-            raise SwapError(f"Tempo token pair {token_in}/{token_out} not available")
+            raise TempoSponsorUnavailableError(
+                f"Tempo token pair {token_in}/{token_out} not available"
+            )
         fee_token = get_token_address(tempo_fee_sponsor.fee_token, "tempo") or PATH_USD
 
         # Load the sponsor (fee payer) hot wallet by configured name. For a local-key
@@ -5879,7 +5989,9 @@ class SwapEngine:
                     .first()
                 )
                 if not sw:
-                    raise SwapError(f"Tempo fee-sponsor wallet '{sponsor_name}' not found/active")
+                    raise TempoSponsorUnavailableError(
+                        f"Tempo fee-sponsor wallet '{sponsor_name}' not found/active"
+                    )
                 turnkey = sw.is_turnkey_wallet
                 return (
                     sw.address,
@@ -5891,7 +6003,7 @@ class SwapEngine:
 
         # Tempo T2: fee payer must not equal sender.
         if sponsor_address.lower() == sender.lower():
-            raise SwapError("Tempo fee payer cannot equal sender")
+            raise TempoSponsorUnavailableError("Tempo fee payer cannot equal sender")
 
         sender_turnkey = wallet.is_turnkey_wallet
         # Root key only needed when NOT using an access key (and not Turnkey).

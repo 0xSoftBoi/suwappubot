@@ -2,7 +2,7 @@
 
 reserve_custodial_balance debits the ledger BEFORE the on-chain send is
 attempted, and send_token/send_native_token's broadcast call can fail
-ambiguously (PostBroadcastAmbiguous — see bot/services/hot_wallet.py) without
+ambiguously (PostBroadcastAmbiguous — see bot/utils/exceptions.py) without
 telling us whether the transfer actually landed. On top of that, the process
 itself can crash between the reserve committing and the send/refund running.
 Both cases leave a CustodialTransaction row in status=PENDING with the ledger
