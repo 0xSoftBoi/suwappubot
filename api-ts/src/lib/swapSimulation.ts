@@ -93,6 +93,8 @@ interface RpcResult<T> {
 	 * "execution reverted"), which IS an authoritative node answer.
 	 */
 	transport?: boolean
+	/** True only for real NETWORK failures (unreachable, timeout, non-JSON/invalid body, non-2xx without a JSON-RPC error). A well-formed JSON-RPC error body is never `network` — only this trips the circuit breaker. */
+	network?: boolean
 }
 
 /** Primary RPC URL plus an optional second public endpoint tried once on transport failure. */
@@ -207,19 +209,19 @@ async function rpcCallOnce<T>(
 			data = await res.json()
 		} catch {
 			return res.ok
-				? { ok: false, transport: true, error: 'RPC invalid response' }
-				: { ok: false, transport: true, error: `RPC HTTP ${res.status}` }
+				? { ok: false, transport: true, network: true, error: 'RPC invalid response' }
+				: { ok: false, transport: true, network: true, error: `RPC HTTP ${res.status}` }
 		}
 		const parsed = interpretBody<T>(data)
 		// Some providers return reverts with HTTP 4xx/5xx — honour a JSON-RPC
 		// error body regardless of status; otherwise a non-2xx is transport.
 		if (!res.ok) {
-			return parsed && parsed.error !== undefined ? parsed : { ok: false, transport: true, error: `RPC HTTP ${res.status}` }
+			return parsed && parsed.error !== undefined ? parsed : { ok: false, transport: true, network: true, error: `RPC HTTP ${res.status}` }
 		}
-		return parsed ?? { ok: false, transport: true, error: 'RPC invalid response' }
+		return parsed ?? { ok: false, transport: true, network: true, error: 'RPC invalid response' }
 	} catch (e) {
 		const error = classifyRpcError(e)
-		return { ok: false, transport: true, error: error === 'RPC timeout' ? error : 'RPC unreachable' }
+		return { ok: false, transport: true, network: true, error: error === 'RPC timeout' ? error : 'RPC unreachable' }
 	}
 }
 
@@ -259,7 +261,14 @@ async function rpcCall<T = unknown>(
 	const startedAt = Date.now()
 	const budget = () => Math.max(RPC_MIN_ATTEMPT_MS, RPC_TIMEOUT_MS - (Date.now() - startedAt))
 	let first: RpcResult<T>
-	if (rpc.fallback && isPrimaryDown(rpc.primary)) {
+	// Skip a down primary only when the fallback is already VERIFIED for this
+	// chain; otherwise try the primary rather than return a synthetic failure.
+	if (
+		rpc.fallback &&
+		rpc.expectedChainId !== undefined &&
+		verifiedFallbacks.has(`${rpc.expectedChainId}|${rpc.fallback}`) &&
+		isPrimaryDown(rpc.primary)
+	) {
 		first = { ok: false, transport: true, error: 'RPC unreachable' }
 	} else {
 		first = await rpcCallOnce<T>(
@@ -268,7 +277,7 @@ async function rpcCall<T = unknown>(
 			params,
 			rpc.fallback ? RPC_PRIMARY_WITH_FALLBACK_MS : RPC_TIMEOUT_MS,
 		)
-		if (first.transport) markPrimaryDown(rpc.primary)
+		if (first.network) markPrimaryDown(rpc.primary)
 		else rpcDownUntil.delete(rpc.primary)
 	}
 	if (!first.transport || !rpc.fallback) return first
