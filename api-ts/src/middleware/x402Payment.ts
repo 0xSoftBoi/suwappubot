@@ -1,4 +1,4 @@
-import { decodePaymentSignatureHeader, encodePaymentRequiredHeader } from '@x402/core/http'
+import { encodePaymentRequiredHeader } from '@x402/core/http'
 import type {
 	PaymentRequired as X402PaymentRequired,
 	PaymentRequirements as X402PaymentRequirements,
@@ -321,7 +321,16 @@ export type ChargeResult =
 			paymentResponse?: string
 	  }
 	| { kind: 'insufficient'; cost: number; challenge: ReturnType<typeof buildX402Challenge> }
-	| { kind: 'blocked'; cost: number; reason: string; traits?: string[] }
+	| {
+			kind: 'blocked'
+			cost: number
+			reason: string
+			traits?: string[]
+			/** Original receipt on a payment-identifier replay. */
+			paymentResponse?: string
+			/** HTTP status override (default 402). */
+			status?: 402 | 403 | 409
+	  }
 
 /**
  * Best-effort, defensive extraction of the on-chain payer address from a
@@ -457,8 +466,14 @@ export async function chargeAgentForCall(params: {
 	description: string
 	/** base64 X-PAYMENT header for direct on-chain settlement (facilitator path). */
 	paymentHeader?: string
+	/**
+	 * Runs after the payment is VERIFIED and screened, before it SETTLES, with
+	 * the verified payer. Return a reason string to abort (nothing settles).
+	 * Keyless callers use it to resolve/create the wallet agent pre-settle.
+	 */
+	preSettle?: (payer: string) => Promise<string | null>
 }): Promise<ChargeResult> {
-	const { agent, cost, resource, description, paymentHeader } = params
+	const { agent, cost, resource, description, paymentHeader, preSettle } = params
 
 	const env = await runEffectEither(
 		Effect.gen(function* () {
@@ -523,38 +538,16 @@ export async function chargeAgentForCall(params: {
 		// No prepaid credits — if the client supplied an X-PAYMENT header and the
 		// facilitator is enabled, settle this single call directly on-chain.
 		if (paymentHeader && isFacilitatorEnabled(env.right)) {
-			// Intercepta risk screening (ETHGlobal Tokyo 2026 Phase 2): screen the
-			// counterparty BEFORE settling. Fail-closed — if we can't decode a payer
-			// address, or the scan itself fails (no API key, network error,
-			// malformed response), reject rather than charge. Only a successful scan
-			// under the configured threshold clears the way to settle.
-			// Batch-settlement vouchers on an already-screened channel skip the
-			// rescan only if we can't find a payer; deposit payloads carry
-			// `authorization.from` / channelConfig.payer like exact does.
-			let payerAddress: string | undefined
-			try {
-				const decoded = decodedPayment ?? decodePaymentSignatureHeader(paymentHeader)
-				payerAddress = extractPayerAddress(
-					decoded as unknown as Parameters<typeof extractPayerAddress>[0],
-				)
-			} catch {
-				payerAddress = undefined
-			}
-
-			if (!payerAddress) {
-				logger.error(
-					{ agentId: agent.id, resource },
-					'[intercepta] could not extract payer address from payment header — failing closed',
-				)
-				return {
-					kind: 'blocked',
-					cost,
-					reason: 'risk screening unavailable: could not resolve payer address',
-				}
-			}
-
+			// Order matters (money-path review M1): VERIFY first, then run Intercepta
+			// risk screening on the facilitator/scheme-VERIFIED payer, then settle.
+			// Screening an address read from an unverified payload let garbage
+			// signatures burn paid scans and let a toxic payer present a clean
+			// address. Fail-closed: a scan error or a toxic score aborts BEFORE any
+			// funds move. Clean results are cached briefly (batch vouchers).
 			const threshold = Number(env.right.INTERCEPTA_TOXIC_SCORE_THRESHOLD)
-			if (!recentlyCleared(payerAddress))
+			let blockedResult: Extract<ChargeResult, { kind: 'blocked' }> | null = null
+			const screen = async (payerAddress: string): Promise<string | null> => {
+				if (recentlyCleared(payerAddress)) return null
 				try {
 					const scan = await quickScan(payerAddress, { apiKey: env.right.INTERCEPTA_API_KEY })
 					const blocked = scan.toxicScore > threshold
@@ -574,29 +567,38 @@ export async function chargeAgentForCall(params: {
 							},
 							'[intercepta] blocked metered payment: counterparty exceeds toxic score threshold',
 						)
-						return {
+						blockedResult = {
 							kind: 'blocked',
 							cost,
 							reason: `counterparty flagged as high risk (score ${scan.toxicScore} > ${threshold}): ${scan.traits.join(', ') || 'no traits reported'}`,
 							traits: scan.traits,
 						}
+						return 'payer_blocked'
 					}
 					markCleared(payerAddress)
+					return null
 				} catch (e) {
 					const reason = e instanceof InterceptaUnavailableError ? e.reason : 'unknown_error'
 					logger.error(
 						{ agentId: agent.id, address: payerAddress, reason },
 						'[intercepta] risk screening unavailable — failing closed, rejecting payment',
 					)
-					return {
+					blockedResult = {
 						kind: 'blocked',
 						cost,
 						reason: 'risk screening unavailable — payment rejected (fail-closed)',
 					}
+					return 'screening_unavailable'
 				}
+			}
 
 			const settle = await verifyAndSettle(svcEnv, paymentHeader, challenge.accepts, {
-				expectedPayer: payerAddress,
+				resource,
+				beforeSettle: async (payer) => {
+					const r = await screen(payer)
+					if (r) return r
+					return preSettle ? preSettle(payer) : null
+				},
 			})
 			if (settle.ok) {
 				return {
@@ -607,6 +609,26 @@ export async function chargeAgentForCall(params: {
 					scheme: settle.scheme,
 					payer: settle.payer,
 					paymentResponse: settle.responseHeader,
+				}
+			}
+			if (blockedResult) return blockedResult
+			if (settle.error === 'payment_already_settled') {
+				// payment-identifier replay: never re-run the handler for one payment.
+				return {
+					kind: 'blocked',
+					cost,
+					reason:
+						'payment_already_settled: this payment was already used; the original receipt is in PAYMENT-RESPONSE. Sign a new payment for a new call.',
+					paymentResponse: settle.responseHeader,
+					status: 409,
+				}
+			}
+			if (settle.error.startsWith('pre_settle:')) {
+				return {
+					kind: 'blocked',
+					cost,
+					reason: settle.error.slice('pre_settle:'.length),
+					status: 403,
 				}
 			}
 			challenge.error = settle.error
@@ -692,9 +714,26 @@ export function meteredPayment(endpoint: string) {
 		const agent = c.get('agent') as
 			| { id: number; rateLimitTier?: string; uuid?: string }
 			| undefined
+		const keyless = c.get('x402Keyless' as never) as { payer: string } | undefined
+		let walletAgent: unknown = null
 		const result = await chargeAgentForCall({
 			agent,
 			cost,
+			// Keyless: the payer must be the wallet the ephemeral identity claimed,
+			// and the persistent wallet agent must exist + be active BEFORE funds move.
+			preSettle: keyless
+				? async (payer) => {
+						if (payer.toLowerCase() !== keyless.payer) return 'pre_settle:payer_mismatch'
+						const { materializeWalletAgent } = await import('./x402Keyless')
+						const row = (await materializeWalletAgent(keyless.payer)) as {
+							isActive?: boolean
+						} | null
+						if (!row) return 'pre_settle:wallet_agent_unavailable'
+						if (row.isActive === false) return 'pre_settle:wallet_agent_disabled'
+						walletAgent = row
+						return null
+					}
+				: undefined,
 			resource: c.req.path,
 			description: `Suwappu agent API call: ${endpoint} (${cost} credit${cost === 1 ? '' : 's'})`,
 			// v2 header first; X-PAYMENT kept so pre-v2 clients get a clean v2 402.
@@ -731,14 +770,8 @@ export function meteredPayment(endpoint: string) {
 		}
 
 		if (result.kind === 'settled') {
-			// Keyless x402 caller (middleware/x402Keyless): the payment settled, so
-			// now — and only now — persist a real wallet agent and swap it in for the
-			// ephemeral identity. Bound to the VERIFIED payer, not the claimed one.
-			const keyless = c.get('x402Keyless' as never) as { payer: string } | undefined
-			if (keyless && result.payer && result.payer.toLowerCase() === keyless.payer) {
-				const { materializeWalletAgent } = await import('./x402Keyless')
-				const row = await materializeWalletAgent(keyless.payer)
-				if (row) c.set('agent', row as never)
+			if (keyless && walletAgent) {
+				c.set('agent', walletAgent as never)
 				c.header('X-Agent-Wallet', keyless.payer)
 			}
 			c.header('X-Metering-Cost', String(result.cost))
@@ -755,9 +788,10 @@ export function meteredPayment(endpoint: string) {
 		if (result.kind === 'blocked') {
 			// Intercepta rejected the counterparty (or screening was unavailable) —
 			// fail-closed: no charge happens, no route handler runs.
+			if (result.paymentResponse) c.header('PAYMENT-RESPONSE', result.paymentResponse)
 			return c.json(
 				{ error: 'payment_rejected', reason: result.reason, traits: result.traits },
-				402,
+				result.status ?? 402,
 			)
 		}
 

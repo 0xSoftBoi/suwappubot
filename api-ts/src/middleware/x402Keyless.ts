@@ -6,6 +6,7 @@ import { requireDb } from '../db/DrizzleService'
 import { agents } from '../db/schema'
 import { runEffectEither } from '../runtime'
 import { decodePayment, type X402ServiceEnv } from '../services/X402ResourceService'
+import { ipRateLimit } from './ipRateLimit'
 import {
 	buildX402Challenge,
 	costForEndpoint,
@@ -38,6 +39,14 @@ import {
 export const KEYLESS_ENDPOINTS = new Set(['quote', 'prices', 'portfolio', 'swap/simulate'])
 
 export type KeylessMarker = { payer: string }
+
+/**
+ * Per-IP throttle on the keyless paid path (money-path review M1). The
+ * per-wallet rate limit keys on a payer address the caller merely CLAIMS until
+ * verification, so on its own it can be dodged by rotating `from` — the IP
+ * limit bounds facilitator verify calls from any one source.
+ */
+const keylessIpLimit = ipRateLimit(60)
 
 /** Stable negative pseudo-id per wallet (never collides with serial ids). */
 function ephemeralIdFor(addr: string): number {
@@ -91,6 +100,17 @@ export function withX402Keyless(
 			})
 			setX402Headers(c, env.right, challenge)
 			return c.json({ ...challenge, keyless: true }, 402)
+		}
+
+		// IP throttle first; only then take the per-wallet path.
+		let throttled: Response | undefined
+		let passed = false
+		const r = await keylessIpLimit(c, async () => {
+			passed = true
+		})
+		if (!passed) {
+			throttled = r as Response | undefined
+			return throttled ?? c.json({ error: 'rate_limited' }, 429)
 		}
 
 		c.set('agent', {

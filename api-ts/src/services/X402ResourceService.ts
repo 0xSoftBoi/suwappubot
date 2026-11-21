@@ -30,7 +30,7 @@ import {
 	PAYMENT_IDENTIFIER,
 	paymentIdentifierResourceServerExtension,
 } from '@x402/extensions/payment-identifier'
-import { and, eq, lt, sql } from 'drizzle-orm'
+import { eq, lt, sql } from 'drizzle-orm'
 import { Effect } from 'effect'
 import { privateKeyToAccount } from 'viem/accounts'
 import { findX402Network, resolveX402Networks, type X402Network } from '../config/x402Networks'
@@ -452,7 +452,7 @@ export type X402SettleResult =
 			/** True when served from the payment-identifier ledger (no new settle). */
 			idempotentReplay?: boolean
 	  }
-	| { ok: false; error: string; payload?: PaymentPayload }
+	| { ok: false; error: string; payload?: PaymentPayload; responseHeader?: string }
 
 /** Decode a PAYMENT-SIGNATURE (or legacy X-PAYMENT) header. */
 export function decodePayment(header: string): PaymentPayload | null {
@@ -480,11 +480,18 @@ export async function verifyAndSettle(
 	accepts: PaymentRequirements[],
 	opts: {
 		/**
-		 * The address risk screening cleared. When set, the facilitator/scheme-
-		 * verified payer MUST equal it (case-insensitive) or we refuse to settle —
-		 * otherwise a client could get one address screened and pay from another.
+		 * Server-side resource being paid for (path or mcp://tools/<name>). Bound
+		 * into the payment-identifier fingerprint so an id can never be reused
+		 * across routes. The client-supplied payload.resource is NOT trusted.
 		 */
-		expectedPayer?: string
+		resource?: string
+		/**
+		 * Runs after verification with the VERIFIED payer, before settlement.
+		 * Return a reason to abort (nothing settles; prefixed "pre_settle:" in
+		 * the error unless the reason already carries it). Used for risk
+		 * screening and keyless wallet-agent resolution.
+		 */
+		beforeSettle?: (verifiedPayer: string) => Promise<string | null>
 	} = {},
 ): Promise<X402SettleResult> {
 	if (env.X402_FACILITATOR_ENABLED !== 'true') return { ok: false, error: 'facilitator_disabled' }
@@ -536,22 +543,29 @@ export async function verifyAndSettle(
 	const fingerprint = paymentId
 		? crypto
 				.createHash('sha256')
-				.update(JSON.stringify([payload.accepted, payload.payload, payload.resource?.url ?? null]))
+				.update(
+					JSON.stringify([
+						payload.accepted,
+						payload.payload,
+						opts.resource ?? null,
+						requirements.amount,
+						requirements.network,
+					]),
+				)
 				.digest('hex')
 		: ''
 	if (paymentId) {
 		const hit = await idemLookup(paymentId, fingerprint)
 		if (hit === 'conflict') return { ok: false, error: 'payment_identifier_conflict', payload }
 		if (hit) {
+			// One payment = one served call. A retry with the same id gets the
+			// original receipt back (so the client knows it paid) but the handler
+			// is NOT re-run — re-serving would sell N calls for one payment.
 			return {
-				ok: true,
-				scheme: requirements.scheme,
-				network: String(hit.network || requirements.network),
-				payer: hit.payer,
-				txHash: hit.transaction || undefined,
+				ok: false,
+				error: 'payment_already_settled',
 				responseHeader: encodePaymentResponseHeader(hit),
-				settle: hit,
-				idempotentReplay: true,
+				payload,
 			}
 		}
 	}
@@ -571,10 +585,15 @@ export async function verifyAndSettle(
 			await release()
 			return { ok: false, error: 'not_a_payment', payload }
 		}
-		if (opts.expectedPayer) {
-			if (!v.payer || v.payer.toLowerCase() !== opts.expectedPayer.toLowerCase()) {
+		if (opts.beforeSettle) {
+			if (!v.payer) {
 				await release()
-				return { ok: false, error: 'payer_mismatch', payload }
+				return { ok: false, error: 'payer_unverified', payload }
+			}
+			const abort = await opts.beforeSettle(v.payer)
+			if (abort) {
+				await release()
+				return { ok: false, error: abort, payload }
 			}
 		}
 
@@ -628,8 +647,6 @@ export async function x402Status(env: X402ServiceEnv) {
 }
 
 // ── payment-identifier ledger ────────────────────────────────────────────
-const IDEM_MAX_USES = 3
-const IDEM_TTL_MS = 15 * 60 * 1000
 
 function safePaymentId(payload: PaymentPayload): string | null {
 	try {
@@ -656,19 +673,17 @@ async function idemLookup(
 				const row = rows[0]
 				if (!row) return null
 				if (row.fingerprint !== fingerprint) return 'conflict' as const
-				const fresh = row.createdAt && Date.now() - row.createdAt.getTime() < IDEM_TTL_MS
-				if (!fresh || row.uses >= IDEM_MAX_USES) return 'conflict' as const
-				// Atomic bump guarded on the observed count (no unbounded replays).
-				const bumped = yield* Effect.tryPromise({
+				// Matching row → already settled (caller returns the receipt, never re-serves).
+				// Count replays for observability (no access is granted on a hit).
+				yield* Effect.tryPromise({
 					try: () =>
 						db
 							.update(x402PaymentIds)
 							.set({ uses: sql`${x402PaymentIds.uses} + 1` })
-							.where(and(eq(x402PaymentIds.paymentId, id), lt(x402PaymentIds.uses, IDEM_MAX_USES)))
-							.returning({ id: x402PaymentIds.paymentId }),
+							.where(eq(x402PaymentIds.paymentId, id)),
 					catch: (e) => new Error(String(e)),
 				})
-				return bumped.length > 0 ? (row.settle as SettleResponse) : ('conflict' as const)
+				return row.settle as SettleResponse
 			}),
 		)
 	} catch {
@@ -695,6 +710,16 @@ async function idemRecord(id: string, fingerprint: string, s: SettleResponse): P
 							.onConflictDoNothing(),
 					catch: (e) => new Error(String(e)),
 				})
+				// Opportunistic sweep (~1% of writes): ids older than 7 days.
+				if (Math.random() < 0.01) {
+					yield* Effect.tryPromise({
+						try: () =>
+							db
+								.delete(x402PaymentIds)
+								.where(lt(x402PaymentIds.createdAt, new Date(Date.now() - 7 * 86_400_000))),
+						catch: (e) => new Error(String(e)),
+					})
+				}
 			}),
 		)
 	} catch {
