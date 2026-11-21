@@ -1,0 +1,45 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "bot.suwappu/mcp",
+  "title": "Suwappu",
+  "description": "Cross-chain swap quotes, simulation, unsigned tx prep, prices, perps, prediction and lending reads.",
+  "version": "0.6.0",
+  "repository": {
+    "url": "https://github.com/0xSoftBoi/suwappubot",
+    "source": "github",
+    "subfolder": "packages/mcp-server"
+  },
+  "websiteUrl": "https://suwappu.bot",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "@suwappu/mcp-server",
+      "version": "0.6.0",
+      "runtimeHint": "npx",
+      "transport": { "type": "stdio" },
+      "environmentVariables": [
+        {
+          "name": "SUWAPPU_API_KEY",
+          "description": "Suwappu agent API key (suwappu_sk_...). Optional for public discovery tools; get one at POST https://api.suwappu.bot/v1/agent/register",
+          "isRequired": false,
+          "isSecret": true
+        }
+      ]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://api.suwappu.bot/mcp",
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "Bearer <SUWAPPU_API_KEY>. Optional for public discovery; required for quotes and other metered tools. Register at POST https://api.suwappu.bot/v1/agent/register",
+          "isRequired": false,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}

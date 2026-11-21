@@ -2,11 +2,12 @@
   "$schema": "https://specs.a2aprotocol.ai/agent-card.json",
   "id": "suwappu-dex",
   "name": "Suwappu",
-  "description": "Natural-language quote, price, and discovery agent for Suwappu. A2A swap/quote requests return quotes; A2A does not execute swaps.",
+  "description": "Natural-language quote, price, and discovery agent for Suwappu. A2A swap/quote requests return quotes; A2A does not execute swaps. For structured tools use the MCP server (POST https://api.suwappu.bot/mcp) or the REST API (OpenAPI at https://api.suwappu.bot/v1/agent/openapi); LLM summary at https://suwappu.bot/llms.txt.",
   "version": "0.6.0",
   "url": "https://api.suwappu.bot",
   "logo": "https://suwappu.bot/logo.png",
   "openApiUrl": "https://api.suwappu.bot/v1/agent/openapi",
+  "documentationUrl": "https://suwappu.bot/docs/protocols/overview",
   "protocolVersions": [
     "0.3"
   ],
