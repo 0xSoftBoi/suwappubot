@@ -58,7 +58,7 @@ export default function TermsPage() {
           <p>We may update these Terms from time to time. Material changes will be reflected by the “Last updated” date above; continued use after changes constitutes acceptance.</p>
 
           <h2>11. Contact</h2>
-          <p>Questions about these Terms? Reach us through the official Suwappu Telegram or at <code>legal@suwappu.bot</code>.</p>
+          <p>Questions about these Terms? Reach us through the official Suwappu Telegram or at <a href="mailto:legal@suwappu.bot">legal@suwappu.bot</a>.</p>
         </div>
         </article>
       </div>
