@@ -5,6 +5,7 @@ import uuid
 from decimal import Decimal
 from typing import Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.constants import ChatType
 from telegram.ext import (
     ContextTypes,
     CommandHandler,
@@ -72,6 +73,33 @@ def validate_withdraw_address(chain: str, address: str) -> bool:
     return True
 
 
+_MD2_SPECIAL = "_*[]()~`>#+-=|{}.!"
+
+
+def _md2(value: str) -> str:
+    """Escape a dynamic value for MarkdownV2."""
+    return "".join("\\" + c if c in _MD2_SPECIAL else c for c in str(value))
+
+
+def _is_private(update: Update) -> bool:
+    """True only in a 1:1 chat with the user.
+
+    A deposit screen must never render anywhere else. The address is per-user
+    but a group message is shared, and these keyboards reach groups: /c takes no
+    chat-type filter and `custodial_menu` buttons are handed out by group-capable
+    surfaces (bot/handlers/tip.py, bot/handlers/start.py). So Alice opens the
+    menu, Bob taps Deposit, the message is replaced in place with Bob's address,
+    and Alice deposits to it — the watcher credits Bob, consistently enough that
+    nothing alerts. Harmless before this address became per-user; a way to lose
+    funds afterwards.
+    """
+    chat = update.effective_chat
+    return bool(chat) and chat.type == ChatType.PRIVATE
+
+
+_DM_ONLY = "Open a direct message with me to view your deposit address."
+
+
 async def _user_deposit_address(user_id: int) -> Optional[str]:
     """This user's OWN custodial deposit address, minted on first view.
 
@@ -125,7 +153,12 @@ def _deposit_lines(deposit_address: Optional[str]) -> list:
         "_Yours alone — deposits to it credit automatically._",
         "\n*Credited:*",
     ]
+    from bot.services.deposit_watcher import min_deposit_summary
+
     lines += [f"  • {line}" for line in _accepted_lines()]
+    floors = min_deposit_summary()
+    if floors:
+        lines.append(f"_Minimum {floors} per deposit — less is not credited._")
     lines.append("_Native coins (ETH, BNB, POL) and Solana are not credited yet._")
     return lines
 
@@ -133,6 +166,10 @@ def _deposit_lines(deposit_address: Optional[str]) -> list:
 @enforce_tos
 async def custodial_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /custodial command - show custodial wallet overview."""
+    if not _is_private(update):
+        await update.message.reply_text(_DM_ONLY)
+        return
+
     user = update.effective_user
 
     with get_session() as session:
@@ -195,6 +232,10 @@ async def custodial_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 async def custodial_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle custodial menu callback."""
     query = update.callback_query
+
+    if not _is_private(update):
+        await query.answer(_DM_ONLY, show_alert=True)
+        return
     await query.answer()
 
     user = update.effective_user
@@ -264,6 +305,10 @@ async def custodial_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def deposit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show deposit instructions with chain selection."""
     query = update.callback_query
+
+    if not _is_private(update):
+        await query.answer(_DM_ONLY, show_alert=True)
+        return
     await query.answer()
 
     from bot.services.deposit_watcher import creditable_chains
@@ -290,8 +335,13 @@ async def deposit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             info = get_chain_by_name(chain)
             emoji = info.logo_emoji if info else "💎"
             label = info.display_name if info else chain.title()
+            # Bind the button to whoever opened it. Defence in depth behind the
+            # DM guard: a keyboard stays tappable forever, so the handler
+            # re-checks the owner rather than trusting the tap's context.
             row.append(
-                InlineKeyboardButton(f"{emoji} {label}", callback_data=f"deposit_qr_{chain}")
+                InlineKeyboardButton(
+                    f"{emoji} {label}", callback_data=f"deposit_qr_{chain}_{user.id}"
+                )
             )
             if len(row) == 2:
                 keyboard.append(row)
@@ -313,16 +363,39 @@ async def deposit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 async def deposit_qr_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show QR code for specific chain deposit."""
     query = update.callback_query
-    await query.answer()
+
+    if not _is_private(update):
+        await query.answer(_DM_ONLY, show_alert=True)
+        return
 
     from bot.services.deposit_watcher import (
         CONFIRMATIONS,
         creditable_tokens,
         is_chain_creditable,
+        min_deposit_summary,
     )
 
-    # Extract chain from callback data
-    chain = query.data.replace("deposit_qr_", "")
+    # callback_data is deposit_qr_{chain}_{owner telegram id}. No chain name
+    # contains an underscore, so the owner is the last segment.
+    payload = query.data.replace("deposit_qr_", "")
+    chain, _, owner = payload.rpartition("_")
+    if not chain or not owner.isdigit():
+        # A button minted before owner binding. Re-open rather than guess whose
+        # address to show.
+        await query.answer()
+        await query.edit_message_text(
+            "Please open the deposit screen again\\.",
+            parse_mode="MarkdownV2",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("📥 Deposit", callback_data="custodial_deposit")]]
+            ),
+        )
+        return
+
+    if not update.effective_user or int(owner) != update.effective_user.id:
+        await query.answer("This isn't your deposit screen.", show_alert=True)
+        return
+    await query.answer()
 
     back_only = InlineKeyboardMarkup(
         [[InlineKeyboardButton("« Back", callback_data="custodial_deposit")]]
@@ -360,7 +433,8 @@ async def deposit_qr_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     emoji = info.logo_emoji if info else "💎"
     display_name = info.display_name if info else chain.title()
     tokens = ", ".join(creditable_tokens(chain))
-    confirmations = CONFIRMATIONS.get(chain, 12)
+    confirmations = CONFIRMATIONS[chain]
+    floors = _md2(min_deposit_summary(chain))
 
     # Generate QR code
     try:
@@ -370,7 +444,7 @@ async def deposit_qr_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.edit_message_text(
             f"{emoji} *{display_name} Deposit*\n\n"
             f"`{address}`\n\n"
-            f"Send *{tokens}* on *{display_name}* only\\.\n"
+            f"Send *{tokens}* on *{display_name}* only, minimum {floors}\\.\n"
             f"⚠️ Native coins and other tokens sent here are *not* credited\\.",
             parse_mode="MarkdownV2",
             reply_markup=back_only,
@@ -389,6 +463,7 @@ async def deposit_qr_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         f"• Scan QR or copy address above\n"
         f"• This address is yours alone, so deposits credit automatically\n"
         f"• Credited after {confirmations} confirmations\n"
+        f"• Minimum {floors} per deposit, less is not credited\n"
         f"⚠️ Native coins \\(ETH, BNB, POL\\) and other tokens sent here are "
         f"*not* credited"
     )

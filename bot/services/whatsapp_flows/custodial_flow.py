@@ -42,7 +42,7 @@ class DepositFlow(BaseWhatsAppFlow):
 
         try:
             from bot.config.chains import get_chain_by_name
-            from bot.services.deposit_watcher import creditable_matrix
+            from bot.services.deposit_watcher import creditable_matrix, min_deposit_summary
             from bot.services.hot_wallet import hot_wallet_service
 
             wallet = await hot_wallet_service.get_or_create_user_deposit_wallet(
@@ -71,7 +71,9 @@ class DepositFlow(BaseWhatsAppFlow):
                     f"This address is yours alone — that is how we know a deposit "
                     f"is yours, so deposits to it credit your custodial balance "
                     f"automatically.\n\n"
-                    f"*Credited:*\n{accepted}\n\n"
+                    f"*Credited:*\n{accepted}\n"
+                    f"Minimum {min_deposit_summary()} per deposit — less is not "
+                    f"credited.\n\n"
                     f"⚠️ Send only those tokens, on those networks. Native coins "
                     f"(ETH, BNB, POL) and Solana are *not* credited yet — anything "
                     f"else sent here will not show up in your balance."

@@ -96,8 +96,39 @@ COLD_START_LOOKBACK = 500
 
 
 def creditable_chains() -> Tuple[str, ...]:
-    """Chains with at least one creditable token, in a stable order."""
-    return tuple(sorted(chain for chain, syms in ALLOWLIST.items() if syms))
+    """Chains a deposit actually credits on, in a stable order.
+
+    The intersection of ALLOWLIST and CONFIRMATIONS, not ALLOWLIST alone.
+    ``_loop`` iterates CONFIRMATIONS, so a chain missing from it is never
+    scanned however many tokens it allowlists — offering it would recreate the
+    bug these helpers exist to prevent (an address shown for a chain nothing
+    watches), and the surface would quote a fabricated confirmation count from
+    ``CONFIRMATIONS.get(chain, 12)``.
+    """
+    return tuple(sorted(c for c, syms in ALLOWLIST.items() if syms and c in CONFIRMATIONS))
+
+
+def min_deposit_floor(symbol: str) -> Optional[Decimal]:
+    """The smallest amount of ``symbol`` that will be credited, if any."""
+    return MIN_DEPOSIT.get(symbol)
+
+
+def min_deposit_summary(chain: Optional[str] = None) -> str:
+    """ "1 USDC, 1 USDT" — the floors a surface must state, as plain text.
+
+    ``_handle_log`` drops anything under MIN_DEPOSIT with only a log line: the
+    user is never told. A surface that promises automatic crediting therefore
+    has to name the floor, or a 0.50 USDC first test deposit — the obvious thing
+    to try against a new address — silently does nothing.
+
+    May contain a decimal point, so escape it where the caller uses MarkdownV2.
+    """
+    parts = []
+    for symbol in creditable_tokens(chain):
+        floor = MIN_DEPOSIT.get(symbol)
+        if floor is not None:
+            parts.append(f"{floor.normalize():f} {symbol}")
+    return ", ".join(parts)
 
 
 def creditable_tokens(chain: Optional[str] = None) -> Tuple[str, ...]:
@@ -108,8 +139,13 @@ def creditable_tokens(chain: Optional[str] = None) -> Tuple[str, ...]:
 
 
 def is_chain_creditable(chain: str) -> bool:
-    """True when a deposit on ``chain`` can actually be credited."""
-    return bool(ALLOWLIST.get(chain))
+    """True when a deposit on ``chain`` can actually be credited.
+
+    Requires a confirmation threshold as well as allowlisted tokens, so callers
+    past this gate can index CONFIRMATIONS directly instead of defaulting to a
+    number for a chain that is never scanned.
+    """
+    return bool(ALLOWLIST.get(chain)) and chain in CONFIRMATIONS
 
 
 def creditable_matrix() -> list:
