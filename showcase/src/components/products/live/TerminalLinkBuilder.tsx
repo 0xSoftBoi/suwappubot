@@ -45,7 +45,7 @@ export default function TerminalLinkBuilder() {
           <input id="lv-t-tok" className="lv-input" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" spellCheck={false} /></div>
         <div className="lv-field"><label className="lv-label" htmlFor="lv-t-amt">Amount</label>
           <input id="lv-t-amt" className="lv-input" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
-        <div className="lv-field"><label className="lv-label" htmlFor="lv-t-ch">Chain{chains ? '' : ' (loading)'}</label>
+        <div className="lv-field"><label className="lv-label" htmlFor="lv-t-ch">Chain{chains || err ? '' : ' (loading)'}</label>
           <select id="lv-t-ch" className="lv-select" value={chain} onChange={(e) => setChain(e.target.value)} disabled={!chains}>
             {(chains ?? [{ key: 'base', name: 'Base' }]).map((c) => <option key={c.key} value={c.key}>{c.name}</option>)}</select></div>
       </div>

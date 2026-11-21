@@ -8,7 +8,7 @@ import { CopyBtn } from './ui';
 import './live.css';
 
 type Cmd = { command: string; does: string };
-type Arg = { id: string; label: string; placeholder: string; required: boolean; options?: string[] };
+type Arg = { id: string; label: string; placeholder: string; required: boolean; options?: string[]; num?: 'positive' | 'int' };
 /** Argument syntax is only offered where the page itself states it (products.json). Everything else is the bare command. */
 const ARGS: Record<string, { args: Arg[]; warn?: string }> = {
   '/snipe': { args: [{ id: 'contract', label: 'Token contract (optional)', placeholder: 'Solana token address', required: false }] },
@@ -16,8 +16,8 @@ const ARGS: Record<string, { args: Arg[]; warn?: string }> = {
     args: [
       { id: 'market', label: 'Market', placeholder: 'ETH', required: true },
       { id: 'side', label: 'Side', placeholder: '', required: true, options: ['long', 'short'] },
-      { id: 'size', label: 'Size', placeholder: '0.5', required: true },
-      { id: 'minutes', label: 'Minutes', placeholder: '30', required: true },
+      { id: 'size', label: 'Size', placeholder: '0.5', required: true, num: 'positive' },
+      { id: 'minutes', label: 'Minutes', placeholder: '30', required: true, num: 'int' },
     ],
     warn: 'With all four arguments, /twap submits a live order immediately, with no confirmation step. Bare /twap only lists your running TWAPs.',
   },
@@ -34,7 +34,8 @@ export default function CommandBuilder({ commands }: { commands: Cmd[] }) {
   const missing = spec?.args.filter((a) => a.required && !vals[a.id]?.trim()) ?? [];
   const partial = spec && spec.args.some((a) => vals[a.id]?.trim()) && missing.length > 0;
   const text = [sel, ...(spec?.args.map((a) => vals[a.id]?.trim()).filter(Boolean) ?? [])].join(' ');
-  const okToCopy = !partial;
+  const badNum = spec?.args.find((a) => a.num && vals[a.id]?.trim() && !(a.num === 'int' ? /^[1-9]\d*$/.test(vals[a.id].trim()) : /^(?:\d+\.?\d*|\.\d+)$/.test(vals[a.id].trim()) && Number(vals[a.id]) > 0));
+  const okToCopy = !partial && !badNum;
   if (!cur) return null;
 
   return (
@@ -51,13 +52,14 @@ export default function CommandBuilder({ commands }: { commands: Cmd[] }) {
             {a.options ? (
               <select id={`lv-a-${a.id}`} className="lv-select" value={vals[a.id] ?? ''} onChange={(e) => setVals({ ...vals, [a.id]: e.target.value })}><option value="">Choose…</option>{a.options.map((o) => <option key={o}>{o}</option>)}</select>
             ) : (
-              <input id={`lv-a-${a.id}`} className="lv-input" value={vals[a.id] ?? ''} placeholder={a.placeholder} onChange={(e) => setVals({ ...vals, [a.id]: e.target.value })} autoComplete="off" spellCheck={false} />
+              <input id={`lv-a-${a.id}`} className="lv-input" value={vals[a.id] ?? ''} placeholder={a.placeholder} onChange={(e) => setVals({ ...vals, [a.id]: e.target.value })} autoComplete="off" spellCheck={false} inputMode={a.num === 'int' ? 'numeric' : a.num ? 'decimal' : undefined} />
             )}
           </div>
         ))}
       </div>
       <p className="lv-note">{cur.does}</p>
       {spec?.warn && <p className="lv-error" role="note" style={{ marginTop: '.75rem' }}>{spec.warn}</p>}
+      {badNum && <p className="lv-error-line" role="alert" style={{ marginTop: '.75rem' }}>{badNum.label} must be a positive {badNum.num === 'int' ? 'whole number' : 'number'}.</p>}
       {partial && <p className="lv-error-line" role="alert" style={{ marginTop: '.75rem' }}>Fill every field ({missing.map((m) => m.label).join(', ')}) or clear them to send the bare command.</p>}
       <p className="lv-label" style={{ margin: '1rem 0 .4rem' }}>Send this to the bot</p>
       <pre className="lv-pre" tabIndex={0}>{okToCopy ? text : '…'}</pre>

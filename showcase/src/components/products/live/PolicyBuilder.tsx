@@ -1,9 +1,9 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Tabs, TabsList, TabsPanel, TabsTab } from '@ui-sdk/react/tabs';
 import { callApi, type CallResult } from './api';
-import { getKeyReady, useApiKey } from './keyStore';
+import { getKeyReady, getStoredKey, useApiKey } from './keyStore';
 import { useLiveSlug } from './ApiKeyProvider';
 import KeyBar from './KeyBar';
 import { CopyBtn, ErrorBox, Json, ResultMeta } from './ui';
@@ -12,7 +12,6 @@ import { track } from '@/lib/analytics';
 import './live.css';
 
 const ADDR = /^0x[0-9a-fA-F]{40}$/;
-const WINDOWS = [[3600, 'per hour'], [86400, 'per day'], [604800, 'per week']] as const;
 
 /** Decimal ETH string -> wei string, exact (no float). Returns null when invalid. */
 function ethToWei(v: string): string | null {
@@ -31,7 +30,6 @@ export default function PolicyBuilder() {
   const { key } = useApiKey();
   const [kind, setKind] = useState<'spending_limit' | 'whitelist'>('spending_limit');
   const [eth, setEth] = useState('0.5');
-  const [win, setWin] = useState<number>(86400);
   const [addrs, setAddrs] = useState('');
   const [res, setRes] = useState<CallResult | null>(null);
   const [busy, setBusy] = useState(false);
@@ -41,15 +39,17 @@ export default function PolicyBuilder() {
   const built = useMemo(() => {
     if (kind === 'spending_limit') {
       const wei = ethToWei(eth);
-      if (!wei || wei === '0') return { err: 'Enter a limit greater than 0, up to 18 decimals (in ETH, or the chain’s native token).' };
-      return { body: { type: 'spending_limit', params: { maxAmountWei: wei, timeWindowSeconds: win } } };
+      if (!wei || wei === '0') return { err: 'Enter a per-transaction limit greater than 0, up to 18 decimals (in ETH, or the chain’s native token).' };
+      return { body: { type: 'spending_limit', params: { maxAmountWei: wei } } };
     }
     const list = addrs.split(/[\s,]+/).filter(Boolean);
     if (!list.length) return { err: 'Add at least one address, one per line.' };
     const bad = list.find((a) => !ADDR.test(a));
     if (bad) return { err: `Not a valid 0x address: ${bad.slice(0, 20)}` };
     return { body: { type: 'whitelist', params: { allowedAddresses: list } } };
-  }, [kind, eth, win, addrs]);
+  }, [kind, eth, addrs]);
+  // A different (or forgotten) key must never show the previous key's data.
+  useEffect(() => { setRes(null); setNoWallet(false); }, [key]);
 
   async function read() {
     if (lock.current) return;
@@ -59,12 +59,14 @@ export default function PolicyBuilder() {
     // Free pre-check: policies 400 WALLET_NOT_FOUND without a managed wallet, so only call it when one exists.
     const w = await callApi({ path: '/v1/agent/wallets', key: k });
     const has = w.ok && Array.isArray((w.data as { wallets?: unknown[] } | null)?.wallets) && ((w.data as { wallets: unknown[] }).wallets.length > 0);
+    if (getStoredKey() !== k) { setBusy(false); lock.current = false; return; }
     if (!has) {
       setRes(w.ok ? null : w); setNoWallet(w.ok); setBusy(false); lock.current = false;
       track('widget_run', { slug, widget: 'policy_read', outcome: w.ok ? 'no_wallet' : String(w.status) });
       return;
     }
     const r = await callApi({ path: '/v1/agent/wallet/policies', key: k });
+    if (getStoredKey() !== k) { setBusy(false); lock.current = false; return; }
     setRes(r); setBusy(false); lock.current = false;
     track('widget_run', { slug, widget: 'policy_read', outcome: r.ok ? 'ok' : String(r.status) });
   }
@@ -78,16 +80,14 @@ export default function PolicyBuilder() {
         <div className="lv-grid lv-grid--2">
           <div className="lv-field"><label className="lv-label" htmlFor="lv-pk">Policy type</label>
             <select id="lv-pk" className="lv-select" value={kind} onChange={(e) => setKind(e.target.value as typeof kind)}>
-              <option value="spending_limit">Spending limit (per transaction value)</option>
+              <option value="spending_limit">Spending limit (per transaction)</option>
               <option value="whitelist">Address allowlist</option>
             </select></div>
           {kind === 'spending_limit' ? (
             <>
               <div className="lv-field"><label className="lv-label" htmlFor="lv-pl">Limit (native token)</label>
                 <input id="lv-pl" className="lv-input" inputMode="decimal" value={eth} onChange={(e) => setEth(e.target.value)} /></div>
-              <div className="lv-field"><label className="lv-label" htmlFor="lv-pw">Time window</label>
-                <select id="lv-pw" className="lv-select" value={win} onChange={(e) => setWin(Number(e.target.value))}>
-                  {WINDOWS.map(([s, l]) => <option key={s} value={s}>{l}</option>)}</select></div>
+              <p className="lv-hint" style={{ alignSelf: 'end' }}>Applies to each transaction. The API does not enforce a per-hour, per-day or per-week total on wallet policies.</p>
             </>
           ) : (
             <div className="lv-field" style={{ gridColumn: '1 / -1' }}><label className="lv-label" htmlFor="lv-pa">Allowed addresses (one per line)</label>

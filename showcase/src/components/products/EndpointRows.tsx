@@ -17,8 +17,8 @@ type Ep = { method: string; path: string; does: string };
 function Row({ slug, e }: { slug: string; e: Ep }) {
   const id = routeId(e.method, e.path);
   const body = DEFAULT_BODY[id];
-  const canRun = !CREDENTIAL_NOTE[id] && isRunnable(e.method, e.path) && !hasPathParam(e.path) && id !== 'POST /v1/agent/register' && id !== 'POST /mcp';
-  const needsId = isRunnable(e.method, e.path) && hasPathParam(e.path);
+  const canRun = !CREDENTIAL_NOTE[id] && !hasPathParam(e.path) && isRunnable(e.method, e.path) && !hasPathParam(e.path) && id !== 'POST /v1/agent/register' && id !== 'POST /mcp';
+  const needsId = e.method === 'GET' && hasPathParam(e.path);
   const note = CREDENTIAL_NOTE[id];
   const params = PARAMS[id];
   const { key: storedKey, hydrated } = useApiKey();

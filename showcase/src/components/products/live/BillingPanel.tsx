@@ -2,14 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { callApi, type CallResult } from './api';
-import { useApiKey } from './keyStore';
+import { getStoredKey, useApiKey } from './keyStore';
 import { useLiveSlug } from './ApiKeyProvider';
 import KeyBar from './KeyBar';
 import { ErrorBox, Json, ResultMeta } from './ui';
 import { track } from '@/lib/analytics';
 import './live.css';
 
-type Billing = { tier?: string; credits?: { balance?: number; lifetime_purchased?: number; lifetime_used?: number }; credit_usd_value?: number; cost_weights?: Record<string, number> };
+type Billing = { tier?: string; is_metered?: boolean; credits?: { balance?: number; lifetime_purchased?: number; lifetime_used?: number }; credit_usd_value?: number; cost_weights?: Record<string, number> };
 type Me = { agent?: { rate_limit_tier?: string; created_at?: string; last_active_at?: string | null; stats?: { total_requests?: number; total_swaps?: number } } };
 const CALLS = [['quote', 'Quotes'], ['swap/simulate', 'Dry runs'], ['prices', 'Price reads'], ['portfolio', 'Portfolio reads']] as const;
 
@@ -21,16 +21,17 @@ export default function BillingPanel() {
   const [me, setMe] = useState<CallResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [calls, setCalls] = useState<Record<string, number>>({ quote: 200, 'swap/simulate': 20, prices: 100, portfolio: 10 });
-  const lock = useRef(false);
+  const lock = useRef<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!key || lock.current) return;
-    lock.current = true; setBusy(true);
+    if (!key || lock.current === key) return;
+    lock.current = key; setBusy(true);
     const [b, m] = await Promise.all([callApi({ path: '/v1/agent/billing', key, refresh: false }), callApi({ path: '/v1/agent/me', key, refresh: false })]);
-    setBill(b); setMe(m); setBusy(false); lock.current = false;
+    if (getStoredKey() !== key) { if (lock.current === key) lock.current = null; return; } // key changed mid-flight: drop this answer
+    setBill(b); setMe(m); setBusy(false); lock.current = null;
     track('widget_run', { slug, widget: 'billing_read', outcome: b.ok ? 'ok' : String(b.status) });
   }, [key, slug]);
-  useEffect(() => { if (key) void load(); else { setBill(null); setMe(null); } }, [key, load]);
+  useEffect(() => { setBill(null); setMe(null); setBusy(false); if (key) void load(); }, [key, load]);
 
   const b = bill?.ok ? (bill.data as Billing) : null;
   const a = me?.ok ? (me.data as Me).agent : null;
@@ -38,6 +39,7 @@ export default function BillingPanel() {
   const usd = b?.credit_usd_value ?? 0.001;
   const perDay = CALLS.reduce((n, [id]) => n + (calls[id] || 0) * (weights[id] ?? 0), 0);
   const balance = b?.credits?.balance;
+  const unmetered = b?.is_metered === false;
 
   return (
     <div className="lv lv-stack">
@@ -78,7 +80,7 @@ export default function BillingPanel() {
           <div><dt>Credits per day</dt><dd>{perDay.toLocaleString()}</dd></div>
           <div><dt>Per 30 days</dt><dd>{(perDay * 30).toLocaleString()} cr</dd></div>
           <div><dt>Cost per 30 days</dt><dd>${(perDay * 30 * usd).toFixed(2)}</dd></div>
-          {balance !== undefined && <div><dt>Your balance lasts</dt><dd>{perDay > 0 ? `${(balance / perDay).toFixed(1)} days` : 'indefinitely'}</dd></div>}
+          {unmetered ? <div><dt>Your plan</dt><dd>This plan is not metered</dd></div> : balance !== undefined && <div><dt>Your balance lasts</dt><dd>{perDay > 0 ? `${(balance / perDay).toFixed(1)} days` : 'indefinitely'}</dd></div>}
         </dl>
         <p className="lv-note">Swaps and executions cost more and are not callable from this page. Subscriptions give unmetered access; see the plans on this page.</p>
       </section>

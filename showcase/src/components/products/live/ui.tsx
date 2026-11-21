@@ -17,7 +17,7 @@ export function CopyBtn({ text, label = 'Copy', slug, what }: { text: string; la
           if (slug) track('solve_snippet_copied', { slug, lang: what ?? 'live', surface: 'product' });
         } catch { /* selectable text remains */ }
       }}
-    >{done ? 'Copied' : label}<span className="sr-only" role="status" aria-live="polite">{done ? 'Copied' : ''}</span></button>
+    ><span aria-hidden={done || undefined}>{done ? 'Copied' : label}</span><span className="sr-only" role="status" aria-live="polite">{done ? 'Copied' : ''}</span></button>
   );
 }
 
@@ -45,7 +45,6 @@ export function ResultMeta({ r }: { r: CallResult }) {
     <p className={`lv-meta ${r.ok ? 'lv-meta--ok' : 'lv-meta--bad'}`} role="status">
       <strong>{r.status === 0 ? 'No response' : `HTTP ${r.status}`}</strong>
       <span>{r.ms} ms</span>
-      {r.creditsHeader && <span>{r.creditsHeader} credits left</span>}
     </p>
   );
 }

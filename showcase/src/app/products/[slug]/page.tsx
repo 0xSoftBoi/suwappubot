@@ -125,7 +125,7 @@ export default async function ProductPage({ params }: { params: Promise<Params> 
                   {cta2 && p.secondaryCta && (
                     <TrackedLink href={cta2} surface="product" slug={p.slug} kind="secondary" className="summer-button summer-button--secondary">{p.secondaryCta.label}</TrackedLink>
                   )}
-                  {tryCfg && <a href="#try" className="summer-button summer-button--secondary">Try it live</a>}
+                  {tryCfg && <TrackedLink href="#try" surface="product" slug={p.slug} kind="link" className="summer-button summer-button--secondary">Try it live</TrackedLink>}
                 </div>
               </div>
               <div className="pd-art v3-tone-dark" aria-hidden="true">

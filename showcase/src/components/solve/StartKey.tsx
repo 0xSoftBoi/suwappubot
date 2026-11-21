@@ -5,7 +5,7 @@ import { Tabs, TabsList, TabsPanel, TabsTab } from '@ui-sdk/react/tabs';
 import { track } from '@/lib/analytics';
 import { API_BASE_URL } from '@/lib/links';
 import CopyCode from './CopyCode';
-import { getKeyReady, setStoredKey } from '@/components/products/live/keyStore';
+import { forgetKey, getKeyReady, setStoredKey } from '@/components/products/live/keyStore';
 
 const NAME_RE = /^[A-Za-z0-9_-]{3,50}$/;
 
@@ -105,9 +105,11 @@ export default function StartKey({ bash, ts, python }: { bash: string; ts: strin
             Suwappu keeps only a hash. Put it in <code style={{ display: 'inline', padding: '0 4px', margin: 0 }}>SUWAPPU_API_KEY</code> and send it as <code style={{ display: 'inline', padding: '0 4px', margin: 0 }}>Authorization: Bearer</code>.
             {credits !== null ? ` Starter credits granted: ${credits}.` : ''}
           </p>
+          {(adopted || !hadKey) && <p className="sv-note">This key is also kept, encrypted, in this browser so the product pages can use it. “I have stored it” only clears this box and keeps it there on purpose; use “Forget on this device” to remove it.</p>}
           {hadKey && <p className="sv-note">{adopted ? 'This site now uses the new key.' : 'A key was already saved in this browser, so it was kept. This site still uses the old key.'}</p>}
           <div className="sv-actions">
             <button type="button" className="summer-button summer-button--primary" onClick={copyKey}>{copied ? 'Copied' : 'Copy key'}</button>
+            {(adopted || !hadKey) && <button type="button" className="summer-button summer-button--secondary" onClick={() => { forgetKey(); setAdopted(false); }}>Forget on this device</button>}
             {hadKey && !adopted && <button type="button" className="summer-button summer-button--secondary" onClick={() => { setStoredKey(key); setAdopted(true); }}>Use this new key on this site (replaces the saved one — copy the old key first if you still need it)</button>}
             <button type="button" className="summer-button summer-button--secondary" onClick={() => { setKey(null); setAdopted(false); setHadKey(false); setName(''); setDescription(''); }}>I have stored it</button>
           </div>

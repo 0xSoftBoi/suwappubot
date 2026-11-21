@@ -18,7 +18,7 @@ const MCP_URL = 'https://api.suwappu.bot/mcp';
 function configs(k: string): { id: string; label: string; file: string; text: string }[] {
   const auth = `Bearer ${k}`;
   return [
-    { id: 'desktop', label: 'Claude Desktop', file: 'claude_desktop_config.json', text: JSON.stringify({ mcpServers: { suwappu: { command: 'npx', args: ['@suwappu/mcp-server'], env: { SUWAPPU_API_KEY: k } } } }, null, 2) },
+    { id: 'desktop', label: 'Claude Desktop', file: 'claude_desktop_config.json', text: JSON.stringify({ mcpServers: { suwappu: { url: MCP_URL, headers: { Authorization: auth } } } }, null, 2) },
     { id: 'code', label: 'Claude Code', file: 'terminal', text: `claude mcp add --transport http suwappu ${MCP_URL} \\\n  --header "Authorization: ${auth}"` },
     { id: 'cursor', label: 'Cursor', file: '~/.cursor/mcp.json', text: JSON.stringify({ mcpServers: { suwappu: { url: MCP_URL, headers: { Authorization: auth } } } }, null, 2) },
     { id: 'vscode', label: 'VS Code', file: '.vscode/mcp.json', text: JSON.stringify({ servers: { suwappu: { type: 'http', url: MCP_URL, headers: { Authorization: auth } } } }, null, 2) },
@@ -52,6 +52,7 @@ export default function McpBrowser() {
     return (tools ?? []).filter((t) => !s || t.name.toLowerCase().includes(s) || (t.description ?? '').toLowerCase().includes(s));
   }, [tools, q]);
 
+  useEffect(() => { setReveal(false); }, [key]);
   const display = key ? (reveal ? key : maskKey(key)) : 'suwappu_sk_YOUR_KEY';
   const real = key ?? 'suwappu_sk_YOUR_KEY';
 

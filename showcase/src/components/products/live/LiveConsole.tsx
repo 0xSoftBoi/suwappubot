@@ -13,7 +13,7 @@ import { curlSnippet, pySnippet, tsSnippet } from './snippets';
 import { CREDIT_COST } from './allowlist';
 import './live.css';
 
-type Chain = { key: string; name: string };
+type Chain = { key: string; name: string; type?: string };
 type Quote = {
   quote_id?: string; from_chain?: string; to_chain?: string; from_token?: { symbol: string }; to_token?: { symbol: string; decimals?: number };
   amount_in?: string; amount_out?: string; amount_out_min?: string; exchange_rate?: string; price_impact?: string;
@@ -25,6 +25,9 @@ type Sim = {
   price_impact_pct?: number; fees?: Record<string, string>; checks?: { name: string; status: string; detail?: string }[]; warnings?: string[];
 };
 const ADDR = /^0x[0-9a-fA-F]{40}$/;
+const SOL_ADDR = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+/** The quote route handles EVM and Solana; Sui, TON and the rest are rejected by it. */
+const QUOTABLE = new Set(['evm', 'solana']);
 
 /** raw integer string -> decimal string using the token's decimals; without trusted decimals the integer is labelled, never scaled. */
 function fromRaw(raw: string | undefined, decimals?: number): string {
@@ -59,7 +62,7 @@ export default function LiveConsole({ compact = false }: { compact?: boolean }) 
     setChainErr(null);
     const r = await callApi({ path: '/v1/agent/chains' });
     const list = (r.data as { chains?: Chain[] } | null)?.chains;
-    if (r.ok && Array.isArray(list)) setChains(list); else setChainErr(r);
+    if (r.ok && Array.isArray(list)) setChains(list.filter((c) => !c.type || QUOTABLE.has(c.type))); else setChainErr(r);
   }, []);
   useEffect(() => { void loadChains(); }, [loadChains]);
 
@@ -76,7 +79,8 @@ export default function LiveConsole({ compact = false }: { compact?: boolean }) 
   function buildBody(): Record<string, unknown> | null {
     if (!from.trim() || !to.trim()) { setFormErr('Enter a from token and a to token.'); return null; }
     if (!isAmount(amount)) { setFormErr('Amount must be a positive number in human units, e.g. 10.'); return null; }
-    if (wallet.trim() && !ADDR.test(wallet.trim())) { setFormErr('Wallet address must be a 0x… EVM address (42 characters).'); return null; }
+    const sol = chains?.find((c) => c.key === chain)?.type === 'solana';
+    if (wallet.trim() && !(sol ? SOL_ADDR : ADDR).test(wallet.trim())) { setFormErr(sol ? 'Wallet address must be a Solana address (base58, 32-44 characters).' : 'Wallet address must be a 0x… EVM address (42 characters).'); return null; }
     setFormErr(null);
     const crossChain = toChain && toChain !== chain;
     return {
@@ -129,7 +133,9 @@ export default function LiveConsole({ compact = false }: { compact?: boolean }) 
   const shown = simLive ?? quoteLive;
   const lastPath = simLive ? '/v1/agent/swap/simulate' : '/v1/agent/quote';
   // Decimals only count when they came with the same quote the simulation ran against.
+  const solSim = (s as (Sim & { chain_type?: string }) | null)?.chain_type === 'solana';
   const decimals = simLive && s && s.quote_id === simLive.quoteId ? simLive.decimals : undefined;
+  const amt = (raw: string | undefined) => (solSim ? raw ?? '' : fromRaw(raw, decimals));
   const cost = CREDIT_COST['POST /v1/agent/quote'];
   const expired = Boolean(q && left <= 0);
   const dryNote = !wallet.trim()
@@ -149,7 +155,7 @@ export default function LiveConsole({ compact = false }: { compact?: boolean }) 
           <Field name="amount" className="lv-field"><FieldLabel className="lv-label">Amount (human units)</FieldLabel>
             <FieldControl className="lv-input" value={amount} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAmount(e.target.value)} inputMode="decimal" autoComplete="off" placeholder="10" /></Field>
           <div className="lv-field">
-            <label className="lv-label" htmlFor="lv-chain">Chain{chains ? '' : ' (loading)'}</label>
+            <label className="lv-label" htmlFor="lv-chain">Chain{chains || chainErr ? '' : ' (loading)'}</label>
             <select id="lv-chain" className="lv-select" value={chain} onChange={(e) => setChain(e.target.value)} disabled={!chains}>
               {(chains ?? [{ key: 'base', name: 'Base' }]).map((c) => <option key={c.key} value={c.key}>{c.name}</option>)}
             </select>
@@ -165,7 +171,7 @@ export default function LiveConsole({ compact = false }: { compact?: boolean }) 
             </select>
           </div>
           <Field name="wallet" className="lv-field"><FieldLabel className="lv-label">Wallet address (optional)</FieldLabel>
-            <FieldControl className="lv-input lv-input--mono" value={wallet} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setWallet(e.target.value)} placeholder="0x…" autoComplete="off" spellCheck={false} />
+            <FieldControl className="lv-input lv-input--mono" value={wallet} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setWallet(e.target.value)} placeholder="0x… or a Solana address" autoComplete="off" spellCheck={false} />
             <span className="lv-hint">Needed for a dry run. A quote without one cannot be executed.</span></Field>
         </div>
         {chainErr && <div style={{ marginTop: '.85rem' }}><ErrorBox r={chainErr} onRetry={loadChains} /></div>}
@@ -199,10 +205,10 @@ export default function LiveConsole({ compact = false }: { compact?: boolean }) 
         {!busy && s && (
           <>
             <dl className="lv-kv lv-kv--hero">
-              <div><dt>Expected out</dt><dd>{fromRaw(s.expected_output?.amount, decimals)} {s.expected_output?.token}{s.expected_output?.amount_usd ? ` (~$${s.expected_output.amount_usd})` : ''}</dd></div>
-              <div><dt>Minimum out</dt><dd>{fromRaw(s.min_output_after_slippage, decimals)} {s.expected_output?.token}</dd></div>
+              <div><dt>Expected out</dt><dd>{amt(s.expected_output?.amount)} {s.expected_output?.token}{s.expected_output?.amount_usd ? ` (~$${s.expected_output.amount_usd})` : ''}</dd></div>
+              <div><dt>Minimum out</dt><dd>{amt(s.min_output_after_slippage)} {s.expected_output?.token}</dd></div>
               <div><dt>Price impact</dt><dd>{s.price_impact_pct}%</dd></div>
-              <div><dt>Fees</dt><dd>{Object.entries(s.fees ?? {}).map(([k2, v]) => `${v} ${k2.replace('_', ' ')}`).join(' + ') || 'n/a'}</dd></div>
+              <div><dt>Fees</dt><dd>{Object.entries(s.fees ?? {}).filter(([, v]) => v != null).map(([k2, v]) => `${v} ${k2.replace('_', ' ')}`).join(' + ') || 'n/a'}</dd></div>
             </dl>
             {s.checks && (
               <ul className="lv-checks" aria-label="Simulation checks">

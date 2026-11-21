@@ -8,12 +8,12 @@ export type CallResult = {
   ms: number;
   data: unknown;
   error: string | null;  // real upstream message, or a network note
-  creditsHeader: string | null;
 };
 
 const msg = (data: unknown): string | null => {
   const d = data as { error?: unknown; message?: unknown; hint?: unknown } | null;
-  const e = typeof d?.error === 'string' ? d.error : typeof d?.message === 'string' ? d.message : null;
+  const eo = d?.error as { message?: unknown } | null | undefined;
+  const e = typeof d?.error === 'string' ? d.error : typeof eo?.message === 'string' ? eo.message : typeof d?.message === 'string' ? d.message : null;
   return e ? (typeof d?.hint === 'string' ? `${e} (${d.hint})` : e) : null;
 };
 
@@ -26,6 +26,11 @@ export async function callApi(opts: {
 }): Promise<CallResult> {
   const method = opts.method ?? 'GET';
   if (!isRunnable(method, opts.path)) throw new Error(`Blocked: ${method} ${opts.path} is not runnable from the site.`);
+  // /mcp is read-only from the site: only discovery calls, never tools/call (which can move funds).
+  if (opts.path.split('?')[0] === '/mcp') {
+    const m = (opts.body as { method?: unknown } | undefined)?.method;
+    if (m !== 'tools/list' && m !== 'initialize') throw new Error('Blocked: only tools/list and initialize may be sent to /mcp from the site.');
+  }
   const t0 = performance.now();
   try {
     const res = await fetch(`${API_BASE_URL}${opts.path}`, {
@@ -49,9 +54,8 @@ export async function callApi(opts: {
     return {
       ok: res.ok, status: res.status, ms: Math.round(performance.now() - t0), data,
       error: res.ok ? null : msg(data) ?? `HTTP ${res.status}`,
-      creditsHeader: res.headers.get('x-metering-balance'),
     };
   } catch {
-    return { ok: false, status: 0, ms: Math.round(performance.now() - t0), data: null, error: 'Could not reach api.suwappu.bot from this browser (network or CORS).', creditsHeader: null };
+    return { ok: false, status: 0, ms: Math.round(performance.now() - t0), data: null, error: 'Could not reach api.suwappu.bot from this browser (network or CORS).' };
   }
 }

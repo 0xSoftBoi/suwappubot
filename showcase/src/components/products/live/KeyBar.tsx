@@ -15,7 +15,7 @@ const rand = () => Array.from(crypto.getRandomValues(new Uint8Array(5)), (b) => 
  * Key controls shared by every widget: create in one click (public register
  * endpoint), or paste an existing one. Stored encrypted, only in this browser.
  */
-export default function KeyBar({ compact = false }: { compact?: boolean }) {
+export default function KeyBar(_props: { compact?: boolean }) {
   const slug = useLiveSlug();
   const k = useApiKey();
   const [busy, setBusy] = useState(false);
@@ -36,7 +36,7 @@ export default function KeyBar({ compact = false }: { compact?: boolean }) {
       k.setKey(String(d.agent.api_key));
       track('start_key_created', { surface: `product:${slug}`, outcome: 'ok' });
     } else {
-      track('start_key_created', { surface: `product:${slug}`, outcome: r.status === 429 ? 'rate_limited' : 'error' });
+      track('start_key_created', { surface: `product:${slug}`, outcome: r.status === 429 ? 'rate_limited' : r.status === 0 ? 'network' : 'error' });
       setErr(r.status === 429
         ? `Registration is limited per IP (${r.error}). Wait a minute, or paste a key you already have.`
         : (r.error ?? 'Registration failed.'));
@@ -55,7 +55,7 @@ export default function KeyBar({ compact = false }: { compact?: boolean }) {
 
   if (k.key) {
     return (
-      <div className={`lv-key lv-key--on${compact ? ' lv-key--compact' : ''}`} role="group" aria-label="Your API key">
+      <div className="lv-key" role="group" aria-label="Your API key">
         <div className="lv-key__row">
           <span className="lv-key__label">Your key</span>
           <code className="lv-key__code">{reveal ? k.key : maskKey(k.key)}</code>
@@ -63,8 +63,8 @@ export default function KeyBar({ compact = false }: { compact?: boolean }) {
             {k.balance !== null ? `${k.balance} credits` : k.balanceError ?? 'Checking credits…'}
           </span>
         </div>
-        <div className="lv-key__row lv-key__row--actions">
-          <button type="button" className="lv-btn lv-btn--ghost" onClick={() => setReveal((v) => !v)} aria-pressed={reveal}>{reveal ? 'Hide' : 'Reveal'}</button>
+        <div className="lv-key__row">
+          <button type="button" className="lv-btn lv-btn--ghost" onClick={() => setReveal((v) => !v)} aria-pressed={reveal}>Show key</button>
           <CopyBtn text={k.key} label="Copy key" />
           <button type="button" className="lv-btn lv-btn--ghost" onClick={() => { k.refreshBalance(); }}>Refresh credits</button>
           <label className="lv-check">
@@ -79,7 +79,7 @@ export default function KeyBar({ compact = false }: { compact?: boolean }) {
   }
 
   return (
-    <div className={`lv-key${compact ? ' lv-key--compact' : ''}`}>
+    <div className="lv-key">
       <div className="lv-key__empty">
         <div>
           <strong>Use your own key</strong>

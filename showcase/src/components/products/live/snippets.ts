@@ -2,7 +2,7 @@
 export function curlSnippet(method: string, path: string, body?: unknown): string {
   const url = `https://api.suwappu.bot${path}`;
   const lines = [`curl -s ${method === 'GET' ? '' : `-X ${method} `}${url} \\`, `  -H "Authorization: Bearer $SUWAPPU_API_KEY"`];
-  if (body !== undefined) lines[lines.length - 1] += ' \\', lines.push(`  -H "Content-Type: application/json" \\`, `  -d '${JSON.stringify(body)}'`);
+  if (body !== undefined) lines[lines.length - 1] += ' \\', lines.push(`  -H "Content-Type: application/json" \\`, `  -d '${JSON.stringify(body).replace(/'/g, `'\\''`)}'`);
   return lines.join('\n');
 }
 export function tsSnippet(method: string, path: string, body?: unknown): string {

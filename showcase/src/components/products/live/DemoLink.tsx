@@ -6,7 +6,7 @@ import './live.css';
 
 const DEMOS: Record<string, { href: string; label: string; note: string }> = {
   autopilot: { href: '/autopilot', label: 'Open the live paper desk', note: 'Paper money only. Decisions, positions and the journal are read from the production API on that page.' },
-  arbiter: { href: '/arbiter', label: 'Open the arbiter and run a checked run', note: 'Preview. The page runs the checked trade run in your browser.' },
+  arbiter: { href: '/arbiter', label: 'Open the arbiter and see a checked run', note: 'Preview. /arbiter shows recorded checked runs from the arbiter ledger; nothing runs in your browser.' },
   'agent-desk': { href: '/agent-terminal', label: 'Open the agent desk preview', note: 'Preview. Sign-off stays with a human.' },
 };
 
