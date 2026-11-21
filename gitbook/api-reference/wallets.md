@@ -96,11 +96,13 @@ Attach Turnkey policies to constrain what your managed wallet can do — spendin
 
 **Create a spending limit:**
 
+The limit applies to each transaction (`maxAmountWei`, in wei of the chain's native token). Time-window limits are not supported: a request that includes `timeWindowSeconds` is rejected with HTTP 400.
+
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/wallet/policy \
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"type": "spending_limit", "params": {"maxAmountWei": "1000000000000000000", "timeWindowSeconds": 86400}}'
+  -d '{"type": "spending_limit", "params": {"maxAmountWei": "1000000000000000000"}}'
 ```
 ```typescript
 const res = await fetch("https://api.suwappu.bot/v1/agent/wallet/policy", {
@@ -109,7 +111,7 @@ const res = await fetch("https://api.suwappu.bot/v1/agent/wallet/policy", {
     "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}`,
     "Content-Type": "application/json",
   },
-  body: JSON.stringify({ type: "spending_limit", params: { maxAmountWei: "1000000000000000000", timeWindowSeconds: 86400 } }),
+  body: JSON.stringify({ type: "spending_limit", params: { maxAmountWei: "1000000000000000000" } }),
 });
 const policy = await res.json();
 ```
@@ -119,7 +121,7 @@ import os, requests
 res = requests.post(
     "https://api.suwappu.bot/v1/agent/wallet/policy",
     headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
-    json={"type": "spending_limit", "params": {"maxAmountWei": "1000000000000000000", "timeWindowSeconds": 86400}},
+    json={"type": "spending_limit", "params": {"maxAmountWei": "1000000000000000000"}},
 )
 policy = res.json()
 ```
