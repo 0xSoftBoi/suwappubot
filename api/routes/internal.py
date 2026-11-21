@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional, Union
 from bot.config.settings import settings
 from bot.services.wallet import WalletService
 from bot.services.x402_service import x402_service
-from bot.services.x402_protocol import normalize_network, payload_payer, to_caip2
+from bot.services.x402_protocol import payload_payer, to_caip2
 from bot.models.user import Wallet
 from database.db import get_session
 
@@ -218,26 +218,19 @@ async def verify_x402_payment(
     has_tx = bool(request.tx_hash and request.tx_hash.strip())
     has_payload = request.payment_payload not in (None, "", {})
 
-    if has_tx:
-        # SECURITY (replay): api-ts consumes (chain, tx_hash) under the chain
-        # string it SENT. If this path accepted CAIP-2 aliases, one tx could be
-        # redeemed once as "base" and again as "eip155:8453". Until every api-ts
-        # consumer keys on the canonical `chain` returned below, the tx_hash path
-        # accepts only the short names it always accepted.
-        chain = (request.chain or "").strip().lower()
-        if chain not in x402_service.payment_tokens:
-            return VerifyPaymentResponse(
-                verified=False,
-                error=f"Unsupported chain: {request.chain} (tx_hash path takes short names)",
-            )
-    else:
-        # Payload path: the ledger key is the fresh settlement tx, and the
-        # EIP-3009 nonce can only settle once, so CAIP-2 ids are safe here.
-        chain = normalize_network(request.chain)
-        if not chain:
-            return VerifyPaymentResponse(
-                verified=False, error=f"Unsupported chain: {request.chain}"
-            )
+    # SECURITY (replay): api-ts consumes (chain, tx_hash) under the chain string
+    # it SENT. Accepting CAIP-2 aliases here would let one tx be redeemed once as
+    # "base" and again as "eip155:8453" — on BOTH paths, since a payload's
+    # settlement tx is an ordinary Transfer that also passes the tx_hash path.
+    # Until every api-ts consumer keys on the canonical `chain` returned below,
+    # this endpoint takes short names only. (CAIP-2 is accepted inside
+    # payloads and by the bot-side service, whose ledger normalizes.)
+    chain = (request.chain or "").strip().lower()
+    if chain not in x402_service.payment_tokens:
+        return VerifyPaymentResponse(
+            verified=False,
+            error=f"Unsupported chain: {request.chain} (use the short name, e.g. 'base')",
+        )
     network = to_caip2(chain)
     if has_tx == has_payload:
         return VerifyPaymentResponse(

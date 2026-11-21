@@ -787,19 +787,36 @@ class X402Service:
         # facilitator could return success with any tx hash. Confirm the
         # settlement tx on-chain (EIP-3009 emits a normal Transfer to pay_to) and
         # use the payer the CHAIN reports, not the facilitator's.
-        ok, msg, chain_payer = await self._verify_transaction_on_chain(
-            tx_hash=result.tx_hash,
-            chain=short,
-            expected_recipient=expected_recipient,
-            expected_amount=float(expected_amount),
-            token_address=token_address,
-        )
+        import asyncio
+
+        # Our RPC can lag the facilitator's by a block: retry receipt-not-found
+        # briefly; a real mismatch fails immediately.
+        ok, msg, chain_payer = False, "", None
+        for attempt in range(6):
+            ok, msg, chain_payer = await self._verify_transaction_on_chain(
+                tx_hash=result.tx_hash,
+                chain=short,
+                expected_recipient=expected_recipient,
+                expected_amount=float(expected_amount),
+                token_address=token_address,
+            )
+            if ok or not str(msg).startswith("Transaction not found"):
+                break
+            await asyncio.sleep(2)
         if not ok:
+            # Funds may have moved: ALWAYS surface the settlement hash so it can
+            # be reconciled (or resubmitted on the tx_hash path, where the same
+            # sender-binding + replay-ledger checks apply).
             logger.error(
                 f"[x402] facilitator reported settlement {result.tx_hash} on {short} "
-                f"but on-chain check failed: {msg}"
+                f"but on-chain check failed (reconcile): {msg} payer={result.payer}"
             )
-            return False, f"Settlement not confirmed on-chain: {msg}", result.payer, None
+            return (
+                False,
+                f"Settlement not confirmed on-chain: {msg} (settlement tx {result.tx_hash})",
+                result.payer,
+                result.tx_hash,
+            )
         return True, f"x402 v{result.x402_version} exact settled", chain_payer, result.tx_hash
 
     def _user_bound_evm_wallets(self, user_id: int) -> List[str]:
@@ -929,6 +946,8 @@ class X402Service:
                     )
                     if success:
                         tx_hash = settled_tx
+                    elif settled_tx:
+                        payment.tx_hash = settled_tx  # record for reconciliation
                 else:
                     # Verify the transaction matches payment parameters
                     success, message, sender = await self._verify_transaction_on_chain(

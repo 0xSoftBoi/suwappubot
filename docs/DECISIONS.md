@@ -283,6 +283,9 @@ ADRs 0001–0005.
   chain into many ledger keys). The internal tx_hash path still takes **short
   names only** until api-ts consumes under the returned canonical `chain`. Settled
   payloads are re-confirmed on-chain (facilitator's word isn't enough). The
-  internal payload path requires `expected_payers` and binds the signer before
+  internal endpoint takes short names on BOTH paths (a payload's settlement tx
+  also passes the tx_hash path). Receipt-lag after settle is retried and the
+  settlement hash is always surfaced. The internal payload path requires
+  `expected_payers` and binds the signer before
   settling. Open: api-ts's 15s verify timeout is below the facilitator's 90s
   settle timeout — raise it before api-ts starts sending payloads.
