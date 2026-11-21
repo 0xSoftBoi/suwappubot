@@ -216,7 +216,7 @@ export default async function ProductPage({ params }: { params: Promise<Params> 
 
         {/* 6. worked example */}
         <section className="pd-sec" aria-labelledby="ex">
-          <div className="summer-shell pd-in pd-narrow">
+          <div className="summer-shell pd-in">
             <h2 id="ex" className="pd-h2">{p.example.title}</h2>
             <CopyCode code={p.example.code} lang={p.example.lang} label={p.example.title} slug={p.slug} surface="product" />
           </div>
@@ -224,7 +224,7 @@ export default async function ProductPage({ params }: { params: Promise<Params> 
 
         {/* 7. hard facts */}
         <section className="pd-sec pd-sec--tint" aria-labelledby="facts">
-          <div className="summer-shell pd-in pd-narrow">
+          <div className="summer-shell pd-in">
             <h2 id="facts" className="pd-h2">The hard facts</h2>
             <div className="pd-scroll" tabIndex={0} role="region" aria-label="Specifications">
               <table className="pd-table pd-table--spec">

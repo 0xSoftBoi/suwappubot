@@ -24,7 +24,7 @@ const MORE_LINKS: [string, string][] = [
 
 export default function ProductsPage() {
   const items = PRODUCTS.map(({ slug, name, headline, category, audience, status }) => ({ slug, name, headline, category, audience, status }));
-  const arts = Object.fromEntries(PRODUCTS.map((p) => [p.slug, <ProductVisual key={p.slug} visual={p.visual} />]));
+  const arts = Object.fromEntries(PRODUCTS.map((p) => [p.slug, <ProductVisual key={p.slug} visual={p.visual} mini />]));
   return (
     <div className="sw sw-dark pv3-page">
       <SummerNav />

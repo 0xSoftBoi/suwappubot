@@ -3,7 +3,6 @@ import RouteMap from './RouteMap';
 import VenueRank from './VenueRank';
 import ToolOrbit from './ToolOrbit';
 import BoundaryRings from './BoundaryRings';
-import ProductFrame from './ProductFrame';
 
 /**
  * Product-page schematics. One `visual` key -> one small graphic. Kit graphics
@@ -296,6 +295,56 @@ function Pipeline() {
   );
 }
 
+/** Small stand-ins for the big kit graphics, used on catalogue tiles only. */
+function MiniRoute() {
+  const n: [number, number][] = [[60, 60], [150, 40], [250, 70], [90, 150], [200, 160]];
+  return (
+    <Svg>
+      {[[0, 1], [1, 2], [0, 3], [1, 3], [1, 4], [2, 4], [3, 4]].map(([a, b]) => (
+        <line key={`${a}${b}`} className="pvx-dim" x1={n[a][0]} y1={n[a][1]} x2={n[b][0]} y2={n[b][1]} />
+      ))}
+      <path className="pvx-acc" d="M60 60 L150 40 L200 160" />
+      {n.map(([x, y], i) => <circle key={i} className={i === 0 || i === 4 ? 'pvx-solid' : 'pvx-box'} cx={x} cy={y} r="11" />)}
+    </Svg>
+  );
+}
+function MiniRank() {
+  return (
+    <Svg>
+      {[40, 80, 120, 160].map((y, i) => (
+        <g key={y}><rect className={i === 0 ? 'pvx-solid' : 'pvx-box'} x="50" y={y} width="220" height="22" rx="11" style={i === 0 ? { opacity: 0.8 } : undefined} /><T x={66} y={y + 15}>{String(i + 1)}</T></g>
+      ))}
+    </Svg>
+  );
+}
+function MiniOrbit() {
+  return (
+    <Svg>
+      <circle className="pvx-dim" cx="160" cy="110" r="80" /><circle className="pvx-dim pvx-dash" cx="160" cy="110" r="50" />
+      <circle className="pvx-solid" cx="160" cy="110" r="14" style={{ opacity: 0.8 }} />
+      {[[160, 30], [240, 110], [104, 166], [216, 166], [80, 64]].map(([x, y]) => <circle key={`${x}${y}`} className="pvx-box" cx={x} cy={y} r="9" />)}
+    </Svg>
+  );
+}
+function MiniRings() {
+  return (
+    <Svg>
+      <circle className="pvx-dim" cx="160" cy="110" r="90" /><circle className="pvx-dim pvx-dash" cx="160" cy="110" r="62" />
+      <circle className="pvx-acc" cx="160" cy="110" r="34" /><circle className="pvx-solid" cx="160" cy="110" r="8" />
+    </Svg>
+  );
+}
+function MiniDesk() {
+  return (
+    <Svg>
+      <rect className="pvx-box" x="30" y="24" width="260" height="172" rx="12" />
+      {[60, 84, 108, 132, 156, 180].map((x, i) => (
+        <rect key={x} className={i % 2 ? 'pvx-solid' : 'pvx-dim'} x={x + 20} y={150 - i * 16} width="12" height={30 + i * 16} rx="2" style={i % 2 ? { opacity: 0.7 } : undefined} />
+      ))}
+    </Svg>
+  );
+}
+
 const MAP: Record<string, () => React.ReactNode> = {
   'order-ladder': OrderLadder, 'alert-pulse': AlertPulse, 'copy-mirror': CopyMirror,
   'launch-radar': LaunchRadar, 'perp-ladder': PerpLadder, 'odds-bar': OddsBar,
@@ -306,14 +355,22 @@ const MAP: Record<string, () => React.ReactNode> = {
 };
 
 /** Draws the graphic for a `visual` key. Wrap in an aria-hidden, tone-dark box. */
-export default function ProductVisual({ visual }: { visual: string }) {
+export default function ProductVisual({ visual, mini = false }: { visual: string; mini?: boolean }) {
+  if (mini) {
+    const M: Record<string, () => React.ReactNode> = { 'route-map': MiniRoute, 'venue-rank': MiniRank, 'tool-orbit': MiniOrbit, 'policy-rings': MiniRings, 'terminal-capture': MiniDesk };
+    const Mv = M[visual];
+    if (Mv) return <Mv />;
+  }
   switch (visual) {
     case 'route-map': return <RouteMap />;
     case 'venue-rank': return <VenueRank venues={rankVenues} />;
     case 'tool-orbit': return <ToolOrbit count={stats.mcpToolCount}><span className="v3-kicker">MCP</span></ToolOrbit>;
     case 'policy-rings': return <BoundaryRings quiet labels={['Agent', 'Policy']} />;
     case 'terminal-capture':
-      return <ProductFrame calm src="/proof/spot-desk.png" width={3160} height={940} alt="Suwappu Terminal spot trading view" title="ETH/USDC" />;
+      return (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img className="pvx-shot" src="/proof/spot-desk.png" width={3160} height={940} alt="" loading="eager" />
+      );
     default: {
       const V = MAP[visual];
       return V ? <V /> : <div className="pvx-neutral" />;

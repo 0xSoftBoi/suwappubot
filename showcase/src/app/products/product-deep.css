@@ -5,7 +5,7 @@
 .pd[data-audience='developer'] { --sv-accent: #c9731d; }
 .pd[data-audience='desk'] { --sv-accent: #2f8f5b; }
 .pd-in { box-sizing: border-box; min-width: 0; }
-.pd-narrow { max-width: 58rem; }
+.pd-narrow > * { max-width: 58rem; }
 .pd-sec { position: relative; isolation: isolate; overflow: clip; padding-block: clamp(2.5rem, 6vw, 4.5rem); }
 .pd-sec--tint { background: linear-gradient(180deg, color-mix(in srgb, var(--v3-ink) 4.5%, transparent), color-mix(in srgb, var(--v3-ink) 2%, transparent)); border-block: 1px solid var(--v3-line); }
 .pd-sec--dark { background: #0f1d2a; color: var(--v3-ink); }
@@ -163,9 +163,8 @@
 .pdx-tiles { list-style: none; margin: 1.4rem 0 0; padding: 0; display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr)); }
 .pdx-tiles > li { display: flex; min-width: 0; }
 .pdx-tile { width: 100%; text-decoration: none; }
-.pdx-tile__art { height: 130px; margin: -0.2rem -0.2rem 0.9rem; border-radius: 12px; overflow: hidden; display: grid; place-items: center; background: linear-gradient(180deg, rgba(8,16,24,0.5), rgba(8,16,24,0.25)); border: 1px solid var(--v3-line); }
-.pdx-tile__art .pvx, .pdx-tile__art svg { height: 100%; width: auto; max-width: 100%; }
-.pdx-tile__art .v3-gfx, .pdx-tile__art .v3-desk { transform: scale(0.5); transform-origin: center; width: 200%; flex: none; }
+.pdx-tile__art { display: block; height: 130px; margin: -0.2rem -0.2rem 0.9rem; border-radius: 12px; overflow: hidden; display: grid; place-items: center; background: linear-gradient(180deg, rgba(8,16,24,0.5), rgba(8,16,24,0.25)); border: 1px solid var(--v3-line); }
+.pdx-tile__art .pvx { height: 130px; width: 100%; }
 .pdx-chip { margin-left: 0.5rem; padding: 0.12rem 0.5rem; border-radius: 999px; font: 700 0.625rem/1.3 var(--v3-font-mono); letter-spacing: 0.08em; text-transform: uppercase; vertical-align: middle; background: #fff3d9; color: #7a4a05; border: 1px solid #e6b866; }
 .pdx-chip--preview { background: #ecebff; color: #3d3a8c; border-color: #a9a6ec; }
 .pdx-filter { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 1.5rem; }
@@ -180,3 +179,5 @@
 .pdx-detail { margin: 0.9rem 0 0; font-size: 0.9rem; }
 .pdx-detail a { color: inherit; font-weight: 600; text-decoration: none; border-bottom: 1px solid #f6a93c; }
 .pdx-notice { display: inline-flex; margin: 0 0 1rem; padding: 0.35rem 0.85rem; border-radius: 999px; border: 1px solid #a9a6ec; background: #ecebff; color: #3d3a8c; font: 700 0.75rem/1.4 var(--v3-font-mono); letter-spacing: 0.03em; }
+
+.pvx-shot { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid #25405a; box-shadow: 0 18px 40px -20px rgba(0,0,0,0.7); }
