@@ -68,3 +68,12 @@
 
 @media (min-width: 960px) { .pv3-hero__grid--one { grid-template-columns: minmax(0, 1fr); } }
 .pv3-authority .v3-af { max-width: 560px; }
+
+/* Terminal lead tile: split row (art left, copy right) instead of a small icon over a wide empty card. */
+@media (min-width: 961px) {
+  .pv3-tile--lead { flex-direction: row; align-items: stretch; }
+  .pv3-tile--lead .v3-tile__visual { flex: 1.15 1 0; min-height: 170px; border-right: 1px solid var(--v3-line); }
+  .pv3-tile--lead .v3-tile__visual svg { max-width: 300px; }
+  .pv3-tile--lead .v3-tile__body { flex: 1 1 0; justify-content: center; padding: 20px 24px; }
+  .pv3-tile--lead .v3-tile__title { font-size: 1.5rem; }
+}

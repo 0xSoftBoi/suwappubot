@@ -282,3 +282,10 @@
 .verdict { padding: 1rem 1.2rem; border: 1px solid var(--pp-border); border-radius: 14px; background: rgba(255, 255, 255, 0.7); }
 @media (max-width: 640px) { .bar { display: block; grid-column: 1 / -1; grid-row: 2; height: 10px; } .row { grid-template-columns: 1fr auto; } .rows { padding: 8px; } }
 @media (prefers-reduced-motion: reduce) { .barFill { transition: none; } }
+
+/* Free bar is the baseline: neutral navy, not a second brand colour. Legend names the two encodings. */
+.barFill { background: linear-gradient(90deg, #4b6a86, #2c4a66); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 0 0 10px; font-family: var(--font-mono, monospace); font-size: 0.72rem; letter-spacing: 0.04em; color: var(--summer-muted, #4b6075); }
+.legend span { display: inline-flex; align-items: center; gap: 8px; }
+.swatch { display: inline-block; width: 22px; height: 8px; border-radius: 999px; background: linear-gradient(90deg, #4b6a86, #2c4a66); }
+.swatchBest { background: linear-gradient(90deg, #f6a93c, #c9731d); }

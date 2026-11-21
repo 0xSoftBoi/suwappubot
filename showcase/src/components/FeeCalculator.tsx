@@ -114,6 +114,11 @@ export default function FeeCalculator({ tiers }: { tiers: CalcTier[] }) {
         </div>
       </div>
 
+      <p className={styles.legend} aria-hidden="true">
+        <span><i className={styles.swatch} /> Monthly cost: subscription plus swap fees</span>
+        <span><i className={`${styles.swatch} ${styles.swatchBest}`} /> Cheapest at this volume</span>
+      </p>
+
       <ol className={styles.rows}>
         {rows.map((r) => {
           const best = r.cents === cheapest.cents;
