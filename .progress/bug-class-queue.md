@@ -49,6 +49,11 @@ guess.
 | 20 | backfill | DECISION | DONE — `scripts/backfill_tx_hash_prefix.py`, NOT `_ensure_schema()` |
 | 21 | cctp_api / cctp_hypercore / layerzero_api / wormhole_api outbound | MED | DONE |
 | 22 | api-ts/src/__tests__/paymentReplay.test.ts | - | FIXED (existing suite the change broke) |
+| 23 | tests/test_cctp_relayer_generic.py FakeQuery | - | FIXED (needed `.filter` once lookups moved off `filter_by`) |
+| 24 | legacy_swap_execution_adapter `_same_tx_identity` | HIGH | FIXED (review finding 1 — stuck non-terminal swap) |
+| 25 | backfill `yield_per` + per-batch commit | MED | FIXED (review finding 2 — keyset pagination) |
+| 26 | api-ts agent.ts billing pre-checks case-blind | MED | FIXED (review finding 4 — `lower()` both sides) |
+| 27 | Python `int(body,16)` vs TS regex parity | LOW | FIXED (review caveat B) |
 
 ## Backfill decision: operator script, NOT `_ensure_schema()`
 1. It rewrites rows on a money-path table; `_ensure_schema` runs on every boot
@@ -61,6 +66,33 @@ guess.
 Script defaults to `--dry-run`, derives the EVM chain set from the registry
 (so a new chain is covered automatically and TRON/Solana cannot drift in),
 batches, commits per batch and is resumable.
+
+## DEPLOY ORDERING — READ BEFORE SHIPPING
+The ledger commits switch the payment-ledger **write** to canonical in the same
+change that widens the **read**. During a rolling cutover, and separately
+between `api-ts` and `python-api` (which deploy independently), an OLD instance
+still doing `eq(tx_hash, 'abc…')` misses the NEW instance's `0xabc…` row and
+credits the same payment twice. `onConflictDoNothing` does not catch it — the
+two rows hold different strings.
+**Ship tolerant readers first, canonical writers in a later deploy, or run
+single-replica through the cutover.** No code fix is possible.
+
+Also: do NOT run `scripts/backfill_tx_hash_prefix.py --apply` on a deployment
+that predates commit 2e82f92 (the `_same_tx_identity` fix) — without it the
+case-folding would strand swaps in a non-terminal state.
+
+## Money-path review (Opus) — verdict: ship with fixes, all fixed
+Confirmed sound and unchanged: the check-wide/write-canonical symmetry in both
+ledgers (UNIQUE still serializes, since both racers write the identical
+canonical string); the `!=` → variants widening did not weaken the identity
+guard; the hardcoded `"evm"` in `x402_service` and `deposit_watcher` is correct
+(both are EVM-only by construction — verified via `CONFIRMATIONS`/`ALLOWLIST`
+and the EIP-712 domains); every empty-collection `.in_()`/`inArray()` fails
+closed.
+
+Reviewer did NOT cover: `stripeMoney.ts`, `adminGrowth.ts`, `adminSessionAuth.ts`,
+`PolicyService.ts`, `bot/services/orders.py`, `copy_service.py`, the webapp
+display components, `api-ts/src/services/SwapService.ts`.
 
 ## NEEDS HUMAN
 - **`/swap/record` dedupe (api/webapp.py)**: should that endpoint return the
@@ -78,6 +110,13 @@ batches, commits per batch and is resumable.
   no normalization. Not a lie (they really can be either form) but undocumented.
 - **webapp `TxHashLink` clipboard copy** still writes the raw stored hash, so a
   user can paste a bare hash into an explorer that 404s on it.
+- **`ConsumedPayment.chain` is attacker-supplied** (pre-existing; `agent.ts`
+  validates only `z.string().min(2).max(32)`). Safe today only because
+  `get_chain_by_name` accepts no aliases, so one payment cannot verify under two
+  accepted chain spellings. Add an allowlist on `chain` BEFORE anyone wires
+  `CHAIN_NAME_ALIASES` into that lookup.
+- **`lower(tx_hash)` functional index** wanted on `agent_credit_topups` and
+  `agent_subscriptions` now that the pre-checks fold case.
 - **x402 cross-spelling race**: two concurrent redemptions of the same payment
   under *different* spellings can both pass the variants check, since the UNIQUE
   constraint only catches same-spelling inserts. Requires a legacy bare row
