@@ -894,7 +894,7 @@ class Settings(BaseSettings):
         """
         Get the Alchemy network identifier for a chain.
 
-        Returns None for chains not supported by Alchemy (e.g. BSC).
+        Returns None for chains not mapped here (e.g. Avalanche).
         """
         # Default Alchemy network mappings
         alchemy_networks = {
