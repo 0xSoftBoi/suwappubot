@@ -62,6 +62,39 @@ class SwapError(Exception):
         return f"SwapError({self.code.name}={self.code.value}, {self.args[0]!r})"
 
 
+class PostBroadcastAmbiguous(RuntimeError):
+    """Raised when the actual node broadcast call (send_raw_transaction /
+    send_transaction) itself failed or threw AFTER the transaction may
+    already have been accepted/propagated by the node (read timeout, dropped
+    HTTP response, "already known", transient 5xx, etc).
+
+    This is intentionally distinct from every other failure in a send path
+    (nonce fetch, gas estimation, signing) which fail BEFORE anything is ever
+    broadcast and are therefore safe to refund, retry, or fall back from.
+
+    Callers MUST NOT, on catching this:
+      - refund a reservation or release/delete an idempotency placeholder
+        (withdrawals — only bot/services/withdraw_reconciler.py may resolve
+        it, by checking real chain state);
+      - retry, re-sign, or re-send the transaction, or fall back to another
+        execution path that broadcasts its own transaction (swaps — the first
+        tx may be mined, so a second one moves the user's funds twice).
+
+    ``tx_hash`` is the keccak of the signed payload, recovered locally before
+    the broadcast, so it is known even when the RPC returned nothing and can
+    always be reconciled against the chain.
+
+    Lives here (a leaf module) rather than in bot/services/hot_wallet.py so
+    both the withdrawal and swap paths share ONE class — hot_wallet re-exports
+    it for the existing ``from bot.services.hot_wallet import
+    PostBroadcastAmbiguous`` import sites.
+    """
+
+    def __init__(self, message: str, tx_hash: Optional[str] = None):
+        super().__init__(message)
+        self.tx_hash = tx_hash
+
+
 class ValidationError(Exception):
     """Error during validation."""
 

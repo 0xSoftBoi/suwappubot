@@ -21,6 +21,42 @@ DAILY_SPONSOR_BUDGET_USD = 100.0
 DEFAULT_FEE_TOKEN = "pathUSD"
 
 
+class TempoSponsorError(Exception):
+    """Raised when the Tempo fee-payer (gasless, type-0x76) swap path fails."""
+
+
+class TempoSponsorUnavailableError(TempoSponsorError):
+    """The sponsored path failed BEFORE eth_sendRawTransaction was ever called.
+
+    Covers: token pair unavailable, sponsor hot wallet missing/inactive, fee
+    payer == sender, nonce/gas-price lookup failure, access-key or Turnkey
+    signing failure, RLP encoding failure. Nothing was broadcast, so callers
+    may safely fall back to the user-paid approve+swap path.
+    """
+
+
+class TempoSponsorSubmittedError(TempoSponsorError):
+    """eth_sendRawTransaction was called and raised — the tx MAY have landed.
+
+    A client-side read timeout, connection reset or dropped HTTP response on a
+    congested RPC raises AFTER the raw tx has already reached the node, so the
+    swap may be mined even though the call failed. Callers must NOT fall back
+    to the user-paid path and must NOT retry: a second signed swap would
+    execute alongside the first and move the user's funds twice. Surface a
+    "submitted, may still confirm" message and let the tx poller resolve the
+    row from ``tx_hash`` (the keccak of the signed payload, recovered locally
+    before the broadcast, so it is known even when the RPC returned nothing).
+
+    This mirrors ``PaymasterSubmittedError`` on the Starknet gasless rail
+    (bot/services/starknet/paymaster.py) and the CCTP burn broadcast in
+    ``SwapEngine._execute_cctp_swap``.
+    """
+
+    def __init__(self, message: str, tx_hash: Optional[str] = None):
+        self.tx_hash = tx_hash
+        super().__init__(message)
+
+
 @dataclass
 class SponsorshipResult:
     """Result of a sponsorship check."""

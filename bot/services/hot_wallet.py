@@ -17,6 +17,7 @@ from bot.services.rpc_manager import rpc_manager
 from bot.config.chains import apply_min_gas_price, get_chain_by_name
 from bot.config.tokens import get_token_address, NATIVE_TOKEN_ADDRESS
 from bot.utils.encryption import encrypt_private_key
+from bot.utils.exceptions import PostBroadcastAmbiguous
 from bot.utils.envelope_crypto import (
     encrypt_private_key_v2,
     encode_for_db,
@@ -126,23 +127,14 @@ def _assert_recipient_compliant(
         raise ComplianceBlockedError(result.reason or "Recipient failed compliance screening.")
 
 
-class PostBroadcastAmbiguous(RuntimeError):
-    """Raised when the actual node broadcast call (send_raw_transaction /
-    send_transaction) itself failed or threw AFTER the transaction may
-    already have been accepted/propagated by the node (read timeout, dropped
-    HTTP response, "already known", transient 5xx, etc).
-
-    This is intentionally distinct from every other failure in the send path
-    (nonce fetch, gas estimation, signing) which fail BEFORE anything is ever
-    broadcast and are therefore safe to refund. Callers MUST NOT refund the
-    reservation or release/delete an idempotency placeholder when they catch
-    this — the reconciler (bot/services/withdraw_reconciler.py) is the only
-    thing allowed to resolve it, by checking real chain state.
-    """
-
-    def __init__(self, message: str, tx_hash: Optional[str] = None):
-        super().__init__(message)
-        self.tx_hash = tx_hash
+# NOTE: `PostBroadcastAmbiguous` now lives in the leaf module
+# bot/utils/exceptions.py (imported at the top of this module) so the swap
+# paths can raise the SAME class without importing hot_wallet, which would be
+# circular. It is still importable as
+# `from bot.services.hot_wallet import PostBroadcastAmbiguous`
+# (api/routes/terminal.py, bot/handlers/custodial.py) and every existing
+# `except PostBroadcastAmbiguous` still matches, because it is one class and
+# not a copy. See that class's docstring for the rules callers must follow.
 
 
 def quantize_to_decimals(amount: Decimal, decimals: int) -> Decimal:

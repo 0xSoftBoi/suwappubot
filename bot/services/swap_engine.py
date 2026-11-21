@@ -49,7 +49,10 @@ from bot.services.socket_api import socket_api, SocketError
 from bot.services.jito_api import jito_api, TipPriority
 from bot.services.sunswap_api import SunSwapAPI
 from bot.services.tempo_dex_api import tempo_dex_api
-from bot.services.tempo_fee_sponsor import tempo_fee_sponsor
+from bot.services.tempo_fee_sponsor import (
+    tempo_fee_sponsor,
+    TempoSponsorSubmittedError,
+)
 from bot.services.okx_dex_api import OKXDEXAPI, OKX_CHAIN_IDS
 from bot.services.oneinch_api import (
     OneInchAPI,
@@ -71,7 +74,7 @@ from bot.models.subscription import SubscriptionTier
 from bot.models.user import Wallet
 from bot.models.swap import SwapTransaction, SwapStatus
 from bot.utils.quote_validator import quote_validator
-from bot.utils.exceptions import SwapError
+from bot.utils.exceptions import SwapError, PostBroadcastAmbiguous
 from bot.services.event_bus import event_bus
 from database.db import get_session, run_in_db
 
@@ -4967,7 +4970,14 @@ class SwapEngine:
         ``compliance_routing_enabled`` and the chain has a Flashbots-compatible
         relay, submit the tx privately to block builders via
         ``eth_sendPrivateTransaction``. Any relay error falls back to the public
-        ``send_raw_transaction`` path, so routing can never break a swap.
+        ``send_raw_transaction`` path, so routing can never break a swap. That
+        fallback is safe and is NOT a double-send: the relay submission is a
+        different endpoint for the SAME signed transaction, so at worst the node
+        sees it twice under one hash ("already known"), never two swaps.
+
+        Raises ``PostBroadcastAmbiguous`` if the public ``send_raw_transaction``
+        itself throws — the raw tx may already have propagated, so callers must
+        not retry, re-sign, or fall back to another path that broadcasts.
 
         Returns the 0x-prefixed transaction hash.
         """
@@ -4989,11 +4999,30 @@ class SwapEngine:
                 result.error,
             )
 
-        tx_hash = await asyncio.to_thread(lambda: web3.eth.send_raw_transaction(raw_bytes))
+        # Recover the hash locally first (keccak of the signed payload) so an
+        # ambiguous failure still carries an identifier to reconcile against.
+        precomputed_hash = Web3.keccak(raw_bytes).hex()
+        if not precomputed_hash.startswith("0x"):
+            precomputed_hash = "0x" + precomputed_hash
+        try:
+            tx_hash = await asyncio.to_thread(lambda: web3.eth.send_raw_transaction(raw_bytes))
+        except Exception as e:
+            raise PostBroadcastAmbiguous(
+                f"send_raw_transaction failed ambiguously (the swap tx may already be "
+                f"broadcast): {e}",
+                tx_hash=precomputed_hash,
+            ) from e
         return tx_hash.hex()
 
     @staticmethod
     def _is_retryable_rpc_error(error: Exception) -> bool:
+        # A broadcast that may already have landed is NEVER retryable, whatever
+        # the message says — and the message usually says "timeout", which is
+        # exactly the ambiguous case (a client-side read timeout on a congested
+        # RPC raises after the raw tx reached the node). Checked first so the
+        # substring tests below can't reclassify it as safe to re-send.
+        if isinstance(error, PostBroadcastAmbiguous):
+            return False
         message = str(error).lower()
         return (
             "429" in message
@@ -5555,8 +5584,13 @@ class SwapEngine:
         Gasless path: when fee sponsorship is enabled and this user is within the
         sponsorship limits, the whole approve+swap is submitted as ONE Tempo
         type-0x76 transaction co-signed by a sponsor (fee payer) so the user pays
-        no gas — see _execute_sponsored_tempo_swap(). ANY failure there falls
-        through to the normal user-paid path below; sponsorship never breaks a swap.
+        no gas — see _execute_sponsored_tempo_swap(). A failure there BEFORE the
+        broadcast (TempoSponsorUnavailableError: no sponsor wallet, signing or
+        encoding failure, …) falls through to the normal user-paid path below, so
+        sponsorship never breaks a swap. A failure AT OR AFTER the broadcast
+        (TempoSponsorSubmittedError) is ambiguous — the type-0x76 tx may already
+        have propagated — and is re-raised instead: falling back there would send
+        a SECOND signed swap and move the user's funds twice.
         """
         wallet = await self._get_wallet_for_signing(wallet_data)
         if not wallet:
@@ -5599,9 +5633,48 @@ class SwapEngine:
                     # Tempo gas is sub-$0.001; record against the daily budget.
                     tempo_fee_sponsor.record_sponsored_tx(user_id, fee_usd=0.001)
                     return tx_hash
+                except TempoSponsorSubmittedError as e:
+                    # eth_sendRawTransaction raised AFTER the signed type-0x76 tx
+                    # may already have reached the node (read timeout / reset on a
+                    # congested RPC). Falling through to the user-paid path below
+                    # would send an approval and a SECOND swap, and if the first one
+                    # landed the user's funds move twice. Treat it as ambiguous and
+                    # let the tx poller resolve the row from the on-chain receipt —
+                    # same rule as PaymasterSubmittedError on the Starknet gasless
+                    # rail and the CCTP burn broadcast in _execute_cctp_swap.
+                    #
+                    # The sponsor may well have paid the fee, so count it against
+                    # the daily budget (over-counting by one sub-$0.001 tx is the
+                    # safe direction for a spend guard). Never let that bookkeeping
+                    # turn the ambiguous error into a different one.
+                    try:
+                        tempo_fee_sponsor.record_sponsored_tx(user_id, fee_usd=0.001)
+                    except Exception:  # noqa: BLE001 — bookkeeping must not mask the error
+                        logger.exception(
+                            "Failed to record the ambiguous sponsored Tempo tx against "
+                            "the daily budget (continuing — the ambiguity matters more)"
+                        )
+                    logger.error(
+                        "Tempo sponsored (gasless) swap broadcast raised (tx %s may still "
+                        "have propagated) — refusing the user-paid fallback to avoid a "
+                        "double swap. Error: %s",
+                        e.tx_hash or "unknown",
+                        e,
+                    )
+                    raise SwapError(
+                        f"Your Tempo swap was submitted gaslessly but we did not receive a "
+                        f"confirmation ({e}). If it actually landed on-chain (tx "
+                        f"{e.tx_hash or 'unknown'}), it will still confirm and be picked up "
+                        "automatically — check your balance before retrying; do NOT retry "
+                        "without checking that hash first."
+                    ) from e
                 except Exception as e:
+                    # Pre-broadcast failure (TempoSponsorUnavailableError and any
+                    # other error raised before eth_sendRawTransaction was called):
+                    # nothing was signed onto the chain, so the user-paid path below
+                    # is safe and desirable.
                     logger.warning(
-                        f"Tempo sponsored (gasless) swap failed; "
+                        f"Tempo sponsored (gasless) swap failed before broadcast; "
                         f"falling back to user-paid path: {e}"
                     )
             else:
@@ -5760,8 +5833,21 @@ class SwapEngine:
         not hand-rolled. Both signatures are produced through _tempo_signature(),
         which signs the pre-computed hash via Turnkey (enclave) for Turnkey wallets
         or a local key otherwise — so this works for production Turnkey users AND
-        local-key dev. Raises on ANY failure so the caller falls back to the
-        user-paid path — sponsorship must never break a swap.
+        local-key dev.
+
+        Failure contract (the caller depends on this split; see
+        bot/services/tempo_fee_sponsor.py for the two exception types):
+
+          - Anything that fails BEFORE ``eth_sendRawTransaction`` is called —
+            unavailable token pair, missing sponsor wallet, fee payer == sender,
+            nonce/gas lookup, access-key/Turnkey signing, RLP encoding — raises
+            normally (TempoSponsorUnavailableError or whatever the underlying
+            call raised). Nothing was broadcast, so the caller falls back to the
+            user-paid path: sponsorship must never break a swap.
+          - Anything that fails AT OR AFTER the broadcast raises
+            ``TempoSponsorSubmittedError`` carrying the locally-derived tx hash.
+            The tx MAY be on-chain, so the caller must NOT fall back and must NOT
+            retry — a second signed swap would execute alongside the first.
         """
         import attrs
         from pytempo import TempoTransaction
@@ -5870,12 +5956,38 @@ class SwapEngine:
         tx = attrs.evolve(tx, fee_payer_signature=fee_payer_sig)
 
         raw = tx.encode()
-        tx_hash = await asyncio.to_thread(lambda: web3.eth.send_raw_transaction(raw).hex())
-        logger.info(
-            f"Tempo gasless swap (type-0x76, fee payer {sponsor_address[:10]}…): "
-            f"{tx_hash} ({token_in}→{token_out}) — fire-and-monitor: receipt NOT "
-            f"awaited here; final status comes from the tx poller"
-        )
+
+        # The tx hash is deterministic from the signed payload (keccak256), so
+        # recover it LOCALLY before broadcasting. That way an ambiguous broadcast
+        # failure below still carries a hash the caller can report and the tx
+        # poller can resolve against real chain state, instead of leaving the
+        # swap with no identifier at all. Same trick as the CCTP burn
+        # (_execute_cctp_swap) and HotWalletService._broadcast_evm_raw_tx.
+        precomputed_hash = Web3.keccak(raw).hex()
+        if not precomputed_hash.startswith("0x"):
+            precomputed_hash = "0x" + precomputed_hash
+
+        # Everything above this point is pre-broadcast and safe to fall back on.
+        # Everything from here is not: once send_raw_transaction has been called,
+        # an exception does NOT mean the tx failed to propagate — a client-side
+        # read timeout on a congested RPC raises after the raw tx already reached
+        # the node. Re-sending (or falling back to the user-paid approve+swap)
+        # would move the user's funds twice, so this is reported as ambiguous.
+        try:
+            tx_hash = await asyncio.to_thread(lambda: web3.eth.send_raw_transaction(raw).hex())
+            if not tx_hash.startswith("0x"):
+                tx_hash = "0x" + tx_hash
+            logger.info(
+                f"Tempo gasless swap (type-0x76, fee payer {sponsor_address[:10]}…): "
+                f"{tx_hash} ({token_in}→{token_out}) — fire-and-monitor: receipt NOT "
+                f"awaited here; final status comes from the tx poller"
+            )
+        except Exception as e:
+            raise TempoSponsorSubmittedError(
+                f"Tempo gasless swap broadcast failed ambiguously (the type-0x76 tx may "
+                f"already be propagated): {e}",
+                tx_hash=precomputed_hash,
+            ) from e
         return tx_hash
 
     async def _tempo_signature(self, *, address: str, is_turnkey: bool, raw_key, hash32: bytes):
