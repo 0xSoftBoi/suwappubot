@@ -558,6 +558,23 @@ class RPCManager:
                     )
                 )
 
+            # Tier 1: Helius, Solana only. The key was already configured for the
+            # webapp's /webapp/solana proxy but never reached this pool, so
+            # every server-side Solana read — balances, the poller, sniping —
+            # ran on api.mainnet-beta.solana.com plus PublicNode. PublicNode now
+            # answers 403 (gated), which left mainnet-beta alone: its strict
+            # per-IP limits turned every balance refresh into a 429, and no
+            # Solana balance was being cached at all. The key sits in the query
+            # string; _safe_url drops the query, so it cannot reach the logs.
+            if chain_name == "solana" and settings.helius_api_key:
+                endpoints.append(
+                    RPCEndpoint(
+                        url=f"https://mainnet.helius-rpc.com/?api-key={settings.helius_api_key}",
+                        chain=chain_name,
+                        tier=RPCTier.PAID,
+                    )
+                )
+
             # Tier 2: Public RPCs from settings
             attr_name = f"{chain_name.lower().replace('-', '_')}_rpc_url"
             rpc_str = getattr(settings, attr_name, "") or ""
