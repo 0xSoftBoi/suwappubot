@@ -6108,13 +6108,36 @@ class SwapEngine:
 
         raw = tx.encode()
 
-        # The tx hash is deterministic from the signed payload (keccak256), so
-        # recover it LOCALLY before broadcasting. That way an ambiguous broadcast
-        # failure below still carries a hash the caller can report and the tx
-        # poller can resolve against real chain state, instead of leaving the
-        # swap with no identifier at all. Same trick as the CCTP burn
+        # Recover the tx hash LOCALLY, before broadcasting, so an ambiguous
+        # failure below still carries an identifier the caller can report and
+        # the tx poller can resolve against real chain state instead of leaving
+        # the swap with no identifier at all. Same trick as the CCTP burn
         # (_execute_cctp_swap) and HotWalletService._broadcast_evm_raw_tx.
-        precomputed_hash = Web3.keccak(raw).hex()
+        #
+        # Use pytempo's own hash() rather than hand-rolling keccak(raw), for the
+        # same reason this function uses the SDK for the RLP layout and the
+        # domain-separated signatures: if Tempo changes the derivation, the SDK
+        # carries it. pytempo 0.3.1 defines it as keccak(encode()), which matches
+        # Tempo's canonical node implementation —
+        # crates/primitives/src/transaction/tt_signed.rs:
+        #     fn compute_hash(&self) -> B256 { keccak256(self.encoded_2718()) }
+        #     fn trie_hash(&self) -> B256 { *self.hash() }
+        # i.e. keccak256 of the full 0x76 || rlp([...]) envelope, with the REAL
+        # fee_token and BOTH signatures present.
+        #
+        # ORDER MATTERS and this must stay below the fee-payer signing above.
+        # The fee_payer_signature is part of the hashed envelope (Tempo's own
+        # test: "tx_hash MUST differ (fee_payer_signature is part of the
+        # envelope)"), so hashing before the sponsor counter-signs would yield
+        # an identifier that never exists on chain. Note also that the sender's
+        # signing digest is a DIFFERENT preimage (encode_for_signing: fee_token
+        # omitted, a 0x00 placeholder in the fee-payer slot) — the protocol spec
+        # unhelpfully calls that one "the transaction hash" too. It is not the
+        # identifier; do not use get_signing_hash() here.
+        #
+        # (The node hashes a re-encoding of the decoded struct, so this equals
+        # the node's hash as long as pytempo's RLP is canonical, which it is.)
+        precomputed_hash = tx.hash().hex()
         if not precomputed_hash.startswith("0x"):
             precomputed_hash = "0x" + precomputed_hash
 
