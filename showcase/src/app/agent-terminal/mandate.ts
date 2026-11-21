@@ -302,6 +302,9 @@ export function applyAmendment(current: Mandate, amendment: MandateAmendment): M
 
 // ── Compilation to enforceable policy ───────────────────────────────
 
+/** Chains whose native (gas) token is ETH, so a wei cap priced in ETH means what it says. */
+const ETH_NATIVE_CHAINS = new Set(['ethereum', 'base', 'arbitrum', 'optimism']);
+
 export interface WalletPolicyPayload {
   type: 'spending_limit' | 'whitelist';
   /** The mandate.version this payload was compiled from — see Mandate.version. */
@@ -332,6 +335,14 @@ export function compileToWalletPolicies(
   if (!Number.isFinite(ethUsd) || ethUsd <= 0) {
     notes.push(
       'No ETH price was available, so the USD caps could not be converted to wei. Re-run once get_prices succeeds.',
+    );
+  } else if (mandate.allowedChains.some((c) => !ETH_NATIVE_CHAINS.has(c.toLowerCase()))) {
+    // The wallet policy is one number in wei of whatever the chain's native
+    // token is. Priced in ETH it would mean a very different dollar amount on
+    // BNB Chain, Polygon or Avalanche, so no cap is compiled for such a mandate.
+    const other = mandate.allowedChains.filter((c) => !ETH_NATIVE_CHAINS.has(c.toLowerCase()));
+    notes.push(
+      `No per-transaction wallet cap was compiled: the mandate allows ${other.join(', ')}, whose native token is not ETH. The wallet policy is a single wei value applied on every chain, so an ETH-priced cap would be wrong there. Restrict the mandate to ETH-native chains (${[...ETH_NATIVE_CHAINS].join(', ')}) to compile one; until then the per-trade cap (${mandate.perTradeUsdCap} USD) is enforced by the desk only.`,
     );
   } else {
     // Turnkey conditions are denominated in wei against the native asset, so a
@@ -368,12 +379,6 @@ export function compileToWalletPolicies(
   notes.push(
     `Compiled from mandate version ${mandate.version}. Approving a later amendment increments the version and does not rewrite this bundle; recompile after any amendment so the installed policy and the negotiated envelope stay the same version.`,
   );
-
-  if (mandate.perTradeUsdCap < mandate.dailyUsdCap) {
-    notes.push(
-      `Per-trade cap (${mandate.perTradeUsdCap} USD) has no direct Turnkey equivalent: Turnkey limits per transaction, and a time-windowed daily limit is the closest primitive. The per-trade rule stays enforced by the desk only.`,
-    );
-  }
 
   return { policies, notes };
 }

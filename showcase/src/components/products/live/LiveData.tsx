@@ -157,7 +157,9 @@ const agentCols: Col<Agent>[] = [
   { id: 'pos', label: 'Open', num: true, value: (r) => r.open_positions ?? null },
   { id: 'last', label: 'Last cycle (UTC)', value: (r) => r.last_cycle_at ?? null, render: (r) => (r.last_cycle_at ? r.last_cycle_at.slice(0, 16).replace('T', ' ') : '—') },
 ];
-const pickAgents = (d: unknown) => { const m = (d as { agents?: unknown } | null)?.agents; return Array.isArray(m) ? (m as Agent[]) : null; };
+// The panel's disclaimer says "paper only, no real funds at risk", so only
+// agents the API marks as paper may appear under it. Anything else is dropped.
+const pickAgents = (d: unknown) => { const m = (d as { agents?: unknown } | null)?.agents; return Array.isArray(m) ? (m as Agent[]).filter((a) => a?.mode === 'paper') : null; };
 const agentSearch = (r: Agent) => `${r.name} ${r.description ?? ''} ${r.chain ?? ''}`;
 const agentKey = (r: Agent) => r.slug;
 export function AutopilotLive() {

@@ -65,9 +65,14 @@ function fromPreview(pair: string, route: DemoRoute, d: Record<string, any>): Re
   const venues = hops
     .filter((h) => h?.tool !== 'feeCollection' && typeof h?.toolName === 'string')
     .map((h) => h.toolName as string);
-  const feeNum = Number(hops.find((h) => h?.tool === 'feeCollection')?.feeUsd);
-  const fee = Number.isFinite(feeNum) && feeNum > 0 ? feeNum.toFixed(2) : null;
-  const impactLabel = impact ? impact + '%' + (fee ? ' incl. $' + fee + ' fee' : '') : null;
+  // Every fee the route charges, from whichever hop reports one (Suwappu's
+  // feeCollection hop, a bridge, a venue), so no fee is left out of the label.
+  const feeNum = hops.reduce((sum, h) => {
+    const v = Number(h?.feeUsd);
+    return Number.isFinite(v) && v > 0 ? sum + v : sum;
+  }, 0);
+  const fee = feeNum > 0 ? feeNum.toFixed(2) : null;
+  const impactLabel = impact ? impact + '%' + (fee ? ' incl. $' + fee + ' fees' : '') : null;
   return {
     pair,
     indicative: d.executable === false,
