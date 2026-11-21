@@ -24,7 +24,11 @@
 .sv-art { display: none; }
 @media (min-width: 1000px) {
   .sv-hero { grid-template-columns: minmax(0, 1fr) 280px; align-items: center; gap: 3rem; }
-  .sv-art { display: block; width: 280px; opacity: 0.95; }
+  /* position + fixed box: some kit graphics (BoundaryRings) are absolutely
+     positioned backdrops and would otherwise fill the whole hero band and sit
+     on top of the heading and answer. */
+  .sv-art { display: block; position: relative; width: 280px; aspect-ratio: 1; overflow: hidden; opacity: 0.95; }
+  .sv-art .v3-boundary svg { width: 100%; height: 100%; }
 }
 .sv-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.9rem; margin: 0 0 0.85rem; font-size: 0.8125rem; color: var(--v3-dim); }
 .sv-chip { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.22rem 0.7rem; border-radius: 999px; font: 600 0.6875rem/1.3 var(--v3-font-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--v3-ink); background: color-mix(in srgb, var(--sv-accent) 14%, #fff); border: 1px solid color-mix(in srgb, var(--sv-accent) 45%, transparent); }
