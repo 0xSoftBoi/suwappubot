@@ -12,7 +12,7 @@
  * than introducing a viem client for these simple reads.
  */
 
-import { getRpcUrl } from '../config/chains'
+import { getRpcUrl, getRpcFallbackUrl } from '../config/chains'
 import { SOLANA_TOKENS } from '../services/JupiterService'
 
 export interface SimulationCheck {
@@ -86,6 +86,19 @@ interface RpcResult<T> {
 	ok: boolean
 	result?: T
 	error?: string
+	/**
+	 * True when the failure is a TRANSPORT failure (HTTP error, non-JSON body,
+	 * network error, timeout) — i.e. we never got a JSON-RPC answer from a node.
+	 * False/absent with ok=false means a real JSON-RPC `error` object (e.g.
+	 * "execution reverted"), which IS an authoritative node answer.
+	 */
+	transport?: boolean
+}
+
+/** Primary RPC URL plus an optional second public endpoint tried once on transport failure. */
+interface RpcEndpoints {
+	primary: string
+	fallback?: string | null
 }
 
 /**
@@ -104,32 +117,67 @@ function classifyRpcError(e: unknown): string {
 	return 'RPC error (unknown)'
 }
 
-async function rpcCall<T = unknown>(
+const RPC_MIN_ATTEMPT_MS = 1_500
+
+async function rpcCallOnce<T>(
 	rpcUrl: string,
 	method: string,
 	params: unknown[],
+	timeoutMs: number,
 ): Promise<RpcResult<T>> {
 	try {
 		const res = await fetch(rpcUrl, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-			signal: AbortSignal.timeout(RPC_TIMEOUT_MS),
+			signal: AbortSignal.timeout(timeoutMs),
 		})
-		const data = (await res.json()) as {
-			result?: T
-			error?: { message: string; data?: string }
+		if (!res.ok) {
+			return { ok: false, transport: true, error: `RPC HTTP ${res.status}` }
+		}
+		let data: { result?: T; error?: { message: string; data?: string } } | null
+		try {
+			data = (await res.json()) as typeof data
+		} catch {
+			return { ok: false, transport: true, error: 'RPC invalid response' }
+		}
+		if (!data || typeof data !== 'object' || (data.error === undefined && data.result === undefined)) {
+			return { ok: false, transport: true, error: 'RPC invalid response' }
 		}
 		if (data.error) {
-			// Surface embedded revert data (if present) alongside the message so
-			// eth_call_revert_check can decode it.
+			// A real JSON-RPC error from the node. Surface embedded revert data (if
+			// present) alongside the message so eth_call_revert_check can decode it.
 			const dataPart = data.error.data ? ` (data: ${data.error.data})` : ''
 			return { ok: false, error: `${data.error.message}${dataPart}` }
 		}
 		return { ok: true, result: data.result }
 	} catch (e) {
-		return { ok: false, error: classifyRpcError(e) }
+		const error = classifyRpcError(e)
+		return { ok: false, transport: true, error: error === 'RPC timeout' ? error : 'RPC unreachable' }
 	}
+}
+
+/**
+ * Raw JSON-RPC call. On a transport failure retries ONCE against the fallback
+ * endpoint (if any); total wall time stays within ~RPC_TIMEOUT_MS.
+ */
+async function rpcCall<T = unknown>(
+	rpc: RpcEndpoints,
+	method: string,
+	params: unknown[],
+): Promise<RpcResult<T>> {
+	const startedAt = Date.now()
+	const first = await rpcCallOnce<T>(rpc.primary, method, params, RPC_TIMEOUT_MS)
+	if (!first.transport || !rpc.fallback) return first
+	const remaining = Math.max(RPC_MIN_ATTEMPT_MS, RPC_TIMEOUT_MS - (Date.now() - startedAt))
+	const second = await rpcCallOnce<T>(rpc.fallback, method, params, remaining)
+	// If the fallback also had a transport failure, report the primary's reason.
+	return second.transport ? first : second
+}
+
+/** Detail for a check that could not run because the RPC was unreachable. */
+function transportUnverifiedDetail(error: string | undefined): string {
+	return `Could not verify: RPC unavailable (${(error ?? 'unknown').replace(/^RPC /, '')})`
 }
 
 function padAddress(addr: string): string {
@@ -195,10 +243,11 @@ const EVM_ADDRESS_SHAPE_RE = /^0x[0-9a-fA-F]{40}$/
 /** Runs checks 2-5 (balance, allowance, gas, eth_call) for an EVM quote. Never throws. */
 export async function runEvmChecks(input: EvmCheckInput): Promise<SimulationCheck[]> {
 	const rpcUrl = getRpcUrl(input.chainId)
+	const rpc: RpcEndpoints | null = rpcUrl ? { primary: rpcUrl, fallback: getRpcFallbackUrl(input.chainId) } : null
 	const isNative = isNativeEvmToken(input.fromTokenAddress)
 	const checks: SimulationCheck[] = []
 
-	if (!rpcUrl) {
+	if (!rpc) {
 		const unavailable = (name: string, unverified: boolean): SimulationCheck => ({
 			name,
 			status: 'warn',
@@ -233,22 +282,22 @@ export async function runEvmChecks(input: EvmCheckInput): Promise<SimulationChec
 	}
 
 	// --- balance_sufficient ---
-	checks.push(await checkEvmBalanceSufficient(rpcUrl, input, isNative))
+	checks.push(await checkEvmBalanceSufficient(rpc, input, isNative))
 
 	// --- allowance_sufficient ---
-	checks.push(await checkEvmAllowanceSufficient(rpcUrl, input, isNative))
+	checks.push(await checkEvmAllowanceSufficient(rpc, input, isNative))
 
 	// --- gas_affordable ---
-	checks.push(await checkEvmGasAffordable(rpcUrl, input, isNative))
+	checks.push(await checkEvmGasAffordable(rpc, input, isNative))
 
 	// --- eth_call_revert_check ---
-	checks.push(await checkEvmEthCallRevert(rpcUrl, input))
+	checks.push(await checkEvmEthCallRevert(rpc, input))
 
 	return checks
 }
 
 async function checkEvmBalanceSufficient(
-	rpcUrl: string,
+	rpc: RpcEndpoints,
 	input: EvmCheckInput,
 	isNative: boolean,
 ): Promise<SimulationCheck> {
@@ -263,9 +312,9 @@ async function checkEvmBalanceSufficient(
 	try {
 		const required = BigInt(input.fromAmount)
 		if (isNative) {
-			const bal = await rpcCall<string>(rpcUrl, 'eth_getBalance', [input.fromAddress, 'latest'])
+			const bal = await rpcCall<string>(rpc, 'eth_getBalance', [input.fromAddress, 'latest'])
 			if (!bal.ok || bal.result === undefined) {
-				return { name: 'balance_sufficient', status: 'warn', unverified: true, detail: `unavailable: ${bal.error ?? 'no result'}` }
+				return { name: 'balance_sufficient', status: 'warn', unverified: true, detail: bal.transport ? transportUnverifiedDetail(bal.error) : `unavailable: ${bal.error ?? 'no result'}` }
 			}
 			const balance = BigInt(bal.result)
 			return balance >= required
@@ -274,9 +323,9 @@ async function checkEvmBalanceSufficient(
 		}
 		// ERC-20 balanceOf(address)
 		const data = `0x70a08231${padAddress(input.fromAddress)}`
-		const res = await rpcCall<string>(rpcUrl, 'eth_call', [{ to: input.fromTokenAddress, data }, 'latest'])
+		const res = await rpcCall<string>(rpc, 'eth_call', [{ to: input.fromTokenAddress, data }, 'latest'])
 		if (!res.ok || res.result === undefined) {
-			return { name: 'balance_sufficient', status: 'warn', unverified: true, detail: `unavailable: ${res.error ?? 'no result'}` }
+			return { name: 'balance_sufficient', status: 'warn', unverified: true, detail: res.transport ? transportUnverifiedDetail(res.error) : `unavailable: ${res.error ?? 'no result'}` }
 		}
 		const balance = BigInt(res.result)
 		return balance >= required
@@ -288,7 +337,7 @@ async function checkEvmBalanceSufficient(
 }
 
 async function checkEvmAllowanceSufficient(
-	rpcUrl: string,
+	rpc: RpcEndpoints,
 	input: EvmCheckInput,
 	isNative: boolean,
 ): Promise<SimulationCheck> {
@@ -303,9 +352,9 @@ async function checkEvmAllowanceSufficient(
 	}
 	try {
 		const data = `0xdd62ed3e${padAddress(input.fromAddress)}${padAddress(input.spender)}`
-		const res = await rpcCall<string>(rpcUrl, 'eth_call', [{ to: input.fromTokenAddress, data }, 'latest'])
+		const res = await rpcCall<string>(rpc, 'eth_call', [{ to: input.fromTokenAddress, data }, 'latest'])
 		if (!res.ok || res.result === undefined) {
-			return { name: 'allowance_sufficient', status: 'warn', detail: `unavailable: ${res.error ?? 'no result'} (spender: ${input.spender})` }
+			return { name: 'allowance_sufficient', status: 'warn', ...(res.transport ? { unverified: true } : {}), detail: res.transport ? `${transportUnverifiedDetail(res.error)} (spender: ${input.spender})` : `unavailable: ${res.error ?? 'no result'} (spender: ${input.spender})` }
 		}
 		const allowance = BigInt(res.result)
 		const required = BigInt(input.fromAmount)
@@ -318,7 +367,7 @@ async function checkEvmAllowanceSufficient(
 }
 
 async function checkEvmGasAffordable(
-	rpcUrl: string,
+	rpc: RpcEndpoints,
 	input: EvmCheckInput,
 	isNative: boolean,
 ): Promise<SimulationCheck> {
@@ -332,14 +381,14 @@ async function checkEvmGasAffordable(
 	}
 	try {
 		const [balRes, gasPriceRes] = await Promise.all([
-			rpcCall<string>(rpcUrl, 'eth_getBalance', [input.fromAddress, 'latest']),
-			rpcCall<string>(rpcUrl, 'eth_gasPrice', []),
+			rpcCall<string>(rpc, 'eth_getBalance', [input.fromAddress, 'latest']),
+			rpcCall<string>(rpc, 'eth_gasPrice', []),
 		])
 		if (!balRes.ok || balRes.result === undefined) {
-			return { name: 'gas_affordable', status: 'warn', unverified: true, detail: `unavailable: ${balRes.error ?? 'no result'}` }
+			return { name: 'gas_affordable', status: 'warn', unverified: true, detail: balRes.transport ? transportUnverifiedDetail(balRes.error) : `unavailable: ${balRes.error ?? 'no result'}` }
 		}
 		if (!gasPriceRes.ok || gasPriceRes.result === undefined) {
-			return { name: 'gas_affordable', status: 'warn', unverified: true, detail: `unavailable: could not fetch gas price (${gasPriceRes.error ?? 'no result'})` }
+			return { name: 'gas_affordable', status: 'warn', unverified: true, detail: gasPriceRes.transport ? transportUnverifiedDetail(gasPriceRes.error) : `unavailable: could not fetch gas price (${gasPriceRes.error ?? 'no result'})` }
 		}
 		const balance = BigInt(balRes.result)
 		const gasPrice = BigInt(gasPriceRes.result)
@@ -365,7 +414,7 @@ async function checkEvmGasAffordable(
 	}
 }
 
-async function checkEvmEthCallRevert(rpcUrl: string, input: EvmCheckInput): Promise<SimulationCheck> {
+async function checkEvmEthCallRevert(rpc: RpcEndpoints, input: EvmCheckInput): Promise<SimulationCheck> {
 	if (!input.tx || !input.fromAddress) {
 		return {
 			name: 'eth_call_revert_check',
@@ -374,7 +423,7 @@ async function checkEvmEthCallRevert(rpcUrl: string, input: EvmCheckInput): Prom
 		}
 	}
 	try {
-		const res = await rpcCall<string>(rpcUrl, 'eth_call', [
+		const res = await rpcCall<string>(rpc, 'eth_call', [
 			{
 				from: input.tx.from,
 				to: input.tx.to,
@@ -386,6 +435,11 @@ async function checkEvmEthCallRevert(rpcUrl: string, input: EvmCheckInput): Prom
 		if (res.ok) {
 			return { name: 'eth_call_revert_check', status: 'pass', detail: 'eth_call simulation did not revert' }
 		}
+		// Transport failure (HTTP/non-JSON/network/timeout) is NOT a revert; we
+		// never got an answer from a node. Report as not verified.
+		if (res.transport) {
+			return { name: 'eth_call_revert_check', status: 'warn', unverified: true, detail: transportUnverifiedDetail(res.error) }
+		}
 		// Try to pull a decoded reason out of the error message/data.
 		const hexMatch = res.error?.match(/0x[0-9a-fA-F]+/)
 		const reason = hexMatch ? decodeRevertReason(hexMatch[0]) : null
@@ -394,7 +448,7 @@ async function checkEvmEthCallRevert(rpcUrl: string, input: EvmCheckInput): Prom
 			: `Transaction would revert: ${res.error ?? 'unknown error'}`
 		return { name: 'eth_call_revert_check', status: 'fail', detail }
 	} catch (e) {
-		return { name: 'eth_call_revert_check', status: 'warn', detail: `unavailable: ${classifyRpcError(e)}` }
+		return { name: 'eth_call_revert_check', status: 'warn', unverified: true, detail: `unavailable: ${classifyRpcError(e)}` }
 	}
 }
 
@@ -534,7 +588,7 @@ export async function runSolanaChecks(input: SolanaCheckInput): Promise<{ balanc
  * would_execute is true only if every check that ran either passed, or
  * degraded to a 'warn' that is NOT a safety-critical unverified result.
  *
- * balance_sufficient and gas_affordable are safety-critical: a 'warn' there
+ * balance_sufficient, gas_affordable and eth_call_revert_check are safety-critical: a 'warn' there
  * because the check couldn't actually run (no wallet_address, RPC
  * timeout/error, format mismatch) is an unverified result, not a verified
  * pass — so it must not let would_execute report true. Any other 'warn'
@@ -545,7 +599,7 @@ export async function runSolanaChecks(input: SolanaCheckInput): Promise<{ balanc
 export function computeWouldExecute(checks: SimulationCheck[]): boolean {
 	return checks.every((c) => {
 		if (c.status === 'fail') return false
-		if (c.unverified && (c.name === 'balance_sufficient' || c.name === 'gas_affordable')) return false
+		if (c.unverified && (c.name === 'balance_sufficient' || c.name === 'gas_affordable' || c.name === 'eth_call_revert_check')) return false
 		return true
 	})
 }
