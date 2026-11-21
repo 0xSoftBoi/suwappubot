@@ -6,7 +6,7 @@
 **Don't pivot "fully" to AI.** You are already mostly an AI and agent project, and that side has no logged demand either. What's missing is measured demand, one buyer, and distribution, not more AI. Run a 1-hour prod SQL pass first. Then bet on a single narrow agent wedge with a 30-day kill date, and keep Telegram running in maintenance mode.
 
 ## 2. What you're missing (ranked)
-1. **Any usage number.** [V] `docs/DATAROOM.md:264`: "No traction metrics in code." There is no analytics SDK, the `/v1/web/event` endpoint has no reporting, and prod Postgres (Railway service 83d5ff11) has never been queried.
+1. **Any usage number.** [V] The existing web-event/analytics stack reports the showcase funnel, but it does not provide a complete product-usage view of swaps, agent calls, and revenue; prod Postgres (Railway service 83d5ff11) has never been queried.
 2. **A paying customer.** [V] Contracts are Base Sepolia testnet only. The fee tiers exist only as config. Billing traffic is about 6 requests a week. [I] Revenue is about $0.
 3. **Evidence that agents use the agent API.** [V] In a 501-request api-ts sample: 0 swap quote or execute calls, 6 `/mcp` calls, 4 x402 discovery fetches. 33% came from one GCP poller hitting the agent card. [V] `INCIDENT-managed-wallet-outage.md`: managed `/v1/agent/swap/execute` could never succeed, and exactly one attempt was logged in the whole retained window. Nobody noticed.
 4. **Distribution.** [V] There is no referral, KOL or outreach loop, only the showcase site and agent-registry listings. [V/I] The bot-market winners (Axiom, GMGN, fomo) won on referral and KOL loops plus capital, not on routing.
@@ -69,11 +69,11 @@ All three judges chose `ai_first_narrow_wedge`, with low confidence (0.45–0.55
 - **The skeptic's open risk:** the agent market may simply be too small. In that case kill_or_pause is the honest answer, not a smaller AI bet.
 
 Key files:
-- `/home/user/suwappubot/docs/DATAROOM.md`
-- `/home/user/suwappubot/INCIDENT-managed-wallet-outage.md`
-- `/home/user/suwappubot/docs/plans/arbiter-improve-or-pivot.md`
-- `/home/user/suwappubot/railway.services.json`
-- `/home/user/suwappubot/docs/product-status.md`
+- `docs/DATAROOM.md`
+- `INCIDENT-managed-wallet-outage.md`
+- `docs/plans/arbiter-improve-or-pivot.md`
+- `railway.services.json`
+- `docs/product-status.md`
 
 ---
 
@@ -85,11 +85,11 @@ USAGE & REVENUE EVIDENCE: Suwappu (checked 2026-11-20)
 Bottom line: I found no evidence of real users, swap volume, revenue, or any paying external customer. The repo says so itself, and the live traffic I could see looks like bots, monitors and the founder's own tooling, not customers. This does not prove usage is zero: the production database was never queried.
 
 VERIFIED: docs
-- /home/user/suwappubot/docs/DATAROOM.md §10, item 5: "No traction metrics in code — no users/volume/TVL claims exist in the repo; supply real numbers separately, don't infer them."
+- docs/DATAROOM.md §10, item 5: "No traction metrics in code — no users/volume/TVL claims exist in the repo; supply real numbers separately, don't infer them."
 - Same section: mainnet is not deployed. All contracts are on Base Sepolia testnet and still owned by a standalone testnet key.
 - The SUWP emissions policy is drafted but not enforced.
 - The fee schedule exists only as config: Free 1.0%, Pro 0.5% at $9.99, Premium 0.3% at $29.99, Enterprise 0.1% at $99.99 (DATAROOM §7). No doc anywhere records fee income or subscribers.
-- /home/user/suwappubot/docs/plans/arbiter-improve-or-pivot.md: "The tech is real; demand is unproven." It also calls the founder a "solo $0 founder".
+- docs/plans/arbiter-improve-or-pivot.md: "The tech is real; demand is unproven." It also calls the founder a "solo $0 founder".
 - docs/incidents/ holds only README.md and TEMPLATE.md. No incidents have ever been logged, which fits a service no one depends on.
 - Analytics: no PostHog, Mixpanel, Amplitude, Plausible or Umami SDK in the bot, api-ts or webapp code. There is a homegrown `/v1/web/event` endpoint, but nothing reports on it. Product analytics are effectively missing.
 
@@ -192,11 +192,11 @@ Decision rule, to run after the SQL pass:
 7. **Arbiter outside the Arbiter Pay slice:** freeze the reputation, forensics and contract-v3 crates.
 
 Key files:
-- `/home/user/suwappubot/INCIDENT-managed-wallet-outage.md`
-- `/home/user/suwappubot/docs/DATAROOM.md` (§10)
-- `/home/user/suwappubot/docs/product-status.md`
-- `/home/user/suwappubot/docs/plans/arbiter-improve-or-pivot.md`
-- `/home/user/suwappubot/railway.services.json`
+- `INCIDENT-managed-wallet-outage.md`
+- `docs/DATAROOM.md` (§10)
+- `docs/product-status.md`
+- `docs/plans/arbiter-improve-or-pivot.md`
+- `railway.services.json`
 
 ### ai-assets
 AI/agent asset audit for Suwappu, as of 2026-11-20. Each point is marked [V] when I verified it live or in code, or [I] when it is my inference.
@@ -277,7 +277,7 @@ If none of the agent surfaces show external usage after one month of direct outr
 ### agent-market
 AI-AGENT x CRYPTO MARKET, LATE 2026: WHAT IT MEANS FOR SUWAPPU
 
-Method: about 9 web searches plus a skim of the repo. Secondary sources only. I did not fetch any primary data, so every number below is "reported", and the sources conflict on many of them. Repo: /home/user/suwappubot/docs/plans holds 30 files (not ~40). A grep of /home/user/suwappubot/docs/product-status.md for users, revenue or volume returned nothing. I found no user or revenue metric for Suwappu in the repo.
+Method: about 9 web searches plus a skim of the repo. Secondary sources only. I did not fetch any primary data, so every number below is "reported", and the sources conflict on many of them. Repo: docs/plans holds 30 files (not ~40). A grep of docs/product-status.md for users, revenue or volume returned nothing. I found no user or revenue metric for Suwappu in the repo.
 
 1. AGENT PAYMENTS: lots of transactions, little money (verified that the sources say this)
 - x402 headline counts run from 75M to over 200M transactions (x402.org: 75.4M in 30 days, $24.2M settled). Adjusted volume is about $19M cumulative per Visa's Sheffield (https://thedefiant.io/converge/infrastructure/visa-s-sheffield-pegs-adjusted-x402-volume-at-19m). The top ~1% of buyers (~4k wallets) drive about 90% of it.
@@ -328,7 +328,7 @@ d) Avoid: building your own agent wallet, a generic swap MCP, a new token-launch
 ### bot-market
 MARKET REPORT: Telegram/terminal trading bots and DEX aggregators, late 2026 (pulled 2026-11-20)
 
-Primary data source (VERIFIED, pulled live today): DefiLlama fees API, https://api.llama.fi/overview/fees and https://api.llama.fi/summary/fees/<slug>. Fees are gross user-paid fees. November 2026 is a partial month (20 days). Raw JSON is at /tmp/claude-0/-home-user-suwappubot/91fd9224-9bb5-5b0e-afb5-ddca7486f512/scratchpad/fees.json.
+Primary data source (VERIFIED, pulled live today): DefiLlama fees API, https://api.llama.fi/overview/fees and https://api.llama.fi/summary/fees/<slug>. Fees are gross user-paid fees. November 2026 is a partial month (20 days). Raw JSON is at (session scratchpad, not preserved) scratchpad/fees.json.
 
 1. VERIFIED: the classic Telegram bot category is collapsing, and the money moved to web/mobile terminals
 
@@ -416,7 +416,7 @@ The prod DB could not be queried from the cloud session: Railway MCP redacts val
 
 | Signal | Value |
 |---|---|
-| Telegram webhook updates, last 7 days | **2** (Telegram sends every user message to this endpoint) |
+| Telegram webhook updates, last 7 days | **2** (prod `/health/ready` reported `"bot":"webhook"` on 2026-11-20, so updates arrive here; confirm with DB activity) |
 | Worker log lines about swap execution, last 30 days | **0** (only "aggregators ready" boot lines) |
 | Last DB snapshot recorded in code (`api/main.py` activation-funnel docstring, Aug 2026) | **43 users, 77 wallets, 0 completed swaps**; custodial_balances and x402_payments empty |
 | Terminal, 7 days | 3,168 requests, 47% 4xx. In a 12h sample: 1 scanner IP was 61% of traffic (171 `.env`/tfstate probes), about 4 human visitors browsed charts and order books, 1 failed passkey login, 0 quote or swap calls |

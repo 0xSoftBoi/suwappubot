@@ -6,9 +6,9 @@
 
 **Why now (sources and dates):**
 - **Each payment rail controls spending its own way.** Stripe puts limits on Shared Payment Tokens and Issuing cards (Stripe docs; Link agent wallet, TechCrunch 2026-04-30). Mastercard's Verifiable Intent was announced in March 2026 and is "coming months", so it is not confirmed live (mastercard.com 2026). Google AP2 was announced in Sept 2025 and I found no evidence of production use (TechCrunch 2025-09-16, UNVERIFIED). Nobody offers one budget across all of them.
-- **The MCP spec leaves a gap.** The 2026-07-28 version adds scope step-up but no proof that a human approved a specific action (modelcontextprotocol.io; WorkOS critique).
+- **The MCP spec leaves a gap, according to critics.** The 2026-07-28 authorization flow adds scope step-up, but WorkOS argues that it does not prove a human approved a specific action (https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization; https://workos.com/blog/mcp-scope-step-up-vs-authentication-step-up).
 - **The pioneer may have left the space.** HumanLayer's approvals SDK is reportedly deprecated after a pivot to a coding IDE. This comes from a competitor's page (Pushary, Oct 2026), so it is UNVERIFIED.
-- **Investors are paying for agent authorization.** Arcade raised a $60M Series A on 2026-06-16 (arcade.dev).
+- **Adjacent agent infrastructure is attracting investment.** Arcade, a tool-auth/runtime broker, announced a $60M Series A on 2026-06-16 (https://www.arcade.dev/blog/arcade-series-a/).
 - **Regulators are starting to ask for logs and oversight.** FINRA's 2026 Oversight Report (2025-12-09) links AI agents to supervision and books-and-records. The EU AI Act's Annex III logging and oversight duties now start 2027-12-02 (Digital Omnibus deal, 2026-05-07; formal adoption UNVERIFIED). India's NPCI is reportedly building an AI-agent registry for UPI payments (a Reuters report seen only via a search summary, UNVERIFIED).
 
 ## 2. Which assets transfer, ranked
@@ -37,7 +37,7 @@
   - Microsoft Entra Agent ID: bundled into enterprise licences.
   - Arcade and Composio: tool brokering.
   - Permit.io Access Request MCP: the closest rival; its MCPermit page is marked upcoming.
-  - None of them combines spend reservation, org-wide caps, approvals inside Telegram/WhatsApp and a verifiable audit chain (my search coverage of Slack-native tools was thin).
+  - No combined offering was confirmed in this limited search; treat this as UNVERIFIED until primary competitor pages are checked.
 - **Our edge:** the spend-reservation engine is TOCTOU-safe and fail-closed, and the chat approval channels are already built.
 - **2-week build:** `ActionIntent` plus a rule registry beside the existing engine, a minimal `routes/gateway.ts` proxy for one upstream MCP server, a generic Telegram approval card, and a demo of "Stripe refund over $50 → approve in Telegram → verifiable receipt".
 - **First 10 customers:** MCP server authors and agent-framework Discords, indie agent builders using Stripe agent toolkits, and two or three agencies running agents for clients.
@@ -70,6 +70,8 @@
 
 ## 4. Lead direction: A, the Agent Action Firewall
 
+> **Superseded:** the adversarial review below rejects generic A in favour of a narrower money-moving-agent governor; read §4–6 as the draft it critiques.
+
 A is the lead because it reuses the most code, sells to developers that a solo founder can reach without an enterprise sales team, and contains B and C:
 - B becomes the firewall's audit export.
 - C becomes one product built on the firewall, with WhatsApp as a notifier.
@@ -97,7 +99,7 @@ A is the lead because it reuses the most code, sells to developers that a solo f
 **Day 365**
 - Cross-rail budget across Stripe SPT, Issuing, x402 and card-token adapters, as each rail ships.
 - Evidence-pack export.
-- Attested policy evaluation using Arbiter.
+- Evaluate Arbiter for attested policy evaluation only after an independent security audit.
 - **Gate:** $10k MRR, more than 1M actions per month, one regulated or insurance pilot. If the gate is missed, narrow to the strongest-performing vertical, and do it openly.
 
 ## 6. Name and positioning
@@ -115,12 +117,12 @@ A is the lead because it reuses the most code, sells to developers that a solo f
 - Many claims above come from search summaries; check primary sources before pitching.
 
 **Key files:**
-- /home/user/suwappubot/api-ts/src/services/PolicyService.ts
-- /home/user/suwappubot/api-ts/src/services/ApprovalService.ts
-- /home/user/suwappubot/api-ts/src/services/audit.ts
-- /home/user/suwappubot/api-ts/src/lib/seal.ts
-- /home/user/suwappubot/api-ts/src/routes/mcp.ts
-- /home/user/suwappubot/bot/handlers/approvals.py
+- api-ts/src/services/PolicyService.ts
+- api-ts/src/services/ApprovalService.ts
+- api-ts/src/services/audit.ts
+- api-ts/src/lib/seal.ts
+- api-ts/src/routes/mcp.ts
+- bot/handlers/approvals.py
 
 ---
 
@@ -163,7 +165,7 @@ FINAL RECOMMENDATION
 HANDOFF
 agent: none
 task: Founder decision. Optional: dispatch researcher for primary-source pass (Permit.io, Arcade, Okta GA, Stripe limits, NPCI). Only after demand conversations, dispatch api-ts-dev to add ActionIntent beside PolicyService (keep swaps bit-for-bit) then money-path-reviewer.
-files: /home/user/suwappubot/api-ts/src/services/PolicyService.ts:30,120; no Slack in /home/user/suwappubot/api-ts/src
+files: api-ts/src/services/PolicyService.ts:30,120; no Slack in api-ts/src
 risks: MONEY-PATH on any PolicyService change; cross-stack (bot/handlers/approvals.py reads same table); additive migration needed for rules jsonb
 
 ---
@@ -192,7 +194,7 @@ GAPS FOR A NEUTRAL SPEND-CONTROL LAYER (my inference, not vendor claims)
 RISKS / HONESTY
 - Incumbents (Stripe in particular) may absorb the controls into their own stack. Stripe has said richer limits are planned, so the neutral-layer window may be short.
 - Regulated flows (card issuing, PCI, money transmission) would make Suwappu a policy and orchestration layer on top of Stripe Issuing rather than a payment institution. Compliance scope needs a separate check.
-- Market size is small. Using the Visa/Artemis MPP figure above, average ticket is under $0.15 and total volume is about $15M, which is early-stage.
+- Market size is unverified; do not infer market size from the Visa/Artemis MPP figure until its primary source is checked.
 
 Suggested next step: one more research pass on PayPal, Amazon, Shopify and Google UCP from primary sources, and on whether Stripe's user-set limits have shipped, before committing to the roadmap.
 
@@ -271,7 +273,7 @@ risks: MONEY-PATH if the policy schema is generalized (spend reservation, caps);
 HANDOFF
 agent: none
 task: Follow-up research only (SEC/OCC AI-agent guidance, Vanta/Credo/Langfuse offerings, EUR-Lex omnibus adoption status, AIUC-1 D003 primary text). No build until 10 buyer interviews confirm demand.
-files: /home/user/suwappubot/api-ts/src/services/audit.ts, /home/user/suwappubot/api-ts/src/services/PolicyService.ts, /home/user/suwappubot/api-ts/src/services/ApprovalService.ts (asset paths taken from the task text, not re-read by me)
+files: api-ts/src/services/audit.ts, api-ts/src/services/PolicyService.ts, api-ts/src/services/ApprovalService.ts (asset paths taken from the task text, not re-read by me)
 risks: No code touched. If built later: evidence-pack export would read audit data (privacy and PII review needed). Not a money path unless it touches PolicyService spend reservation.
 
 ## chat-native-agents
@@ -362,13 +364,13 @@ RECOMMENDED SEQUENCE
 5. Demo on two non-crypto actions (for example, Stripe refund > $X needs approval; send email to an external domain is blocked) through a stock MCP server.
 
 KEY FILES (absolute)
-- /home/user/suwappubot/api-ts/src/services/PolicyService.ts (rewrite evalStateless at 120-206 and PolicyIntent at 30-52; keep 207-652)
-- /home/user/suwappubot/api-ts/src/services/ApprovalService.ts (keep; retype payload)
-- /home/user/suwappubot/api-ts/src/lib/approvalTerms.ts (replace with a per-action-type registry)
-- /home/user/suwappubot/api-ts/src/services/audit.ts (keep)
-- /home/user/suwappubot/api-ts/src/lib/seal.ts (keep)
-- /home/user/suwappubot/api-ts/src/routes/mcp.ts (reuse scaffolding only; gateway is new)
-- /home/user/suwappubot/api-ts/src/routes/enterprise.ts (keep)
-- /home/user/suwappubot/api-ts/src/middleware/{recordUsage,aegisScan,x402Payment,requireScope,requireTier}.ts (keep)
-- /home/user/suwappubot/api-ts/src/db/schema/{policies,approvals,security}.ts (additive jsonb rules / actionTypes)
-- /home/user/suwappubot/bot/handlers/approvals.py (Telegram approver; generalize rendering)
+- api-ts/src/services/PolicyService.ts (rewrite evalStateless at 120-206 and PolicyIntent at 30-52; keep 207-652)
+- api-ts/src/services/ApprovalService.ts (keep; retype payload)
+- api-ts/src/lib/approvalTerms.ts (replace with a per-action-type registry)
+- api-ts/src/services/audit.ts (keep)
+- api-ts/src/lib/seal.ts (keep)
+- api-ts/src/routes/mcp.ts (reuse scaffolding only; gateway is new)
+- api-ts/src/routes/enterprise.ts (keep)
+- api-ts/src/middleware/{recordUsage,aegisScan,x402Payment,requireScope,requireTier}.ts (keep)
+- api-ts/src/db/schema/{policies,approvals,security}.ts (additive jsonb rules / actionTypes)
+- bot/handlers/approvals.py (Telegram approver; generalize rendering)

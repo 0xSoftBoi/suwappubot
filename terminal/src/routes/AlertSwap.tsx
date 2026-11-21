@@ -43,7 +43,7 @@ export function AlertSwap() {
   // different asset than the one the agent priced.
   const tokenAddress = searchParams.get('token_address')?.trim() || null
   // Deep links can land on a mounted app (client-side nav), so capture here too.
-  useEffect(() => { captureRef(window.location.search) }, [])
+  useEffect(() => { captureRef(window.location.search) }, [searchParams])
 
   // Resolve the symbol into a real SwapToken (address + decimals) the same way
   // the token selector does. Only runs when both token + chain are present —

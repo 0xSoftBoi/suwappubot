@@ -10,7 +10,6 @@ import logging
 
 from bot.services.whatsapp_flows.base import BaseWhatsAppFlow, FlowResponse
 from bot.services.whatsapp_flows import register_flow
-from bot.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +39,8 @@ class SubscriptionFlow(BaseWhatsAppFlow):
                 "⭐ PRO — $9.99/mo · 50 swaps/day · $50k · MEV protection\n"
                 "💎 PREMIUM — $29.99/mo · 500 swaps/day · $500k · priority routing\n"
                 "🏢 ENTERPRISE — $99.99/mo · unlimited\n\n"
-                "Upgrade and pay (crypto via x402) in the dashboard:\n"
-                f"{settings.webapp_url}"
+                "Plans and upgrades (crypto via x402):\n"
+                "https://www.suwappu.bot/pricing"
             ),
         )
 

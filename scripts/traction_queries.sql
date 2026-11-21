@@ -1,4 +1,5 @@
 -- Suwappu traction snapshot. READ-ONLY: aggregates only, no PII, no keys.
+-- Exception: section 9 lists agent names (operator-chosen labels) and their request counts.
 -- Run (from a machine with the Railway CLI linked to project "suwappu", env production):
 --   railway connect Postgres  < scripts/traction_queries.sql
 -- or:
@@ -30,18 +31,18 @@ FROM swap_transactions GROUP BY 1 ORDER BY 2 DESC;
 
 \echo '== 4. Completed swaps by window (completed/confirmed/success-like statuses)'
 SELECT
-  count(*) FILTER (WHERE created_at > now() - interval '7 days')  AS swaps_7d,
-  count(*) FILTER (WHERE created_at > now() - interval '30 days') AS swaps_30d,
-  count(*) FILTER (WHERE created_at > now() - interval '90 days') AS swaps_90d,
+  count(*) FILTER (WHERE coalesce(completed_at, created_at) > now() - interval '7 days')  AS swaps_7d,
+  count(*) FILTER (WHERE coalesce(completed_at, created_at) > now() - interval '30 days') AS swaps_30d,
+  count(*) FILTER (WHERE coalesce(completed_at, created_at) > now() - interval '90 days') AS swaps_90d,
   count(*) AS swaps_all,
-  count(DISTINCT user_id) FILTER (WHERE created_at > now() - interval '7 days')  AS swappers_7d,
-  count(DISTINCT user_id) FILTER (WHERE created_at > now() - interval '30 days') AS swappers_30d,
-  count(DISTINCT user_id) FILTER (WHERE created_at > now() - interval '90 days') AS swappers_90d,
+  count(DISTINCT user_id) FILTER (WHERE coalesce(completed_at, created_at) > now() - interval '7 days')  AS swappers_7d,
+  count(DISTINCT user_id) FILTER (WHERE coalesce(completed_at, created_at) > now() - interval '30 days') AS swappers_30d,
+  count(DISTINCT user_id) FILTER (WHERE coalesce(completed_at, created_at) > now() - interval '90 days') AS swappers_90d,
   count(DISTINCT user_id) AS swappers_all,
-  round(sum(coalesce(from_amount_usd,0)) FILTER (WHERE created_at > now() - interval '30 days')::numeric, 2) AS usd_30d,
-  round(sum(coalesce(from_amount_usd,0)) FILTER (WHERE created_at > now() - interval '90 days')::numeric, 2) AS usd_90d,
+  round(sum(coalesce(from_amount_usd,0)) FILTER (WHERE coalesce(completed_at, created_at) > now() - interval '30 days')::numeric, 2) AS usd_30d,
+  round(sum(coalesce(from_amount_usd,0)) FILTER (WHERE coalesce(completed_at, created_at) > now() - interval '90 days')::numeric, 2) AS usd_90d,
   round(sum(coalesce(from_amount_usd,0))::numeric, 2) AS usd_all,
-  max(created_at) AS last_completed_swap
+  max(completed_at) AS last_completed_swap
 FROM swap_transactions
 WHERE status IN ('completed','confirmed','success','finalized');
 
@@ -52,11 +53,11 @@ FROM swap_transactions
 WHERE status IN ('completed','confirmed','success','finalized') AND created_at > now() - interval '16 weeks'
 GROUP BY 1 ORDER BY 1;
 
-\echo '== 6. Concentration: top 10 swappers share of 90d volume (ids only)'
+\echo '== 6. Concentration: top 10 swappers share of 90d volume (no user ids)'
 WITH v AS (SELECT user_id, sum(coalesce(from_amount_usd,0)) usd, count(*) n FROM swap_transactions
            WHERE status IN ('completed','confirmed','success','finalized') AND created_at > now() - interval '90 days'
            GROUP BY 1)
-SELECT user_id, n, round(usd::numeric,2) usd, round((100*usd/nullif(sum(usd) OVER (),0))::numeric,1) AS pct
+SELECT n, round(usd::numeric,2) usd, round((100*usd/nullif(sum(usd) OVER (),0))::numeric,1) AS pct
 FROM v ORDER BY usd DESC LIMIT 10;
 
 \echo '== 7. Agent-originated swaps vs human, and by chain / provider (90d)'

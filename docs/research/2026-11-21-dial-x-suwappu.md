@@ -33,9 +33,10 @@ the one category with a **built-in viral loop**, and Dial's agent design already
 2. Pairing requires **the human to hold a Dial number**, so they install the app.
 3. That human is now on an encrypted network where they can message other people and other
    agents.
-4. When their agent needs to spend money ("buy this API credit", "pay this invoice", "swap to
-   USDC"), it asks over Dial. Suwappu's policy and approval engine decides, executes and posts
-   the receipt into the chat.
+4. **(Proposed, not built.)** When their agent needs to spend money ("buy this API credit", "pay
+   this invoice", "swap to USDC"), it would ask over Dial, and Suwappu's policy and approval engine
+   would decide, execute and post the receipt into the chat. Today MCP only prepares unsigned
+   transactions and pre-filled links.
 
 Every agent that is installed brings its human onto the network. Every human can bring more
 agents and more humans. No standalone spend-control startup or messenger has this loop.

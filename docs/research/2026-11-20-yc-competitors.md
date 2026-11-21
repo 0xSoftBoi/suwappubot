@@ -29,9 +29,9 @@ Overlap is rated against the narrow wedge: a spend guard for money-moving agents
 | Company | YC batch / investors | What they do | Overlap | Traction | Their gap vs us |
 |---|---|---|---|---|---|
 | Payman | YC status UNVERIFIED (one aggregator lists YC/Initialized; no YC page found). Coinbase, Visa named (UNVERIFIED) | Agent wallets with daily/per-transaction caps, approval thresholds, ACH and USDC payouts | **H** | Seed $4.2M (Jun 2025) vs $12.57M total, conflicting (UNVERIFIED) | Approval channels and receipts not evidenced; US/crypto rails |
-| Locus | YC F25 | Agent identities, budgets, permissions, audit trail; USDC on Base | **H** | Team of 2; $50/mo tier; pivoting to "Locus Founder" | Crypto only; no human-approval channel; no tamper-evident receipts |
+| Locus | YC F25 | Agent identities, budgets, permissions, audit trail; USDC on Base | **H** | Team of 2; Locus Founder has a $50/mo tier; payments-product pricing unlisted; pivoting to "Locus Founder" | Crypto only; no human-approval channel; no tamper-evident receipts |
 | Allowance | YC Spring 2026, solo | One-time virtual cards; each purchase approved on iPhone | **H** | Team of 1, no metrics | Consumer; iPhone-only approval; no org budgets or audit |
-| Agentcard | YC Summer 2026 | Agent debit/one-time cards, PCI vault, checkout completion, MCP/CLI | **H** | $8M seed on Nov 13 2026 (investors UNVERIFIED); DoorDash first merchant | Card rail only; thin policy; no approval routing or receipts |
+| Agentcard | YC Summer 2026 | Agent debit/one-time cards, PCI vault, checkout completion, MCP/CLI | **H** | $8M funding headline on Nov 13 2026 (round type and investors UNVERIFIED); DoorDash first merchant | Card rail only; thin policy; no approval routing or receipts |
 | Versine | YC Fall 2026 | "Agent-first bank": agents send money via MCP; passkey approval; $2,500/week cap | **H** | Launched Nov 17 2026 | Consumer P2P, US only, in-app approval |
 | Agentic Fabriq | YC W26 | "Okta for agents": identity, scopes, approval flows, audit logs | H (policy), none on money | Team of 2 | No budgets, rails or chat approvals |
 | OneCLI | YC S26 | Open-source; credentials kept from agents; sensitive actions wait for approval in chat; org policy | **H** | Team of 2; free self-host | Approvals not money-aware; no caps, rails or receipts |
@@ -40,7 +40,7 @@ Overlap is rated against the narrow wedge: a spend guard for money-moving agents
 | GrayPass | YC F26 | Allow/challenge/hold/deny on sensitive actions (incl. money movement) from identity and behavior signals | M-H | 900k+ sessions; $50K revenue in one month (self-reported) | Fraud signals, not agent budgets, reservation or receipts |
 | Executor | YC S26, solo | Open-source MCP gateway; per-tool allow / needs-approval / blocked | M-H | 2.8k GitHub stars; ~14k npm/week | Not money-aware; approvals not chat-native |
 | Routant | YC F26, solo | Single MCP endpoint; per-tool permissions; approvals; request log | M-H | None | CISO access control, not payments |
-| Clawvisor | YC (batch UNVERIFIED) | Task-scoped authorization; off-task requests blocked; actions logged | M-H | Team of 3 | No monetary budgets |
+| Clawvisor | Founder is YC (Wakeshift, Spring 2026); product YC status UNVERIFIED | Task-scoped authorization; off-task requests blocked; actions logged | M-H | Team of 3 | No monetary budgets |
 | Sponge | YC W26, ex-Stripe | Agent wallet (bank, card, crypto) plus Gateway for selling to agents | M | No metrics | No policy or approval layer |
 | HumanLayer | YC F24; acquired by Factory, Nov 4 2026 | Was HITL approvals via Slack/SMS/email; now coding IDE | Was H, now L | Hosted shutdown about Dec 4; core going Apache 2.0 | Left the category: **opening** |
 | Armorer Labs | YC F26 | Runtime detection of injection/hijack; allow/hold/deny | M | Team of 2 | Detection-based; no money |
@@ -59,8 +59,8 @@ Overlap is rated against the narrow wedge: a spend guard for money-moving agents
 
 ## 3. The five closest threats to the narrow wedge
 
-1. **Payman.** This is literally "spend guard for money-moving agents": per-agent caps, approval thresholds, audit, payouts. If its funding is in the $4M to $12M range, it can out-ship a solo founder on the refund/payout wedge. *Not doing (evidenced):* chat-native approvals, UPI/Pix, cryptographic receipts, cross-rail budgets. Verify on payman.ai before any pitch.
-2. **Agentcard.** It has the most capital ($8M, last week), a merchant in production, and MCP/CLI distribution. Adding a policy engine and a Slack approval button is a few weeks of work for them. *Not doing:* org-wide budgets with reservation, allow/block/approve routing, receipts, non-card rails.
+1. **Payman (lower confidence).** Its earlier wallet-and-limits positioning overlaps the wedge, but its current site appears focused on banks and its YC/funding claims are unverified. Treat it as a possible vacated SMB slot, not the #1 threat. *Not verified:* chat-native approvals, UPI/Pix, cryptographic receipts, cross-rail budgets.
+2. **Agentcard.** It has an $8M funding headline (round type and investors unverified), a merchant in production, and MCP/CLI distribution. Its current policy depth and the effort to add policy are unknown. *Not evidenced:* org-wide budgets with reservation, allow/block/approve routing, receipts, non-card rails.
 3. **Locus.** It already pitches "budgets, permissions, audit trails" for agents. It is the closest on messaging and is crypto-native like Suwappu's existing stack. *Not doing:* human-approval channels, fiat/UPI/Pix, tamper-evident receipts. Its pivot to a business builder suggests the governance pitch did not pull demand. That is a warning sign for us as well as an opening.
 4. **OneCLI (with Executor).** Open-source approval-in-chat with org policy. If either adds an "amount > X → approve" rule, the generic part of our product becomes free. *Not doing:* money awareness, spend reservation, payment rails, receipts.
 5. **Platform bundlers (Stripe, Meta/WhatsApp, Razorpay).** Stripe's agent stack (Issuing, shared payment tokens) can ship spend controls natively. Meta and Razorpay own the WhatsApp/UPI surface in India. *Not doing:* neutral cross-rail policy, an independent audit trail, or approval for outbound agent spend. They serve the merchant collecting money, not the business whose agent is spending it.
@@ -72,7 +72,7 @@ Honorable mention: **Allowance**, a solo YC founder with the same "approve each 
 - **Chat-native approval of agent spend.** No YC or funded company found does Telegram/WhatsApp approval of agent payments. HumanLayer did Slack/SMS approvals but has exited (hosted product sunsets about Dec 4 2026). Allowance and Versine use native-app or passkey approval. OneCLI's chat approval is not money-aware. Evidence: four independent sweeps found none.
 - **Cross-rail budgets with reservation.** Every money player is single-rail: cards (Agentcard, Allowance), USDC (Locus), bank/P2P (Versine, Natural). Nobody holds one org budget across Stripe, cards, x402 and UPI/Pix with reserve-then-settle semantics.
 - **Verifiable, tamper-evident receipts.** Everyone says "audit logs". No one sells signed, independently checkable receipts of what a human approved and what the agent then spent. Auditors, insurers (AIUC raised $40M, Armilla $25M) and finance teams are natural buyers.
-- **Emerging-market SMBs (India UPI, Brazil Pix).** All YC permission companies sell to US CTOs and CISOs. EM YC players (Palomma, Rebill, Bujeti) are rails or human spend management. Caveat: this may be empty because demand is weak, not because it is neglected.
+- **Emerging-market SMBs (India UPI, Brazil Pix).** Most reviewed YC authorization companies target US CTOs and CISOs. EM YC players (Palomma, Rebill, Bujeti) are rails or human spend management. Caveat: this may be empty because demand is weak, not because it is neglected.
 - **HumanLayer's orphaned users.** They have about 30 days to export or self-host. This is a concrete, time-boxed acquisition channel.
 
 ## 5. What YC's pattern tells us
@@ -106,7 +106,7 @@ Honorable mention: **Allowance**, a solo YC founder with the same "approve each 
 **Immediate moves:**
 
 1. Ship an OSS "spend guard" MCP server or SDK this month, so we are not out-distributed by OneCLI or Executor.
-2. Target HumanLayer migrants before its hosted product sunsets.
+2. Validate whether former HumanLayer coding-agent users have a payments use case before targeting them as an acquisition channel.
 3. Integrate *on top of* Agentcard/Sponge/Stripe rather than competing on cards.
 4. Recruit 5 design partners and treat "dollars guarded" as the north-star metric.
 

@@ -18,7 +18,7 @@ green.
 
 | Field | Value |
 |---|---|
-| url | `https://www.suwappu.bot/?ref=producthunt` |
+| url | `https://terminal.suwappu.bot/?ref=producthunt` (ref is stored per origin; launching on the showcase would drop it on the hop to the terminal) |
 | name | Suwappu |
 | tagline | Ask your AI to trade. Sign in your own wallet. |
 | pricingType | `free` |
@@ -92,7 +92,7 @@ green.
 The primary metric is swaps tagged `ref=producthunt` in the first 72h. Points and rank are
 secondary.
 
-Benchmarks from the Product Hunt web3 category (last 6 months, live data 2026-11-21):
+Benchmarks from the Product Hunt web3 category (Product Hunt MCP `search_products`, category `web3`, last 180 days, sorted by points; snapshot 2026-11-21):
 
 | Launch | Points | Daily rank |
 |---|---|---|

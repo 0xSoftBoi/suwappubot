@@ -182,20 +182,20 @@ Gaps 1-4 cost close to nothing but the founder's time, and every bet depends on 
 - **NFT and creative:** freeze Positions (a free 444-claim test only if spare time), the art pieces and the gitbook expansion.
 
 **Key paths:**
-- /home/user/suwappubot/api-ts/src/services/PolicyService.ts
-- /home/user/suwappubot/api-ts/src/services/ApprovalService.ts
-- /home/user/suwappubot/api-ts/src/services/audit.ts
-- /home/user/suwappubot/api-ts/src/routes/agent.ts
-- /home/user/suwappubot/api-ts/src/routes/enterprise.ts
-- /home/user/suwappubot/api-ts/src/routes/mcp.ts
-- /home/user/suwappubot/api-ts/src/lib/seal.ts
-- /home/user/suwappubot/packages/mcp-server/package.json
-- /home/user/suwappubot/bot/services/swap_engine.py
-- /home/user/suwappubot/bot/services/execution_benchmark.py
-- /home/user/suwappubot/terminal/src/hooks/useExternalSwap.ts
-- /home/user/suwappubot/api-ts/src/routes/pythonProxy.ts:113
-- /home/user/suwappubot/bot/config/settings.py:650,1105
-- /home/user/suwappubot/docs/distribution/registry-listings.md
+- api-ts/src/services/PolicyService.ts
+- api-ts/src/services/ApprovalService.ts
+- api-ts/src/services/audit.ts
+- api-ts/src/routes/agent.ts
+- api-ts/src/routes/enterprise.ts
+- api-ts/src/routes/mcp.ts
+- api-ts/src/lib/seal.ts
+- packages/mcp-server/package.json
+- bot/services/swap_engine.py
+- bot/services/execution_benchmark.py
+- terminal/src/hooks/useExternalSwap.ts
+- api-ts/src/routes/pythonProxy.ts:113
+- bot/config/settings.py:650,1105
+- docs/distribution/registry-listings.md
 
 **Caveats:** This synthesis rests on the cluster audits. I re-read no files and ran no new web checks. Bet A's core claim, that funded rivals don't ship queued human approval plus a verifiable audit, is still unverified and is the day-7 gate.
 
@@ -252,7 +252,7 @@ UNVERIFIED: Privy audit-log export; Polymarket builder program terms; all intent
 HANDOFF
 agent: none
 task: Founder decision. Replace Bet A with the demand-first sequence above (fills + dead-link fixes + registry/package publish, then 10 builder interviews testing Privy/Coinbase displacement, then build only a Telegram approval inbox + verifiable audit if validated). Optional follow-up for researcher: primary-source check of Privy audit export and Polymarket builder program.
-files: /home/user/suwappubot/api-ts/src/services/ApprovalService.ts, /home/user/suwappubot/api-ts/src/services/audit.ts, /home/user/suwappubot/docs/distribution/registry-listings.md, /home/user/suwappubot/bot/config/settings.py:650,1105, /home/user/suwappubot/api-ts/src/routes/pythonProxy.ts:113 (from audits; I re-read none)
+files: api-ts/src/services/ApprovalService.ts, api-ts/src/services/audit.ts, docs/distribution/registry-listings.md, bot/config/settings.py:650,1105, api-ts/src/routes/pythonProxy.ts:113 (from audits; I re-read none)
 risks: MONEY-PATH for any approval/execution/login-free swap change; cross-stack (api-ts proxies to Python); competitor evidence is web search snippets and vendor pages, not full primary-source reads.
 
 ---
@@ -309,7 +309,7 @@ TOP 3 WEAKEST
 - Days 7-10: add wallet-address copy trading reusing the existing copy_service execution path (watch the address via a Helius webhook or Alchemy notify, then call execute_copy). Add GoPlus/RugCheck to the paste card.
 - Days 10-14: shareable PnL card plus "best route found / you saved $X vs single-DEX" on every fill. That turns the routing gem into a visible differentiator. Then put it in front of 20 real traders.
 
-Key files: /home/user/suwappubot/bot/main.py, /home/user/suwappubot/bot/services/swap_engine.py, /home/user/suwappubot/bot/services/sniping/snipe_executor.py, /home/user/suwappubot/bot/services/copy_service.py, /home/user/suwappubot/bot/services/hyperliquid_client.py, /home/user/suwappubot/bot/services/polymarket_v2_order.py, /home/user/suwappubot/bot/services/community_service.py, /home/user/suwappubot/bot/services/execution_benchmark.py
+Key files: bot/main.py, bot/services/swap_engine.py, bot/services/sniping/snipe_executor.py, bot/services/copy_service.py, bot/services/hyperliquid_client.py, bot/services/polymarket_v2_order.py, bot/services/community_service.py, bot/services/execution_benchmark.py
 ### Competition
 **Answer:** The TG-bot cluster is not a viable standalone business. The incumbents win on speed, wallet-copy and distribution, and Suwappu has none of those. Verdict: REPOSITION (freeze the sprawl; keep only the router, perps and the proof-of-fill angle). Do not double-down on "another Telegram trading bot".
 
@@ -381,7 +381,7 @@ Key files: /home/user/suwappubot/bot/main.py, /home/user/suwappubot/bot/services
 HANDOFF
 agent: none
 task: Founder decision only. Suggested next steps if repositioning: (1) bot-dev runs 4 real small swaps (Jupiter SOL, LiFi/0x on Base or Arb, one bridge) and records the tx hashes; (2) bot-dev hides all handlers outside /start, wallet, paste-to-buy, swap, positions, sell, perps and predict from the menu; (3) growth-marketing tests the "best-execution receipt" wedge with 20 traders.
-files: /home/user/suwappubot/bot/main.py, /home/user/suwappubot/bot/services/swap_engine.py, /home/user/suwappubot/bot/services/sniping/snipe_executor.py:364, /home/user/suwappubot/bot/services/execution_benchmark.py
+files: bot/main.py, bot/services/swap_engine.py, bot/services/sniping/snipe_executor.py:364, bot/services/execution_benchmark.py
 risks: MONEY-PATH (swap execution, custodial keys); no migrations. Hiding handlers touches only bot/main.py registration or menu config. Verify against both backends, since api-ts also exposes routing.
 
 ## frontends
@@ -493,7 +493,7 @@ Competitor cells are from the research above plus general knowledge [I]. Suwappu
 HANDOFF
 agent: none
 task: Decision for the founder. If proceeding, send the login-free /webapp/swap/build change to api-ts-dev, and the flag-off of non-swap terminal panels plus the Mini App URL fix to webapp-dev. Success test is 10 non-founder completed swaps.
-files: /home/user/suwappubot/terminal/src/hooks/useExternalSwap.ts:49, /home/user/suwappubot/terminal/src/hooks/useSolanaSwap.ts:81, /home/user/suwappubot/api-ts/src/routes/pythonProxy.ts:113, /home/user/suwappubot/bot/config/settings.py:1105 (all from the audit, not re-read by me)
+files: terminal/src/hooks/useExternalSwap.ts:49, terminal/src/hooks/useSolanaSwap.ts:81, api-ts/src/routes/pythonProxy.ts:113, bot/config/settings.py:1105 (all from the audit, not re-read by me)
 risks: MONEY-PATH. Making swap build unauthenticated needs rate limiting and a check that fromAddress equals the connected wallet. Cross-stack: the route proxies to Python, so both backends are involved.
 
 ## agent-api
@@ -572,18 +572,18 @@ TOP 3 WEAKEST
 4. Days 8-14: position it as "guardrails for AI agents that spend crypto" rather than "another swap API". Ship a 60-second demo video of an agent being blocked, a human approving, and the audit verifying. Hand-onboard 3-5 agent builders (MCP/x402/ElizaOS communities). Success metric: one external agent completing a policy-gated swap.
 
 Key paths:
-- /home/user/suwappubot/api-ts/src/app.ts
-- /home/user/suwappubot/api-ts/src/routes/agent.ts
-- /home/user/suwappubot/api-ts/src/routes/mcp.ts
-- /home/user/suwappubot/api-ts/src/services/PolicyService.ts
-- /home/user/suwappubot/api-ts/src/services/ApprovalService.ts
-- /home/user/suwappubot/api-ts/src/services/audit.ts
-- /home/user/suwappubot/api-ts/src/lib/seal.ts
-- /home/user/suwappubot/api-ts/src/services/autopilot/anchor.ts
-- /home/user/suwappubot/api-ts/src/middleware/x402Payment.ts
-- /home/user/suwappubot/packages/mcp-server/package.json
-- /home/user/suwappubot/packages/sdk-python
-- /home/user/suwappubot/capabilities.yaml
+- api-ts/src/app.ts
+- api-ts/src/routes/agent.ts
+- api-ts/src/routes/mcp.ts
+- api-ts/src/services/PolicyService.ts
+- api-ts/src/services/ApprovalService.ts
+- api-ts/src/services/audit.ts
+- api-ts/src/lib/seal.ts
+- api-ts/src/services/autopilot/anchor.ts
+- api-ts/src/middleware/x402Payment.ts
+- packages/mcp-server/package.json
+- packages/sdk-python
+- capabilities.yaml
 ### Competition
 VERDICT: REPOSITION (narrow double-down on the governance layer). Do not build more swap or protocol surface. The swap-API and MCP layers are commoditized, and Suwappu has no traction in either. The only part that may be differentiated is the policy / approval / tamper-evident-audit layer on agent wallets. That layer is also what the big wallet vendors are now selling, so it is unproven and contested.
 
@@ -641,7 +641,7 @@ NEXT STEPS
 HANDOFF
 agent: none
 task: Conductor decision needed on reposition (governance/agent-firewall) vs freeze. If reposition, dispatch researcher for a primary-source check of Coinbase, Privy and Turnkey approval and audit features, then deploy-ops/sdk-dev for the stale npm @suwappu/mcp-server 0.6.0 publish and the PyPI sdk-python publish.
-files: /home/user/suwappubot/api-ts/src/services/PolicyService.ts, /home/user/suwappubot/api-ts/src/services/ApprovalService.ts, /home/user/suwappubot/api-ts/src/services/audit.ts, /home/user/suwappubot/packages/mcp-server/package.json, /home/user/suwappubot/packages/sdk-python (paths taken from the audit; I did not re-read them)
+files: api-ts/src/services/PolicyService.ts, api-ts/src/services/ApprovalService.ts, api-ts/src/services/audit.ts, packages/mcp-server/package.json, packages/sdk-python (paths taken from the audit; I did not re-read them)
 risks: MONEY-PATH for any execution or approval work; competitor claims are secondary-source and the matrix is partly inference [I]; research covered about half of the requested competitors.
 
 ## enterprise-policy
@@ -694,7 +694,7 @@ Ship it as a "guardrails for agent wallets" API, not as a DEX:
 
 The competitive gap: Turnkey, Privy and CDP ship signer-level policies, but none of them combines dollar-denominated org caps, human step-up approvals and a tamper-evident audit trail with metered billing [I, not web-verified this run].
 
-Key files: /home/user/suwappubot/api-ts/src/services/PolicyService.ts, /home/user/suwappubot/api-ts/src/services/ApprovalService.ts, /home/user/suwappubot/api-ts/src/services/audit.ts, /home/user/suwappubot/api-ts/src/routes/enterprise.ts, /home/user/suwappubot/api-ts/src/routes/agent.ts (lines 2949-3200, 3647, 4942-5235), /home/user/suwappubot/api-ts/src/routes/billing.ts, /home/user/suwappubot/api-ts/src/services/TurnkeyService.ts, /home/user/suwappubot/api-ts/src/lib/spendPermission.ts, /home/user/suwappubot/api-ts/src/lib/cfoOperatingSystem.ts
+Key files: api-ts/src/services/PolicyService.ts, api-ts/src/services/ApprovalService.ts, api-ts/src/services/audit.ts, api-ts/src/routes/enterprise.ts, api-ts/src/routes/agent.ts (lines 2949-3200, 3647, 4942-5235), api-ts/src/routes/billing.ts, api-ts/src/services/TurnkeyService.ts, api-ts/src/lib/spendPermission.ts, api-ts/src/lib/cfoOperatingSystem.ts
 ### Competition
 **Verdict: reposition or freeze. Do not double-down on the DEX.** The control-plane code (policy, approvals, audit) is real but has no customer. It is also not clearly ahead of funded rivals. Sources are thin: I ran 2 searches and 2 fetches. I did not get traction numbers, and I did not get Privy or CDP pricing. Fireblocks' comparison page is a rival's own marketing.
 
@@ -751,7 +751,7 @@ Key files: /home/user/suwappubot/api-ts/src/services/PolicyService.ts, /home/use
 HANDOFF
 agent: none
 task: Founder decision. Next research pass, if wanted: verify Privy, CDP, Safe/Zodiac, Squads and Openfort pricing and traction from their own pricing pages, plus x402 volume (for example from x402scan). A builder task, if repositioning is chosen, is to add POST/GET/DELETE /enterprise/orgs/:orgId/policies in api-ts/src/routes/enterprise.ts, and then run the $1 Base swap through /v1/agent/swap/execute.
-files: /home/user/suwappubot/api-ts/src/services/PolicyService.ts, /home/user/suwappubot/api-ts/src/services/ApprovalService.ts, /home/user/suwappubot/api-ts/src/services/audit.ts, /home/user/suwappubot/api-ts/src/routes/enterprise.ts
+files: api-ts/src/services/PolicyService.ts, api-ts/src/services/ApprovalService.ts, api-ts/src/services/audit.ts, api-ts/src/routes/enterprise.ts
 risks: MONEY-PATH for any swap execution or Turnkey work. Cross-stack: execution calls the Python /internal/agent/execute-swap. Competitor pricing is unverified, so do not quote it externally.
 
 ## arbiter-protocol
@@ -1002,7 +1002,7 @@ CAVEATS
 HANDOFF
 agent: deploy-ops
 task: Verify prod Railway env for the BTC bridge. Check `starknet_btc_bridge_enabled`, `starknet_paymaster_enabled`, `avnu_paymaster_api_key` and that `atomiq_escrow_contracts` is populated. Report values and any gaps. Then hand to bot-dev for a "BTC savings" screen showing WBTC balance, Endur/Vesu APY and accrued yield. After that the founder does a $5 mainnet Lightning round trip (a human step).
-files: /home/user/suwappubot/bot/config/settings.py:628,643,650; /home/user/suwappubot/bot/services/btc_bridge.py; /home/user/suwappubot/bot/handlers/btc.py; /home/user/suwappubot/bot/services/starknet_yield.py
+files: bot/config/settings.py:628,643,650; bot/services/btc_bridge.py; bot/handlers/btc.py; bot/services/starknet_yield.py
 risks: MONEY-PATH (bridge claims, withdrawals, secret handling). Route any code change through money-path-reviewer. No migration expected. Python stack only.
 
 ## data-intel
@@ -1227,7 +1227,7 @@ Rough effort: about 5 days for contracts and tests, 3 for the mint page, 2 for m
 Risks:
 - Without an audit, a paid mint is a real exposure. Launch with the free Founder claim (444) first and validate demand before turning on the $19 / $119 tiers.
 
-Key paths: /home/user/suwappubot/contracts/SuwappuPositions.sol, /home/user/suwappubot/nft/position-cards/README.md, /home/user/suwappubot/bot/handlers/position_cards.py, /home/user/suwappubot/terminal/src/lib/erouter/quoter.ts, /home/user/suwappubot/hackathon/tokyo2026/README.md, /home/user/suwappubot/docs/marketing/positions-launch.md, /home/user/suwappubot/docs/distribution/registry-listings.md
+Key paths: contracts/SuwappuPositions.sol, nft/position-cards/README.md, bot/handlers/position_cards.py, terminal/src/lib/erouter/quoter.ts, hackathon/tokyo2026/README.md, docs/marketing/positions-launch.md, docs/distribution/registry-listings.md
 ### Competition
 **Answer:** Reposition and freeze. Almost every comparable consumer-crypto product is shrinking in 2026, so Suwappu's problem is not only missing features. It also has no audience and picked a hard sector. The only asset a stranger could plausibly want is Positions (the "collectible showing your real P&L"). Run it as a cheap, time-boxed demand test. Freeze Membership, /battle prediction and copy/community. Do not add features.
 
@@ -1280,5 +1280,5 @@ Key paths: /home/user/suwappubot/contracts/SuwappuPositions.sol, /home/user/suwa
 HANDOFF
 agent: none
 task: Founder decision on the verdict. If reposition is approved: (1) api-ts-dev or showcase-dev builds the /positions mint page and tokenURI route; (2) test-engineer adds Foundry tests for SuwappuPositions only when explicitly requested; (3) money-path-reviewer self-audits before any deploy; (4) publish the registry-listings drafts by hand.
-files: /home/user/suwappubot/bot/handlers/position_cards.py (MINT_URL 404), /home/user/suwappubot/contracts/SuwappuPositions.sol, /home/user/suwappubot/docs/distribution/registry-listings.md, /home/user/suwappubot/hackathon/tokyo2026/README.md
+files: bot/handlers/position_cards.py (MINT_URL 404), contracts/SuwappuPositions.sol, docs/distribution/registry-listings.md, hackathon/tokyo2026/README.md
 risks: MONEY-PATH for any paid mint or contract deploy (unaudited); cross-stack for tokenURI route; no migrations needed.
