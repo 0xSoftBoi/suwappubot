@@ -121,15 +121,18 @@ def main():
     os.makedirs(month_dir, exist_ok=True)
     session_slug = re.sub(r"\W+", "", record["session"]) or "unknown"
     shard = os.path.join(month_dir, session_slug + ".jsonl")
+    content = line + "\n"
+    # Cloud sessions: commit the record BEFORE writing the file (see below).
+    _commit_shard_in_cloud(shard, content)
     with open(shard, "w") as fh:
-        fh.write(line + "\n")
-    _commit_shard_in_cloud(shard)
+        fh.write(content)
 
 
-def _git(*args):
+def _git(*args, stdin=None):
     return subprocess.run(
         ["git", *args],
         cwd=os.environ.get("CLAUDE_PROJECT_DIR", "."),
+        input=stdin,
         capture_output=True,
         text=True,
         timeout=15,
@@ -137,43 +140,51 @@ def _git(*args):
     )
 
 
-def _commit_shard_in_cloud(shard):
-    """Cloud sessions only: commit (never push) the shard so the tree stays clean.
+def _commit_shard_in_cloud(shard, content):
+    """Cloud sessions only: commit (never push) the record so the tree never looks dirty.
 
     The per-session file stopped merge conflicts but not the other half of the
-    2026-08-31 failure: rewriting it on every Stop still left the tree dirty,
-    so CCR's own stop hook demanded a commit+push after EVERY turn — and each
-    push cancelled the PR's in-flight CI. Committing here satisfies that check
-    without a push; the record rides along with the next real push. Repeat
-    Stops amend the previous journal commit while it is still unpushed, so a
-    long session leaves one journal commit, not hundreds.
+    2026-08-31 failure: rewriting it on every Stop left the tree dirty, so the
+    cloud environment's own Stop hook demanded a commit+push after EVERY turn,
+    and each push cancelled the PR's in-flight CI. Stop hooks run in parallel,
+    so "write, then commit" still lost the race against that check.
 
-    Commits ONLY the shard path, and backs off entirely during a merge/rebase,
-    on a detached HEAD, or when anything else is staged.
+    So the record is committed through plumbing straight from `content`
+    (hash-object -> update-index -> commit) BEFORE the file is written, and the
+    path is marked skip-worktree, so `git status` never reports the shard as
+    modified. Nothing is pushed; the record rides along with the next real
+    push. Repeat Stops amend the previous journal commit while it is unpushed
+    and touches only this shard, so a long session leaves one journal commit.
+
+    Backs off (the caller still writes the file) during merge/rebase/cherry-
+    pick/revert, on a detached HEAD, or when anything else is staged — the
+    plumbing commit takes the whole index, so it must contain only this path.
     """
     if os.environ.get("CLAUDE_CODE_REMOTE") != "true":
         return
+    root = os.environ.get("CLAUDE_PROJECT_DIR", ".")
     git_dir = _git("rev-parse", "--git-dir").stdout.strip()
     if not git_dir or _git("symbolic-ref", "-q", "HEAD").returncode != 0:
         return  # not a repo, or detached HEAD
-    root = os.environ.get("CLAUDE_PROJECT_DIR", ".")
     for marker in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply"):
         if os.path.exists(os.path.join(root, git_dir, marker)):
             return
     if _git("diff", "--cached", "--quiet").returncode != 0:
         return  # someone else's staged work: don't sweep it into our commit
     rel = os.path.relpath(shard, root)
-    if not _git("status", "--porcelain", "--", rel).stdout.strip():
-        return  # unchanged
-    _git("add", "--", rel)
+    blob = _git("hash-object", "-w", "--stdin", stdin=content).stdout.strip()
+    if not blob or _git("rev-parse", "-q", "--verify", f"HEAD:{rel}").stdout.strip() == blob:
+        return  # write failed, or record unchanged
+    if _git("update-index", "--add", "--cacheinfo", f"100644,{blob},{rel}").returncode != 0:
+        return
+    _git("update-index", "--skip-worktree", rel)
     head_subject = _git("log", "-1", "--format=%s").stdout.strip()
     head_pushed = bool(_git("branch", "-r", "--contains", "HEAD").stdout.strip())
     head_files = _git("show", "--name-only", "--format=", "HEAD").stdout.split()
     if head_subject.startswith("harness(journal)") and not head_pushed and head_files == [rel]:
-        _git("commit", "--amend", "--no-edit", "--no-verify", "-q", "--", rel)
+        _git("commit", "--amend", "--no-edit", "--no-verify", "-q")
     else:
-        msg = "harness(journal): session record [skip ci]"
-        _git("commit", "--no-verify", "-q", "-m", msg, "--", rel)
+        _git("commit", "--no-verify", "-q", "-m", "harness(journal): session record [skip ci]")
 
 
 if __name__ == "__main__":
