@@ -9,6 +9,7 @@ import hmac
 import hashlib
 import json
 import logging
+import math
 import re
 import time
 import uuid
@@ -793,6 +794,42 @@ def _token_symbol_for_address(chain: str, address_or_symbol: str) -> str:
         status_code=400,
         detail=f"Unsupported token {address_or_symbol} on {chain}",
     )
+
+
+def _human_min_received(quote) -> str:
+    """``quote.to_amount_min`` in the same human units as ``toAmount``.
+
+    Swap engines report ``to_amount_min`` in raw base units (wei, lamports),
+    while the terminal API returns every other amount human-scaled. Shipping
+    the raw value made the UI show e.g. "3181682787316662 ETH" as the minimum
+    received. Scale it by the same factor that produced ``to_amount_human``
+    (to_amount_human / to_amount), which needs no decimals lookup. Display-only:
+    execution enforces slippage from the cached quote, never from this string.
+    """
+    raw_min = str(getattr(quote, "to_amount_min", "") or "").strip()
+    try:
+        if "." in raw_min or "e" in raw_min.lower():
+            return raw_min  # already human-scaled by the provider
+        raw_to = int(str(quote.to_amount))
+        to_human = float(quote.to_amount_human)
+        if raw_to <= 0 or to_human <= 0:
+            return raw_min
+        # Recover the integer token decimals from the float ratio, then shift the
+        # integer minimum exactly. Multiplying by the float ratio directly leaked
+        # its rounding into the display (e.g. "0.003160603370747483999999999999").
+        exp = math.log10(raw_to / to_human)
+        decimals = round(exp)
+        if abs(exp - decimals) < 0.01 and 0 <= decimals <= 36:
+            # Build the Decimal with its exponent set and format without context
+            # arithmetic: scaleb()/normalize() round to the 28-digit default
+            # precision, which truncates 18-decimal tokens like PEPE.
+            human = format(Decimal(f"{int(raw_min)}e{-decimals}"), "f")
+            return human.rstrip("0").rstrip(".") if "." in human else human
+        # Not a clean power of ten (unexpected): scale, then trim float noise.
+        human = Decimal(str(to_human)) * Decimal(int(raw_min)) / Decimal(raw_to)
+        return format(round(human, 12).normalize(), "f")
+    except Exception:
+        return raw_min
 
 
 def _webapp_swap_token(symbol: str, chain: str) -> WebAppSwapToken:
@@ -4133,7 +4170,7 @@ async def create_terminal_swap_quote(
         priceImprovementUsd=getattr(quote, "price_improvement_usd", None),
         runnerUpProvider=getattr(quote, "runner_up_provider", None),
         expiresAt=expires_at.isoformat(),
-        minReceived=str(quote.to_amount_min),
+        minReceived=_human_min_received(quote),
         slippage=body.slippage or 0.5,
         estimatedDuration=quote.estimated_time,
     )
@@ -4303,7 +4340,7 @@ async def build_terminal_swap(
         toToken=_webapp_swap_token(to_symbol, body.toChain),
         fromAmount=str(quote.from_amount_human),
         toAmount=str(quote.to_amount_human),
-        minReceived=str(quote.to_amount_min),
+        minReceived=_human_min_received(quote),
         priceImpact=float(quote.price_impact),
         gasUsd=float(quote.gas_cost_usd),
         route=quote.provider,
