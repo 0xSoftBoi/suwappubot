@@ -3858,7 +3858,7 @@ agentRoutes.post('/wallet/policy', async (c) => {
 				)
 				return { policyId, type, condition, ...policyTruth('spending_limit') }
 			} else {
-				const addresses = checksummed.map((a) => `"${a}"`).join(', ')
+				const addresses = checksummed.map((a) => `'${a}'`).join(', ') // Turnkey strings are single-quoted only
 				const condition = `eth.tx.to in [${addresses}]`
 				const policyId = yield* turnkeyService.createPolicy(
 					subOrgId,
@@ -3881,7 +3881,7 @@ agentRoutes.post('/wallet/policy', async (c) => {
 		if (code === 6) {
 			return agentError(c, 409, 'VALIDATION_ERROR', 'A policy with this name already exists. Retry the request.')
 		}
-		return agentError(c, 502, 'UPSTREAM_ERROR', 'Wallet policy service error. Please retry later.')
+		return agentError(c, 503, 'UPSTREAM_ERROR', 'Wallet policy service error. Please retry later.') // 503 not 502: the edge replaces 502 bodies with its own HTML page
 	}
 	if ('limitReached' in result.right) {
 		return agentError(c, 400, 'VALIDATION_ERROR', `At most ${MAX_AGENT_POLICIES} policies per wallet. Delete one first.`)
@@ -3908,7 +3908,7 @@ agentRoutes.get('/wallet/policies', async (c) => {
 
 	if (Either.isLeft(result)) {
 		logger.error({ event: 'wallet_policy_list_failed', agentId: agentIdentifierOf(agent), error: result.left.message }, '[policy] list failed')
-		return agentError(c, 502, 'UPSTREAM_ERROR', 'Wallet policy service error. Please retry later.')
+		return agentError(c, 503, 'UPSTREAM_ERROR', 'Wallet policy service error. Please retry later.') // 503 not 502: the edge replaces 502 bodies with its own HTML page
 	}
 
 	const policies = result.right.map((p) => {
