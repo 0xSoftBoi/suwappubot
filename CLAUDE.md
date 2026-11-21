@@ -26,7 +26,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Git Conventions
 
 - **IMPORTANT**: Do NOT add "Co-Authored-By" lines to commit messages.
-- **Journal-only commits** (`harness(journal): ...`) must end the subject with `[skip ci]`. The test workflow has no path filters and cancels superseded PR runs, so a plain journal push cancels the in-flight CI run you're waiting on. Never put `[skip ci]` on a commit that touches code.
+- **Journal-only commits** (`harness(journal): ...`) must end the subject with `[skip ci]`. The test workflow has no path filters and cancels superseded PR runs, so a plain journal push cancels the in-flight CI run you're waiting on. Never put `[skip ci]` on a commit that touches code. GitHub honors the marker **anywhere in the message, body included** — so never write it literally in a code commit's body either (say "the skip marker"); a commit explaining it skipped CI on its own push (#1141). In cloud sessions the journal Stop hook commits the shard itself (see `.claude/hooks/session-journal.py`), so don't hand-commit journal shards there.
 
 ## Git Operations
 
