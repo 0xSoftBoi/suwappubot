@@ -548,3 +548,6 @@
   .compare-table tbody th.compare-table__rowhead { width: auto !important; }
 }
 @media (max-width: 640px) { .compare-table { display: table !important; } }
+
+/* agents: first column header never breaks mid-word on phones */
+@media (max-width: 640px) { .compare-table thead .compare-table__rowhead { font-size: 0.6rem; overflow-wrap: normal !important; word-break: normal !important; padding-left: 4px; } .compare__legend, .compare__note, .compare__footnote { text-align: left; } }
