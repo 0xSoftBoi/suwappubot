@@ -167,7 +167,7 @@ class _NoHistory(Exception):
     """An endpoint returned no token activity at all for an old range: pruned."""
 
 
-_URL_IN_TEXT = re.compile(r"https?://[^\s'\"<>]+")
+_URL_IN_TEXT = re.compile(r"https?://[^\s'\"<>]+", re.IGNORECASE)
 # urllib3 names the failing request by its relative target, with no host:
 # "Max retries exceeded with url: /v2/<key> (Caused by ...)".
 _RELATIVE_URL = re.compile(r"(\burl:\s*)/[^\s'\"<>]*", re.IGNORECASE)
