@@ -6,6 +6,7 @@ import logging
 import time
 from typing import Optional
 from datetime import datetime, timezone, timedelta
+from decimal import Decimal, InvalidOperation
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import and_, or_
@@ -444,6 +445,26 @@ class TransactionPoller:
 
         return None, None
 
+    @staticmethod
+    def _authoritative_realized_amount(status) -> Optional[str]:
+        """Li.Fi receiving amount, only when it is unquestionably valid.
+
+        Same predicate as ExecutionReconciler._authoritative_amount: the
+        receiving amount is a smallest-unit integer, so a fractional,
+        non-finite, zero or negative value is not safe fill evidence and is
+        reported as absent rather than written.
+        """
+        raw = getattr(status, "receiving_amount", None)
+        if raw in (None, ""):
+            return None
+        try:
+            amount = Decimal(str(raw))
+        except (InvalidOperation, TypeError, ValueError):
+            return None
+        if not amount.is_finite() or amount <= 0 or amount != amount.to_integral_value():
+            return None
+        return format(amount, "f")
+
     async def _check_lifi_status_dict(self, tx_dict: dict) -> tuple[Optional[str], Optional[str]]:
         """Check cross-chain swap via Li.Fi; return (new_status, dest_tx_hash)."""
         try:
@@ -464,7 +485,18 @@ class TransactionPoller:
                 # every provider path; only Li.Fi reports a settled amount.
                 # _apply_status_update persists it under the same lock that
                 # writes the terminal status.
-                realized_amount = getattr(status, "receiving_amount", None)
+                #
+                # Validated before stashing, because the canonical projection
+                # refuses a non-positive realized amount
+                # (legacy_swap_execution_adapter._decimal) and that refusal
+                # rolls the COMPLETED transition back with it -- the user then
+                # gets no notification and the row returns to CONFIRMING to be
+                # re-polled into the same rollback until it ages out of the
+                # query. A bad amount must never be able to block the status
+                # transition: drop it instead and let the row land COMPLETED
+                # with a NULL realized amount, which projects as RECONCILING
+                # for execution_reconciler to resolve from the same Li.Fi read.
+                realized_amount = self._authoritative_realized_amount(status)
                 if realized_amount is not None:
                     tx_dict["_realized_to_amount"] = realized_amount
                     tx_dict["_realized_to_amount_usd"] = getattr(
