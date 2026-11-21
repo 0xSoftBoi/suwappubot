@@ -354,6 +354,10 @@ class RPCEndpoint:
     url: str
     chain: str
     tier: RPCTier
+    # Discovered endpoints only: set once the entry probe passed and the endpoint
+    # was published. Entry-probe failures are expected noise; failures after
+    # admission are real provider outages and must stay visible.
+    admitted: bool = False
 
     total_requests: int = 0
     successful_requests: int = 0
@@ -429,11 +433,16 @@ class RPCEndpoint:
         self.last_error = error
         self.consecutive_failures += 1
         was_open = self.is_circuit_open
+        # A chainlist candidate failing its entry probe is dropped and never used:
+        # DEBUG (a WARNING here was a dozen dead public nodes per boot). Configured
+        # endpoints, and discovered ones already serving traffic, still WARN.
+        quiet = self.tier == RPCTier.DISCOVERED and not self.admitted
+        warn = logger.debug if quiet else logger.warning
         if _QUOTA_ERROR.search(error):
             # Log only on the transition, or a 6h cooldown still produces a wall
             # of identical lines every time a caller retries mid-cooldown.
             if not was_open:
-                logger.warning(
+                warn(
                     "RPC circuit OPEN (quota exhausted) %s (%ss, reason=%s)",
                     _safe_url(self.url),
                     self.QUOTA_COOLDOWN_SECONDS,
@@ -443,7 +452,7 @@ class RPCEndpoint:
             return
         if _UNRECOVERABLE_ERROR.search(error):
             if not was_open:
-                logger.warning(
+                warn(
                     "RPC circuit OPEN (endpoint gone or gated) %s (%ss, reason=%s)",
                     _safe_url(self.url),
                     self.QUOTA_COOLDOWN_SECONDS,
@@ -456,7 +465,7 @@ class RPCEndpoint:
             # Same transition guard as above. Without it a fatal endpoint logged
             # on every single call for the whole cooldown.
             if not was_open:
-                logger.warning(
+                warn(
                     "RPC circuit OPEN (fatal) %s (600s, reason=%s)",
                     _safe_url(self.url),
                     error[:120],
@@ -472,9 +481,7 @@ class RPCEndpoint:
                 # errors under a dozen dead public RPCs every two minutes, so
                 # only a configured endpoint's FIRST open is a warning.
                 log = (
-                    logger.warning
-                    if self.tier != RPCTier.DISCOVERED and self.consecutive_failures == 3
-                    else logger.debug
+                    logger.warning if not quiet and self.consecutive_failures == 3 else logger.debug
                 )
                 log(
                     "RPC circuit OPEN %s (%ss, %s failures, reason=%s)",
@@ -714,6 +721,7 @@ class RPCManager:
             # simply never published. The next chainlist refresh may re-probe it.
             passed = [ep for ep, ok in zip(newly_added, results) if ok is True]
             for ep in passed:
+                ep.admitted = True
                 self._endpoints.setdefault(ep.chain, []).append(ep)
             if len(passed) < len(newly_added):
                 logger.info(
