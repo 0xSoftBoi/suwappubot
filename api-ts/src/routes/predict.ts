@@ -4,6 +4,7 @@ import { Hono } from 'hono'
 import type { Agent } from '../db'
 import { ExternalServiceError, mapErrorToResponse, ValidationError } from '../errors'
 import { buildClobAuthMessage, buildOrderTypedData, hashEip712Order, resolveBuilderCode, ZERO_BYTES32, type ClobOrderData } from '../lib/polymarket-eip712'
+import { logger } from '../lib/logger'
 import { agentBearerAuth, regionGate } from '../middleware'
 import { runEffectEither } from '../runtime'
 import { PolymarketService } from '../services/PolymarketService'
@@ -422,8 +423,9 @@ predictRoutes.get('/positions', agentBearerAuth(), regionGate(), async (c) => {
 			const credService = yield* PolymarketCredentialService
 
 			const credentials = yield* credService.getCredentials(agentId).pipe(
-				Effect.mapError((e) => new ExternalServiceError({
-					message: `Polymarket credential lookup failed: ${e.message}`,
+				Effect.tapError((e) => Effect.sync(() => logger.error({ err: e.message, agentId }, '[Predict] credential lookup failed'))),
+				Effect.mapError(() => new ExternalServiceError({
+					message: 'Polymarket credential lookup failed',
 					service: 'polymarket-credentials',
 				})),
 			)

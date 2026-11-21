@@ -33,6 +33,7 @@ const swapRoutes = new Hono()
 
 // Chain ID to RPC endpoint mapping for broadcasting transactions
 const alchemyKey = process.env.ALCHEMY_API_KEY || ''
+// NOTE: duplicate of RPC_ENDPOINTS in config/chains.ts (keyed by chain id; also in swap.ts/publicSwap.ts). Keep defaults in sync.
 const CHAIN_RPC_ENDPOINTS: Record<number, string> = {
 	1:
 		process.env.ETH_RPC_URL ||
@@ -43,13 +44,13 @@ const CHAIN_RPC_ENDPOINTS: Record<number, string> = {
 		process.env.OPTIMISM_RPC_URL ||
 		(alchemyKey
 			? `https://opt-mainnet.g.alchemy.com/v2/${alchemyKey}`
-			: 'https://optimism.llamarpc.com'),
+			: 'https://mainnet.optimism.io'),
 	56: process.env.BSC_RPC_URL || 'https://bsc-dataseed.bnbchain.org',
 	137:
 		process.env.POLYGON_RPC_URL ||
 		(alchemyKey
 			? `https://polygon-mainnet.g.alchemy.com/v2/${alchemyKey}`
-			: 'https://polygon.llamarpc.com'),
+			: 'https://polygon-bor-rpc.publicnode.com'),
 	8453:
 		process.env.BASE_RPC_URL ||
 		(alchemyKey
@@ -59,7 +60,7 @@ const CHAIN_RPC_ENDPOINTS: Record<number, string> = {
 		process.env.ARBITRUM_RPC_URL ||
 		(alchemyKey
 			? `https://arb-mainnet.g.alchemy.com/v2/${alchemyKey}`
-			: 'https://arbitrum.llamarpc.com'),
+			: 'https://arb1.arbitrum.io/rpc'),
 	43114: process.env.AVALANCHE_RPC_URL || 'https://api.avax.network/ext/bc/C/rpc',
 	59144: process.env.LINEA_RPC_URL || 'https://rpc.linea.build',
 	324: process.env.ZKSYNC_RPC_URL || 'https://mainnet.era.zksync.io',

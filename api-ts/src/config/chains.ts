@@ -4,9 +4,9 @@ const alchemyKey = process.env.ALCHEMY_API_KEY || ''
 
 export const RPC_ENDPOINTS: Record<string, string> = {
 	ethereum: process.env.ETH_RPC_URL || (alchemyKey ? `https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://ethereum-rpc.publicnode.com'),
-	arbitrum: process.env.ARBITRUM_RPC_URL || (alchemyKey ? `https://arb-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://arbitrum.llamarpc.com'),
-	optimism: process.env.OPTIMISM_RPC_URL || (alchemyKey ? `https://opt-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://optimism.llamarpc.com'),
-	polygon: process.env.POLYGON_RPC_URL || (alchemyKey ? `https://polygon-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://polygon.llamarpc.com'),
+	arbitrum: process.env.ARBITRUM_RPC_URL || (alchemyKey ? `https://arb-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://arb1.arbitrum.io/rpc'),
+	optimism: process.env.OPTIMISM_RPC_URL || (alchemyKey ? `https://opt-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://mainnet.optimism.io'),
+	polygon: process.env.POLYGON_RPC_URL || (alchemyKey ? `https://polygon-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://polygon-bor-rpc.publicnode.com'),
 	base: process.env.BASE_RPC_URL || (alchemyKey ? `https://base-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://mainnet.base.org'),
 	bsc: process.env.BSC_RPC_URL || 'https://bsc-dataseed.bnbchain.org',
 	solana: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
@@ -244,9 +244,9 @@ export function getRpcUrl(chainId: number): string | null {
 // second operator-supplied URL (SSRF surface) beyond the primary overrides.
 const RPC_FALLBACK_ENDPOINTS: Record<string, string> = {
 	ethereum: 'https://cloudflare-eth.com',
-	arbitrum: 'https://arb1.arbitrum.io/rpc',
-	optimism: 'https://mainnet.optimism.io',
-	polygon: 'https://polygon-bor-rpc.publicnode.com',
+	arbitrum: 'https://arbitrum-one-rpc.publicnode.com',
+	optimism: 'https://optimism-rpc.publicnode.com',
+	polygon: 'https://polygon.drpc.org',
 	base: 'https://base-rpc.publicnode.com',
 	bsc: 'https://bsc-rpc.publicnode.com',
 }
