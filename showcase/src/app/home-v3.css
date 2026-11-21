@@ -203,3 +203,9 @@
 .hv3-split-cta > div { display: flex; flex-direction: column; align-items: center; gap: 1rem; padding: clamp(1.5rem, 3vw, 2.25rem) 1.25rem; border: 1px solid var(--v3-line); border-radius: 16px; }
 .hv3-split-cta .v3-kicker { justify-content: center; margin: 0; }
 @media (max-width: 640px) { .hv3-split-cta { grid-template-columns: minmax(0, 1fr); } }
+
+/* Proof wordmarks: quiet monochrome text, not default link styling */
+.hd .hv3-proof__routes a { color: rgba(250, 250, 250, 0.6); text-decoration: none; }
+.hd .hv3-proof__routes a:hover { color: #fff; }
+.hd .hv3-proof__links a { text-decoration: none; }
+@media (max-width: 640px) { .hv3-proof__links small { white-space: normal; } .hv3-proof__routes a { font-size: 0.875rem; } }
