@@ -1,20 +1,27 @@
-import { decodePaymentSignatureHeader } from '@x402/core/http'
+import { decodePaymentSignatureHeader, encodePaymentRequiredHeader } from '@x402/core/http'
+import type {
+	PaymentRequired as X402PaymentRequired,
+	PaymentRequirements as X402PaymentRequirements,
+} from '@x402/core/types'
 import { eq, sql } from 'drizzle-orm'
 import { Effect, Either } from 'effect'
 import type { Context, Next } from 'hono'
 import { EnvService } from '../config/EnvService'
-import { resolveX402Networks } from '../config/x402Networks'
 import { requireDb } from '../db/DrizzleService'
 import { agentCredits, agents } from '../db/schema'
 import { InterceptaUnavailableError, quickScan } from '../lib/intercepta'
 import { logger } from '../lib/logger'
 import { runEffectEither } from '../runtime'
+import { isFacilitatorEnabled } from '../services/FacilitatorService'
 import {
-	facilitatorVerifyAndSettle,
-	isFacilitatorEnabled,
-	type PaymentRequirements,
-	selectRequirementsForPayment,
-} from '../services/FacilitatorService'
+	buildPaymentRequired,
+	decodePayment,
+	resourceUrl,
+	staticRequirements,
+	verifyAndSettle,
+	X402_VERSION,
+	type X402ServiceEnv,
+} from '../services/X402ResourceService'
 
 /**
  * Agent pay-per-call metering (x402 prepaid credits + on-chain micropayments).
@@ -182,12 +189,19 @@ export function creditsToUsdcBaseUnits(credits: number): string {
 }
 
 /**
- * Build a spec-compliant x402 payment challenge body. Off-the-shelf x402
- * clients (x402-axios / x402-fetch) parse the `accepts[]` PaymentRequirements
- * and auto-construct an X-PAYMENT payload, so this must stay close to the spec.
+ * Build an x402 **v2** payment challenge body (PaymentRequired).
  *
- * `x402Version` is the payload schema version (1) — distinct from the "x402 V2"
- * product/facilitator capabilities, which do not bump this integer.
+ * v2 wire shape: `{ x402Version: 2, resource: {url, description, mimeType},
+ * accepts: [{scheme, network: CAIP-2, amount, asset, payTo, maxTimeoutSeconds,
+ * extra}], extensions }`. The same object is base64'd into the
+ * `PAYMENT-REQUIRED` header (v2 moves payment data to headers); it is also the
+ * JSON body so agents that read the body keep working, alongside our stable
+ * legacy fields (error_code / cost_credits / topup / subscribe).
+ *
+ * This sync builder is the static baseline (exact on every network + one
+ * batch-settlement entry per batch network). chargeAgentForCall upgrades
+ * `accepts` through the SDK (services/X402ResourceService.buildPaymentRequired)
+ * so batch entries carry receiverAuthorizer / withdrawDelay / minDeposit.
  */
 export type X402EnvLike = {
 	AGENT_METERING_COLLECTOR_ADDRESS?: string
@@ -196,42 +210,30 @@ export type X402EnvLike = {
 	AGENT_METERING_USDC_ADDRESS: string
 	/** Comma-separated extra x402 payment networks (e.g. "robinhood"). Opt-in. */
 	X402_EXTRA_NETWORKS?: string
+	X402_FACILITATOR_ENABLED?: string
+	X402_BATCH_SETTLEMENT_ENABLED?: string
+	X402_BATCH_NETWORKS?: string
+	X402_PUBLIC_ORIGIN?: string
 }
 
 export function buildX402Challenge(
 	env: X402EnvLike,
 	opts: { cost: number; resource: string; description: string; error?: string },
 ) {
-	const collector = env.AGENT_METERING_COLLECTOR_ADDRESS || env.FEE_WALLET_EVM
-	const maxAmountRequired = creditsToUsdcBaseUnits(opts.cost)
-
-	// One accepts[] entry per enabled payment network. accepts[0] stays the
-	// env-configured network so existing clients that ignore the rest are
-	// unaffected. Each entry carries its OWN EIP-712 domain — the domain used to
-	// be hardcoded to USDC's, which is wrong for any non-USDC asset (e.g. USDG on
-	// Robinhood Chain, where it would produce an unsignable/invalid payload).
-	const networks = resolveX402Networks(
-		env.AGENT_METERING_NETWORK,
-		env.AGENT_METERING_USDC_ADDRESS,
-		env.X402_EXTRA_NETWORKS,
-	)
+	const amount = creditsToUsdcBaseUnits(opts.cost)
+	const svcEnv = env as unknown as X402ServiceEnv
+	const accepts: X402PaymentRequirements[] = staticRequirements(svcEnv, amount)
 
 	return {
-		x402Version: 1,
-		accepts: networks.map((n) => ({
-			scheme: 'exact' as const,
-			network: n.network,
-			maxAmountRequired,
-			resource: opts.resource,
+		x402Version: X402_VERSION,
+		error: opts.error ?? 'insufficient_credits',
+		resource: {
+			url: resourceUrl(svcEnv, opts.resource),
 			description: opts.description,
 			mimeType: 'application/json',
-			payTo: collector,
-			maxTimeoutSeconds: 120,
-			asset: n.asset,
-			// EIP-712 domain hints for EIP-3009 transferWithAuthorization.
-			extra: n.eip712,
-		})),
-		error: opts.error ?? 'insufficient_credits',
+		},
+		accepts,
+		extensions: undefined as Record<string, unknown> | undefined,
 		// Stable 17-code contract (see lib/agentError.ts) — keep `error` for
 		// back-compat with existing SDK/agent consumers reading the old field.
 		error_code: 'INSUFFICIENT_CREDITS' as const,
@@ -239,16 +241,35 @@ export function buildX402Challenge(
 		credit_usd_value: CREDIT_USD_VALUE,
 		topup: 'POST /v1/agent/billing/topup with {txHash, chain, amount}',
 		subscribe: 'POST /v1/agent/billing/subscribe with {txHash, chain, amount, tier}',
+		pay_per_call:
+			'Retry with a PAYMENT-SIGNATURE header (x402 v2). Prefer scheme "batch-settlement" for high-frequency calls: deposit once, then each call is an off-chain voucher.',
 	}
 }
 
-/** Set the x402 advertisement headers for a 402 response. */
-export function setX402Headers(c: Context, env: X402EnvLike, challenge: ReturnType<typeof buildX402Challenge>) {
+/** Set the x402 v2 advertisement headers for a 402 response. */
+export function setX402Headers(
+	c: Context,
+	env: X402EnvLike,
+	challenge: ReturnType<typeof buildX402Challenge>,
+) {
 	const collector = env.AGENT_METERING_COLLECTOR_ADDRESS || env.FEE_WALLET_EVM
-	c.header('X-Payment-Required', Buffer.from(JSON.stringify(challenge)).toString('base64'))
+	const paymentRequired: X402PaymentRequired = {
+		x402Version: challenge.x402Version,
+		error: challenge.error,
+		resource: challenge.resource,
+		accepts: challenge.accepts,
+		...(challenge.extensions ? { extensions: challenge.extensions } : {}),
+	}
+	const encoded = encodePaymentRequiredHeader(paymentRequired)
+	c.header('PAYMENT-REQUIRED', encoded)
+	// Legacy alias for clients written against our pre-v2 header.
+	c.header('X-Payment-Required', encoded)
+	c.header('Cache-Control', 'private, no-store')
 	c.header(
 		'Accept-Payment',
-		`x402 network=${env.AGENT_METERING_NETWORK} asset=${env.AGENT_METERING_USDC_ADDRESS} payTo=${collector}`,
+		`x402 v=2 schemes=${[...new Set(challenge.accepts.map((a) => a.scheme))].join(',')} networks=${[
+			...new Set(challenge.accepts.map((a) => a.network)),
+		].join(',')} payTo=${collector}`,
 	)
 }
 
@@ -289,7 +310,16 @@ function deductCredits(agentId: number, cost: number) {
 export type ChargeResult =
 	| { kind: 'skip'; reason: 'disabled' | 'no_agent' | 'bypass' | 'free' | 'demo'; tier?: string }
 	| { kind: 'ok'; balance: number; cost: number; tier: string }
-	| { kind: 'settled'; cost: number; txHash?: string; network?: string }
+	| {
+			kind: 'settled'
+			cost: number
+			txHash?: string
+			network?: string
+			scheme?: string
+			payer?: string
+			/** base64 x402 v2 SettlementResponse for the PAYMENT-RESPONSE header. */
+			paymentResponse?: string
+	  }
 	| { kind: 'insufficient'; cost: number; challenge: ReturnType<typeof buildX402Challenge> }
 	| { kind: 'blocked'; cost: number; reason: string; traits?: string[] }
 
@@ -302,10 +332,35 @@ export type ChargeResult =
  * throwing if nothing matches. Undefined is treated as "cannot screen" by the
  * caller, which fails closed (rejects), not as "clean".
  */
+/**
+ * Clean-payer screening cache. batch-settlement exists to make each call a
+ * local signature check; re-running an Intercepta HTTP scan on every voucher
+ * would put a network round-trip back on the hot path. A payer that scanned
+ * CLEAN is trusted for SCREEN_TTL_MS; blocked/failed scans are never cached
+ * (fail-closed stays fail-closed).
+ */
+const SCREEN_TTL_MS = 10 * 60 * 1000
+const cleanPayers = new Map<string, number>()
+function recentlyCleared(addr: string): boolean {
+	const k = addr.toLowerCase()
+	const t = cleanPayers.get(k)
+	if (t && Date.now() - t < SCREEN_TTL_MS) return true
+	if (t) cleanPayers.delete(k)
+	return false
+}
+function markCleared(addr: string) {
+	if (cleanPayers.size > 10_000) cleanPayers.clear()
+	cleanPayers.set(addr.toLowerCase(), Date.now())
+}
+
 function extractPayerAddress(payload: { payload: Record<string, unknown> }): string | undefined {
 	const inner = payload.payload
 	const authorization = inner?.authorization as Record<string, unknown> | undefined
+	// batch-settlement (x402 v2): deposit/voucher/refund payloads all carry the
+	// channel's committed payer in channelConfig.payer.
+	const channelConfig = inner?.channelConfig as Record<string, unknown> | undefined
 	const candidate =
+		(typeof channelConfig?.payer === 'string' ? channelConfig.payer : undefined) ??
 		(typeof authorization?.from === 'string' ? authorization.from : undefined) ??
 		(typeof inner?.from === 'string' ? (inner.from as string) : undefined) ??
 		(typeof inner?.sender === 'string' ? (inner.sender as string) : undefined)
@@ -400,7 +455,11 @@ export async function chargeAgentForCall(params: {
 }): Promise<ChargeResult> {
 	const { agent, cost, resource, description, paymentHeader } = params
 
-	const env = await runEffectEither(Effect.gen(function* () { return yield* EnvService }))
+	const env = await runEffectEither(
+		Effect.gen(function* () {
+			return yield* EnvService
+		}),
+	)
 	if (Either.isLeft(env)) return { kind: 'skip', reason: 'disabled' }
 
 	if (env.right.AGENT_METERING_ENABLED !== 'true') return { kind: 'skip', reason: 'disabled' }
@@ -437,27 +496,42 @@ export async function chargeAgentForCall(params: {
 	const newBalance = deductResult.right
 	if (newBalance === null) {
 		const challenge = buildX402Challenge(env.right, { cost, resource, description })
+		const svcEnv = env.right as unknown as X402ServiceEnv
+		const decodedPayment = paymentHeader ? decodePayment(paymentHeader) : null
+
+		// Upgrade the static accepts[] through the SDK so batch-settlement entries
+		// carry receiverAuthorizer / withdrawDelay / minDeposit (and, on a voucher
+		// cumulative mismatch, the corrective channel state). Never blocks the 402.
+		if (isFacilitatorEnabled(env.right)) {
+			const enriched = await buildPaymentRequired(svcEnv, {
+				amount: creditsToUsdcBaseUnits(cost),
+				resource,
+				description,
+				error: challenge.error,
+				paymentPayload: decodedPayment ?? undefined,
+			})
+			challenge.accepts = enriched.accepts
+			challenge.resource = { ...challenge.resource, ...enriched.resource }
+			challenge.extensions = enriched.extensions
+		}
 
 		// No prepaid credits — if the client supplied an X-PAYMENT header and the
 		// facilitator is enabled, settle this single call directly on-chain.
 		if (paymentHeader && isFacilitatorEnabled(env.right)) {
-			// Select the entry the payer actually signed for — with several networks
-			// advertised, always using accepts[0] would reject every payment made on
-			// any other network (asset_mismatch in the cross-check).
-			const requirements = selectRequirementsForPayment(
-				paymentHeader,
-				challenge.accepts as PaymentRequirements[],
-			)
-
 			// Intercepta risk screening (ETHGlobal Tokyo 2026 Phase 2): screen the
 			// counterparty BEFORE settling. Fail-closed — if we can't decode a payer
 			// address, or the scan itself fails (no API key, network error,
 			// malformed response), reject rather than charge. Only a successful scan
 			// under the configured threshold clears the way to settle.
+			// Batch-settlement vouchers on an already-screened channel skip the
+			// rescan only if we can't find a payer; deposit payloads carry
+			// `authorization.from` / channelConfig.payer like exact does.
 			let payerAddress: string | undefined
 			try {
-				const decoded = decodePaymentSignatureHeader(paymentHeader)
-				payerAddress = extractPayerAddress(decoded as unknown as { payload: Record<string, unknown> })
+				const decoded = decodedPayment ?? decodePaymentSignatureHeader(paymentHeader)
+				payerAddress = extractPayerAddress(
+					decoded as unknown as { payload: Record<string, unknown> },
+				)
 			} catch {
 				payerAddress = undefined
 			}
@@ -475,44 +549,60 @@ export async function chargeAgentForCall(params: {
 			}
 
 			const threshold = Number(env.right.INTERCEPTA_TOXIC_SCORE_THRESHOLD)
-			try {
-				const scan = await quickScan(payerAddress, { apiKey: env.right.INTERCEPTA_API_KEY })
-				const blocked = scan.toxicScore > threshold
-				await persistInterceptaScan(agent.id, {
-					address: scan.address,
-					toxicScore: scan.toxicScore,
-					traits: scan.traits,
-					blocked,
-				})
-				if (blocked) {
-					logger.warn(
-						{ agentId: agent.id, address: scan.address, toxicScore: scan.toxicScore, traits: scan.traits },
-						'[intercepta] blocked metered payment: counterparty exceeds toxic score threshold',
+			if (!recentlyCleared(payerAddress))
+				try {
+					const scan = await quickScan(payerAddress, { apiKey: env.right.INTERCEPTA_API_KEY })
+					const blocked = scan.toxicScore > threshold
+					await persistInterceptaScan(agent.id, {
+						address: scan.address,
+						toxicScore: scan.toxicScore,
+						traits: scan.traits,
+						blocked,
+					})
+					if (blocked) {
+						logger.warn(
+							{
+								agentId: agent.id,
+								address: scan.address,
+								toxicScore: scan.toxicScore,
+								traits: scan.traits,
+							},
+							'[intercepta] blocked metered payment: counterparty exceeds toxic score threshold',
+						)
+						return {
+							kind: 'blocked',
+							cost,
+							reason: `counterparty flagged as high risk (score ${scan.toxicScore} > ${threshold}): ${scan.traits.join(', ') || 'no traits reported'}`,
+							traits: scan.traits,
+						}
+					}
+					markCleared(payerAddress)
+				} catch (e) {
+					const reason = e instanceof InterceptaUnavailableError ? e.reason : 'unknown_error'
+					logger.error(
+						{ agentId: agent.id, address: payerAddress, reason },
+						'[intercepta] risk screening unavailable — failing closed, rejecting payment',
 					)
 					return {
 						kind: 'blocked',
 						cost,
-						reason: `counterparty flagged as high risk (score ${scan.toxicScore} > ${threshold}): ${scan.traits.join(', ') || 'no traits reported'}`,
-						traits: scan.traits,
+						reason: 'risk screening unavailable — payment rejected (fail-closed)',
 					}
 				}
-			} catch (e) {
-				const reason = e instanceof InterceptaUnavailableError ? e.reason : 'unknown_error'
-				logger.error(
-					{ agentId: agent.id, address: payerAddress, reason },
-					'[intercepta] risk screening unavailable — failing closed, rejecting payment',
-				)
+
+			const settle = await verifyAndSettle(svcEnv, paymentHeader, challenge.accepts)
+			if (settle.ok) {
 				return {
-					kind: 'blocked',
+					kind: 'settled',
 					cost,
-					reason: 'risk screening unavailable — payment rejected (fail-closed)',
+					txHash: settle.txHash,
+					network: settle.network,
+					scheme: settle.scheme,
+					payer: settle.payer,
+					paymentResponse: settle.responseHeader,
 				}
 			}
-
-			const settle = await facilitatorVerifyAndSettle(env.right, paymentHeader, requirements)
-			if (settle.ok) {
-				return { kind: 'settled', cost, txHash: settle.txHash, network: settle.network }
-			}
+			challenge.error = settle.error
 			// Don't silently discard a failed on-chain settle — surface why, so a
 			// misconfigured facilitator (bad CDP creds, wrong URL, etc.) shows up in
 			// logs instead of just looking like "client never paid". Facilitator/
@@ -572,11 +662,16 @@ export async function refundChargedCall(params: {
 	const result = await runEffectEither(creditBack(agentId, cost))
 	if (Either.isLeft(result)) {
 		// eslint-disable-next-line no-console
-		console.error(`[x402Payment] refund FAILED for agent ${agentId} (${cost} credits, reason: ${reason}):`, result.left)
+		console.error(
+			`[x402Payment] refund FAILED for agent ${agentId} (${cost} credits, reason: ${reason}):`,
+			result.left,
+		)
 		return
 	}
 	// eslint-disable-next-line no-console
-	console.warn(`[x402Payment] refunded ${cost} credits to agent ${agentId} (reason: ${reason}); new balance=${result.right}`)
+	console.warn(
+		`[x402Payment] refunded ${cost} credits to agent ${agentId} (reason: ${reason}); new balance=${result.right}`,
+	)
 }
 
 /**
@@ -587,13 +682,16 @@ export function meteredPayment(endpoint: string) {
 	const cost = costForEndpoint(endpoint)
 
 	return async (c: Context, next: Next) => {
-		const agent = c.get('agent') as { id: number; rateLimitTier?: string; uuid?: string } | undefined
+		const agent = c.get('agent') as
+			| { id: number; rateLimitTier?: string; uuid?: string }
+			| undefined
 		const result = await chargeAgentForCall({
 			agent,
 			cost,
 			resource: c.req.path,
 			description: `Suwappu agent API call: ${endpoint} (${cost} credit${cost === 1 ? '' : 's'})`,
-			paymentHeader: c.req.header('X-PAYMENT') ?? c.req.header('PAYMENT-SIGNATURE'),
+			// v2 header first; X-PAYMENT kept so pre-v2 clients get a clean v2 402.
+			paymentHeader: c.req.header('PAYMENT-SIGNATURE') ?? c.req.header('X-PAYMENT'),
 		})
 
 		if (result.kind === 'skip') {
@@ -616,14 +714,20 @@ export function meteredPayment(endpoint: string) {
 		}
 
 		if (result.kind === 'insufficient') {
-			const env = await runEffectEither(Effect.gen(function* () { return yield* EnvService }))
+			const env = await runEffectEither(
+				Effect.gen(function* () {
+					return yield* EnvService
+				}),
+			)
 			if (Either.isRight(env)) setX402Headers(c, env.right, result.challenge)
 			return c.json(result.challenge, 402)
 		}
 
 		if (result.kind === 'settled') {
 			c.header('X-Metering-Cost', String(result.cost))
+			if (result.paymentResponse) c.header('PAYMENT-RESPONSE', result.paymentResponse)
 			if (result.txHash) c.header('X-Payment-Response', result.txHash)
+			if (result.scheme) c.header('X-Payment-Scheme', result.scheme)
 			// 'settled' is a facilitator on-chain payment — NEVER refund it here (same
 			// guard as MCP's refundChargedCall call sites, which only fire on 'ok').
 			c.set('meterCharge', result)

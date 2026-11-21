@@ -64,14 +64,14 @@ describe('x402 challenge builder', () => {
 			resource: 'mcp://tools/execute_swap',
 			description: 'test',
 		})
-		expect(ch.x402Version).toBe(1)
+		expect(ch.x402Version).toBe(2)
 		const req = ch.accepts[0]
 		expect(req.scheme).toBe('exact')
-		expect(req.network).toBe('base')
+		expect(req.network).toBe('eip155:8453')
 		expect(req.payTo).toBe(ENV.FEE_WALLET_EVM)
 		expect(req.asset).toBe(ENV.AGENT_METERING_USDC_ADDRESS)
 		// 5 credits → 5000 atomic USDC units
-		expect(req.maxAmountRequired).toBe('5000')
+		expect(req.amount).toBe('5000')
 		expect(ch.cost_credits).toBe(5)
 	})
 

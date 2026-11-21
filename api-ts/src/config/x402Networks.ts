@@ -22,6 +22,12 @@
 export type X402Network = {
 	/** x402 `network` identifier used in the challenge and in X-PAYMENT payloads. */
 	network: string
+	/**
+	 * x402 v2 CAIP-2 network id (`eip155:<chainId>`). v2 PaymentRequirements and
+	 * PaymentPayloads carry THIS, not the v1 short name above; the short name is
+	 * kept only so v1 clients and the X402_EXTRA_NETWORKS env stay readable.
+	 */
+	caip2: `eip155:${number}`
 	/** Numeric EVM chain id — used for the EIP-712 domain and for verification routing. */
 	chainId: number
 	/** Payment asset (ERC-20) address. */
@@ -40,6 +46,7 @@ export type X402Network = {
 
 export const BASE_USDC: X402Network = {
 	network: 'base',
+	caip2: 'eip155:8453',
 	chainId: 8453,
 	asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
 	assetSymbol: 'USDC',
@@ -63,6 +70,7 @@ export const BASE_USDC: X402Network = {
  */
 export const ROBINHOOD_USDG: X402Network = {
 	network: 'robinhood',
+	caip2: 'eip155:4663',
 	chainId: 4663,
 	asset: '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168',
 	assetSymbol: 'USDG',
@@ -70,10 +78,27 @@ export const ROBINHOOD_USDG: X402Network = {
 	eip712: { name: 'Global Dollar', version: '1' },
 }
 
+/**
+ * Base Sepolia testnet USDC — for end-to-end x402 v2 testing against the
+ * public x402.org facilitator (testnet-only). Circle's testnet USDC uses the
+ * EIP-712 name "USDC" (mainnet uses "USD Coin"); version "2" on both.
+ * Never enabled unless an operator names it in env.
+ */
+export const BASE_SEPOLIA_USDC: X402Network = {
+	network: 'base-sepolia',
+	caip2: 'eip155:84532',
+	chainId: 84532,
+	asset: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+	assetSymbol: 'USDC',
+	assetDecimals: 6,
+	eip712: { name: 'USDC', version: '2' },
+}
+
 /** Every network the registry knows about, keyed by x402 network id. */
 export const X402_NETWORKS: Record<string, X402Network> = {
 	[BASE_USDC.network]: BASE_USDC,
 	[ROBINHOOD_USDG.network]: ROBINHOOD_USDG,
+	[BASE_SEPOLIA_USDC.network]: BASE_SEPOLIA_USDC,
 }
 
 // creditsToUsdcBaseUnits() scales by 1e6. A non-6-decimal asset here would
@@ -96,19 +121,25 @@ for (const n of Object.values(X402_NETWORKS)) {
  * Unknown or duplicate names are ignored rather than throwing — a typo in env
  * must not take the whole API down.
  */
+const name0 = (s: string) => findX402Network(s)?.network ?? s
+
 export function resolveX402Networks(
 	primaryNetwork: string,
 	primaryAsset: string,
 	extraNetworks?: string,
 ): X402Network[] {
-	const known = X402_NETWORKS[primaryNetwork]
+	const known = findX402Network(primaryNetwork)
 	// Honour explicit env overrides of the primary asset even when it matches a
 	// known network — operators may point at a testnet deployment.
 	const primary: X402Network = known
 		? { ...known, asset: primaryAsset || known.asset }
 		: {
 				network: primaryNetwork,
-				chainId: 0,
+				// Unknown network: if the operator already passed a CAIP-2 id, use it.
+				caip2: (/^eip155:\d+$/.test(primaryNetwork)
+					? primaryNetwork
+					: 'eip155:0') as `eip155:${number}`,
+				chainId: /^eip155:\d+$/.test(primaryNetwork) ? Number(primaryNetwork.split(':')[1]) : 0,
 				asset: primaryAsset,
 				assetSymbol: 'USDC',
 				assetDecimals: 6,
@@ -118,14 +149,24 @@ export function resolveX402Networks(
 			}
 
 	const out = [primary]
-	const seen = new Set([primary.network])
+	const seen = new Set([primary.network, name0(primaryNetwork)])
 	for (const raw of (extraNetworks || '').split(',')) {
 		const name = raw.trim()
 		if (!name || seen.has(name)) continue
-		const n = X402_NETWORKS[name]
-		if (!n) continue
-		seen.add(name)
+		const n = findX402Network(name)
+		if (!n || seen.has(n.network)) continue
+		seen.add(n.network)
 		out.push(n)
 	}
 	return out
+}
+
+/**
+ * Look up a registry entry by either its v1 short name ("base") or its v2
+ * CAIP-2 id ("eip155:8453"). Case-insensitive. Undefined if unknown.
+ */
+export function findX402Network(id: string | undefined): X402Network | undefined {
+	if (!id) return undefined
+	const k = id.trim().toLowerCase()
+	return Object.values(X402_NETWORKS).find((n) => n.network === k || n.caip2 === k)
 }

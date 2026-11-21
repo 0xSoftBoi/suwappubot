@@ -1627,7 +1627,7 @@ mcpRoutes.post('/', async (c) => {
 				cost: costForTool(name),
 				resource: `mcp://tools/${name}`,
 				description: `Suwappu MCP tool: ${name} (${costForTool(name)} credit${costForTool(name) === 1 ? '' : 's'})`,
-				paymentHeader: c.req.header('X-PAYMENT') ?? c.req.header('PAYMENT-SIGNATURE'),
+				paymentHeader: c.req.header('PAYMENT-SIGNATURE') ?? c.req.header('X-PAYMENT'),
 			})
 			if (charge.kind === 'insufficient') {
 				const cenv = await runEffectEither(Effect.gen(function* () { return yield* EnvService }))
@@ -1639,6 +1639,7 @@ mcpRoutes.post('/', async (c) => {
 				// carrying the challenge in `data`, since a raw 402 body breaks JSON-RPC
 				// framing for them.
 				const acceptsX402 =
+					Boolean(c.req.header('PAYMENT-SIGNATURE')) ||
 					Boolean(c.req.header('X-PAYMENT')) ||
 					(c.req.header('Accept') ?? '').includes('vnd.x402')
 				if (acceptsX402) {
@@ -1663,6 +1664,7 @@ mcpRoutes.post('/', async (c) => {
 			}
 			if (charge.kind === 'settled') {
 				c.header('X-Metering-Cost', String(charge.cost))
+				if (charge.paymentResponse) c.header('PAYMENT-RESPONSE', charge.paymentResponse)
 				if (charge.txHash) c.header('X-Payment-Response', charge.txHash)
 			}
 

@@ -68,10 +68,10 @@ describe('buildX402Challenge multi-network', () => {
 		expect(ch.accepts).toHaveLength(2)
 
 		const [base, hood] = ch.accepts
-		expect(base.network).toBe('base')
+		expect(base.network).toBe('eip155:8453')
 		expect(base.extra).toEqual({ name: 'USD Coin', version: '2' })
 
-		expect(hood.network).toBe('robinhood')
+		expect(hood.network).toBe('eip155:4663')
 		expect(hood.asset).toBe(ROBINHOOD_USDG.asset)
 		// The pre-registry code hardcoded USDC's domain for every entry — that
 		// would make the USDG payload unsignable. Guard against a regression.
@@ -80,14 +80,14 @@ describe('buildX402Challenge multi-network', () => {
 
 	it('charges the same base-unit amount on every network (both assets are 6dp)', () => {
 		const ch = buildX402Challenge({ ...ENV, X402_EXTRA_NETWORKS: 'robinhood' }, OPTS)
-		const amounts = new Set(ch.accepts.map((a) => a.maxAmountRequired))
+		const amounts = new Set(ch.accepts.map((a) => a.amount))
 		expect(amounts.size).toBe(1)
 	})
 
 	it('stays single-network and unchanged when no extras are configured', () => {
 		const ch = buildX402Challenge(ENV, OPTS)
 		expect(ch.accepts).toHaveLength(1)
-		expect(ch.accepts[0].network).toBe('base')
+		expect(ch.accepts[0].network).toBe('eip155:8453')
 		expect(ch.accepts[0].extra).toEqual({ name: 'USD Coin', version: '2' })
 	})
 })

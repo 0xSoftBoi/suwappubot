@@ -37,6 +37,7 @@
 		"@types/jsonwebtoken": "^9.0.10",
 		"@worldcoin/idkit-core": "4.2.2",
 		"@x402/core": "^2.32.0",
+		"@x402/extensions": "2.32.0",
 		"drizzle-orm": "^0.45.1",
 		"effect": "^3.10.0",
 		"esbuild": "^0.28.1",

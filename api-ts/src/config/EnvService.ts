@@ -205,6 +205,32 @@ export const EnvSchema = Schema.Struct({
 	CDP_API_KEY_ID: Schema.optional(Schema.String),
 	CDP_API_KEY_SECRET: Schema.optional(Schema.String),
 
+	// ── x402 v2 batch-settlement (payment channels) ──────────────────────────
+	// Agents deposit once into on-chain escrow, then pay every call with an
+	// off-chain signed cumulative voucher (verified by ECDSA recovery, no chain
+	// round-trip). A channel manager claims many vouchers in one tx and sweeps
+	// them to the collector. Needs X402_FACILITATOR_ENABLED=true too (deposits,
+	// claims and settles go through the facilitator). OFF by default.
+	X402_BATCH_SETTLEMENT_ENABLED: Schema.optionalWith(Schema.String, { default: () => 'false' }),
+	// Comma-separated networks (short name or CAIP-2) batch-settlement is offered on.
+	X402_BATCH_NETWORKS: Schema.optionalWith(Schema.String, { default: () => 'base' }),
+	// Optional dedicated receiver-authorizer EOA key (signs claim/refund
+	// authorizations). Recommended by the spec; when unset the facilitator's
+	// advertised receiverAuthorizer is used. NOT the collector key — it holds no funds.
+	X402_RECEIVER_AUTHORIZER_PK: Schema.optional(Schema.String),
+	// Seconds a payer must wait after requesting a timed withdrawal. Claims run far
+	// more often than this, so no voucher can be withdrawn out from under us.
+	X402_BATCH_WITHDRAW_DELAY_SECS: Schema.optionalWith(Schema.String, { default: () => '86400' }),
+	// Run the claim/settle/refund loop in this process. Turn off on extra replicas
+	// if you want a single settlement worker (claims are cumulative + idempotent
+	// on-chain, so running it on several replicas is safe, just wasteful).
+	X402_BATCH_WORKER_ENABLED: Schema.optionalWith(Schema.String, { default: () => 'true' }),
+	X402_BATCH_CLAIM_INTERVAL_SECS: Schema.optionalWith(Schema.String, { default: () => '60' }),
+	X402_BATCH_SETTLE_INTERVAL_SECS: Schema.optionalWith(Schema.String, { default: () => '300' }),
+	X402_BATCH_REFUND_IDLE_SECS: Schema.optionalWith(Schema.String, { default: () => '86400' }),
+	// Public origin used for x402 v2 `resource.url` (absolute URL per spec).
+	X402_PUBLIC_ORIGIN: Schema.optionalWith(Schema.String, { default: () => 'https://api.suwappu.bot' }),
+
 	// Recurring crypto billing via Base Spend Permissions (true auto-renew). OFF by
 	// default — needs a funded operator (spender) key on Base. SPEND_OPERATOR_PK is
 	// the server key that submits approveWithSignature + spend() txs.

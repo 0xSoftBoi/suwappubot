@@ -17,6 +17,7 @@ import { adminAuth, parseAdminEmails, parseAdminOrigins } from './middleware/adm
 import { ipRateLimit } from './middleware/ipRateLimit'
 import { adminGrowthRoutes } from './routes/adminGrowth'
 import { webEventRoutes } from './routes/webEvents'
+import { x402DiscoveryRoutes } from './routes/x402Discovery'
 import { bodyLimit } from 'hono/body-limit'
 import {
 	a2aRoutes,
@@ -311,6 +312,10 @@ export function createApp(config: AppConfig) {
 	// listing all agent-facing discovery surfaces (A2A card, MCP server, OpenAPI,
 	// llms.txt) so ARD-aware crawlers don't have to guess well-known paths.
 	app.get('/.well-known/ai-catalog.json', (c) => c.json(aiCatalog))
+
+	// x402 v2 discovery: every paid resource + its exact/batch-settlement accepts[].
+	app.use('/.well-known/x402', ipRateLimit(60))
+	app.route('/.well-known/x402', x402DiscoveryRoutes)
 
 	// security.txt — RFC 9116 responsible-disclosure contact (procurement/security
 	// teams check for this during vendor evaluation). Refresh `Expires` annually.

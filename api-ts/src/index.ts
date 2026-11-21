@@ -2,7 +2,12 @@ import { Effect } from 'effect'
 import { websocket } from 'hono/bun'
 import { createApp } from './app'
 import { EnvService } from './config/EnvService'
-import { arbiterEnabled, initHackathonEnv, trustLayerEnabled, worldIdEnabled } from './hackathon/env'
+import {
+	arbiterEnabled,
+	initHackathonEnv,
+	trustLayerEnabled,
+	worldIdEnabled,
+} from './hackathon/env'
 import { isWorldIdConfigured } from './hackathon/tokyo2026/world-id/config'
 import { flushDataUsage, stopDataUsageFlusher } from './lib/dataUsage'
 import { logger } from './lib/logger'
@@ -14,6 +19,7 @@ import { stopDataLiveTicker } from './routes/data'
 import { runEffect, shutdownRuntime } from './runtime'
 import { runAutopilotBootstrap } from './services/autopilot/bootstrap'
 import { startAutopilotScheduler, stopAutopilotScheduler } from './services/autopilot/scheduler'
+import { shutdownX402 } from './services/X402ResourceService'
 
 async function main() {
 	// Get environment config
@@ -110,6 +116,8 @@ async function main() {
 		stopDataUsageFlusher()
 		server.stop()
 		await shutdownOtel()
+		// Claim + settle outstanding batch-settlement vouchers before exit.
+		await Promise.race([shutdownX402(), new Promise((r) => setTimeout(r, 20_000))])
 		await shutdownRuntime()
 		process.exit(0)
 	}
