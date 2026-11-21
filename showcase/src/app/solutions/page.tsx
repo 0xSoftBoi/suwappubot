@@ -3,7 +3,7 @@ import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import { TELEGRAM_URL } from '@/lib/links';
 import stats from '@/data/stats.generated.json';
-import { Reveal, Backdrop, CountUp, RouteMap, ChainRing, AuthorityFlow, BoundaryRings } from '@/components/v3';
+import { Reveal, Backdrop, CountUp, RouteMap, ChainRing, AuthorityFlow } from '@/components/v3';
 import '../sales-v3.css';
 import styles from './solutions.module.css';
 
@@ -16,11 +16,9 @@ const visuals: Record<string, React.ReactNode> = {
       <span className="sv3-ringlabel">chains</span>
     </ChainRing>
   ),
-  payments: <AuthorityFlow lanes={[['Endpoint', 'HTTP 402', 'USDC'], ['Retry', 'Proof', 'Result']]} />,
+  payments: <AuthorityFlow lanes={[['Endpoint', 'HTTP 402', 'Pay USDC'], ['Retry', 'Proof', 'Result']]} />,
   wallets: (
-    <div className="v3-framed">
-      <BoundaryRings />
-    </div>
+    <AuthorityFlow lanes={[['App', 'Policy', 'Signer'], ['Signer', 'Signature', 'Chain']]} />
   ),
 };
 

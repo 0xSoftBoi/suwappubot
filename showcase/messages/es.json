@@ -301,6 +301,8 @@
       "fedrampTitle": "Preparación FedRAMP High",
       "fedrampBody": "Un paquete de evidencias con correspondencia NIST SP 800-53 y un perfil de despliegue gubernamental fail-closed."
     },
+    "schematic": "Esquema",
+    "rankCaption": "Esquema · el orden varía según la solicitud",
     "atmosphere": {
       "soundOn": "Sonido activado",
       "soundOff": "Sonido apagado",

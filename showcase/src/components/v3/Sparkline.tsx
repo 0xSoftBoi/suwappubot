@@ -20,7 +20,7 @@ function series(seed: number, n: number) {
   });
 }
 
-export function Sparkline({ kind = 'line', seed = 1 }: { kind?: Kind; seed?: number }) {
+export function Sparkline({ kind = 'line', seed = 1, tag = 'SCHEMATIC' }: { kind?: Kind; seed?: number; tag?: string }) {
   const n = kind === 'bars' ? 28 : 30;
   const ys = series(seed, n);
   const xs = ys.map((_, i) => +((i / (n - 1)) * W).toFixed(1));
@@ -28,7 +28,7 @@ export function Sparkline({ kind = 'line', seed = 1 }: { kind?: Kind; seed?: num
   const id = `sg${seed}${kind}`;
   return (
     <Live className="v3-spark">
-      <svg viewBox={`0 0 ${W} ${H}`} role="presentation" focusable="false">
+      <svg viewBox={`0 -14 ${W} ${H + 14}`} role="presentation" focusable="false">
         <defs>
           <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0" stopColor="var(--v3-cool)" stopOpacity="0.38" />
@@ -67,15 +67,16 @@ export function Sparkline({ kind = 'line', seed = 1 }: { kind?: Kind; seed?: num
             ))}
           </g>
         ) : null}
+        <text x="0" y="-4" fontSize="8.5" fill="var(--v3-dim)" style={{ fontFamily: 'var(--v3-font-mono)', letterSpacing: '0.14em' }}>{tag.toUpperCase()}</text>
       </svg>
     </Live>
   );
 }
 
-export function SparkCard({ title, body, kind = 'line', seed = 1 }: { title: string; body: string; kind?: Kind; seed?: number }) {
+export function SparkCard({ title, body, kind = 'line', seed = 1, tag }: { title: string; body: string; kind?: Kind; seed?: number; tag?: string }) {
   return (
     <article className="v3-glass v3-signal">
-      <Sparkline kind={kind} seed={seed} />
+      <Sparkline kind={kind} seed={seed} tag={tag} />
       <div>
         <h3>{title}</h3>
         <p>{body}</p>

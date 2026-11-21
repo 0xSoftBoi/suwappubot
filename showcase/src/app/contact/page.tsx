@@ -54,7 +54,7 @@ export default function ContactPage() {
 
         <Reveal as="section" className={`${styles.layout} sv3-contact`}>
           <div className={`${styles.pitch} sv3-next v3-tone-dark`}>
-            <div className="sv3-slab__art" aria-hidden="true"><BoundaryRings /></div>
+            <div className="sv3-slab__art" aria-hidden="true"><BoundaryRings quiet /></div>
             <h2 className="mkt-h2">
               {stats.platformChains} chains, self-custody or managed keys, one agent API.
             </h2>

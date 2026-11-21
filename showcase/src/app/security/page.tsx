@@ -8,7 +8,7 @@ import '../sales-v3.css';
 import styles from './security.module.css';
 
 /** Pictogram per practice, same order as `buckets`. */
-const bucketKinds: MiniKind[] = ['peg', 'bridge', 'book', 'automate', 'route', 'compete', 'curve'];
+const bucketKinds: MiniKind[] = ['tee', 'custody', 'cipher', 'gate', 'simulate', 'review', 'window'];
 
 export const metadata: Metadata = {
   title: 'Security',
@@ -71,7 +71,7 @@ export default function SecurityPage() {
             <AuthorityFlow lanes={[['Your keys', 'Unsigned tx', 'Chain'], ['TEE wallet', 'Policy', 'Chain']]} />
           </div>
           <div className="sv3-stage sv3-stage--dark">
-            <div className="v3-framed"><BoundaryRings /></div>
+            <div className="v3-framed"><BoundaryRings labels={['Key', 'TEE', 'KMS wrap', 'IAM boundary', 'Server policy']} /></div>
           </div>
         </Reveal>
 
@@ -82,7 +82,7 @@ export default function SecurityPage() {
               index={String(i + 1).padStart(2, '0')}
               title={b.title}
               visual={<MiniViz kind={bucketKinds[i]} />}
-              className={i < 2 ? 'v3-span-2' : undefined}
+              className={i < 2 ? 'v3-span-2' : i === buckets.length - 1 ? 'sv3-tile-split' : undefined}
               style={i === buckets.length - 1 ? { gridColumn: '1 / -1' } : undefined}
             >
               {b.body}

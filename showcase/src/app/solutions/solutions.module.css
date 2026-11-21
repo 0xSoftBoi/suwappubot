@@ -114,7 +114,12 @@
 
 .codeShell :global(.summer-code) pre {
   color: #cfe0f2;
+  white-space: pre;
+  overflow-x: auto;
+  word-break: normal;
+  overflow-wrap: normal;
 }
+.codeShell :global(.summer-code) code { white-space: pre; word-break: normal; overflow-wrap: normal; }
 
 /* Prompt/comment markers stay the one accent, brightened for the dark card. */
 .codeShell :global(.summer-code) code span {

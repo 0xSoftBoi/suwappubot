@@ -103,3 +103,11 @@
 .sv3-next.sv3-next [class*='note'] { color: #c4beb5; }
 .sv3-next.sv3-next li { border-color: rgba(255,255,255,0.12); }
 .sv3-formpanel { box-shadow: var(--v3-shadow), inset 0 1px 0 #fff; background: linear-gradient(180deg, #ffffff, #fffaf1); }
+
+/* v3 fix pass A: full-width split tile (visual left, text right) */
+.sv3-tile-split { flex-direction: row; align-items: center; }
+.sv3-tile-split .v3-tile__visual { flex: 0 0 min(30%, 240px); padding: 18px; }
+.sv3-tile-split .v3-tile__body { padding: 18px 24px 18px 6px; }
+@media (max-width: 700px) { .sv3-tile-split { flex-direction: column; align-items: stretch; } .sv3-tile-split .v3-tile__visual { flex: none; } }
+/* quiet backdrops (no ambient dots) and tidy mobile buttons */
+@media (max-width: 640px) { .mkt-cta .summer-actions a, .sv3-slab .summer-actions a { width: 100%; justify-content: center; text-align: center; } }

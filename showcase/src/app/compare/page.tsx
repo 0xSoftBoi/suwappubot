@@ -422,7 +422,7 @@ export default function ComparePage() {
           className={`${styles.ctaBand} sw-card-dark sw-grain sw-grain--dark sv3-slab v3-tone-dark`}
           aria-labelledby="compare-cta"
         >
-          <div className="sv3-slab__art" aria-hidden="true"><BoundaryRings /></div>
+          <div className="sv3-slab__art" aria-hidden="true"><BoundaryRings quiet /></div>
           <h2 className={styles.ctaTitle} id="compare-cta">
             A matrix is an argument. A fill is proof.
           </h2>

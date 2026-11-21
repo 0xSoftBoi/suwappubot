@@ -17,7 +17,7 @@ function order(scores: number[]) {
   return scores.map((s, i) => [s, i] as const).sort((a, b) => b[0] - a[0]).map(([, i]) => i);
 }
 
-export default function VenueRank({ venues }: { venues: string[] }) {
+export default function VenueRank({ venues, caption = 'Schematic · order varies per request' }: { venues: string[]; caption?: string }) {
   const n = Math.min(venues.length, 7);
   const ranks = STAGES.map((st) => {
     const ord = order(st.slice(0, n));
@@ -38,9 +38,9 @@ export default function VenueRank({ venues }: { venues: string[] }) {
                 '--y0': `${ranks[0][i] * RH}px`,
                 '--y1': `${ranks[1][i] * RH}px`,
                 '--y2': `${ranks[2][i] * RH}px`,
-                '--w0': STAGES[0][i] / 100,
-                '--w1': STAGES[1][i] / 100,
-                '--w2': STAGES[2][i] / 100,
+                '--w0': 1,
+                '--w1': 1,
+                '--w2': 1,
                 '--g': `${i * 0.09}s`,
                 height: RH,
               } as React.CSSProperties
@@ -51,6 +51,7 @@ export default function VenueRank({ venues }: { venues: string[] }) {
           </div>
         ))}
       </div>
+      <p className="v3-rank__cap">{caption}</p>
     </Live>
   );
 }

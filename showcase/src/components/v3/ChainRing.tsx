@@ -3,15 +3,15 @@ import type { ReactNode } from 'react';
 
 /**
  * ChainRing: portfolio-composition donut. Segments draw on; a fine tick ring
- * turns slowly. Segment sizes are illustrative (no numbers shown); names are
+ * turns slowly. Segments are EQUAL (coverage, never an allocation; no numbers); names are
  * supported chains. `children` renders in the hole (e.g. a CountUp).
  */
 const SEGS = [
-  { name: 'Ethereum', v: 31, c: 'var(--v3-cool)' },
-  { name: 'Base', v: 24, c: 'var(--v3-accent)' },
-  { name: 'Solana', v: 19, c: 'var(--v3-good)' },
-  { name: 'Arbitrum', v: 15, c: 'color-mix(in srgb, var(--v3-cool) 55%, var(--v3-ink))' },
-  { name: 'HyperLiquid', v: 11, c: 'color-mix(in srgb, var(--v3-accent) 55%, var(--v3-ink))' },
+  { name: 'Ethereum', v: 20, c: 'var(--v3-cool)' },
+  { name: 'Base', v: 20, c: 'var(--v3-accent)' },
+  { name: 'Solana', v: 20, c: 'var(--v3-good)' },
+  { name: 'Arbitrum', v: 20, c: 'color-mix(in srgb, var(--v3-cool) 55%, var(--v3-ink))' },
+  { name: 'HyperLiquid', v: 20, c: 'color-mix(in srgb, var(--v3-accent) 55%, var(--v3-ink))' },
 ];
 
 export default function ChainRing({ children }: { children?: ReactNode }) {

@@ -34,8 +34,9 @@ export function AuthorityFlow({ lanes }: { lanes: string[][] }) {
                   <g key={i}>
                     {i > 0 && (
                       <>
-                        <path d={`M${x - gap},${y + 22}H${x}`} stroke="var(--v3-line-strong)" pathLength={100} className="v3-draw" style={D(0.2 + li * 0.2 + i * 0.3)} />
-                        <path d={`M${x - gap},${y + 22}H${x}`} pathLength={100} className="v3-pulse" style={{ ...D(li), strokeWidth: 2.5 }} />
+                        <path d={`M${x - gap},${y + 22}H${x - 12}`} stroke="var(--v3-line-strong)" strokeWidth="1.4" pathLength={100} className="v3-draw" style={D(0.2 + li * 0.2 + i * 0.3)} />
+                        <path d={`M${x - gap},${y + 22}H${x - 11}`} pathLength={100} className="v3-pulse" style={{ ...D(li), strokeWidth: 2.5 }} />
+                        <path d={`M${x - 14},${y + 14}L${x - 2},${y + 22}L${x - 14},${y + 30}Z`} fill="var(--v3-accent)" stroke="var(--v3-accent)" strokeWidth="1.2" strokeLinejoin="round" className="v3-pop" style={D(0.5 + li * 0.2 + i * 0.3)} />
                       </>
                     )}
                     <rect x={x} y={y} width={w} height="44" rx="10" fill="var(--v3-surface-hi)" stroke={gate ? 'var(--v3-accent)' : 'var(--v3-line-strong)'} strokeWidth={gate ? 1.6 : 1} className="v3-pop" style={D(i * 0.25 + li * 0.15)} />

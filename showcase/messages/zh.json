@@ -301,6 +301,8 @@
       "fedrampTitle": "FedRAMP High 就绪",
       "fedrampBody": "证据包内含 NIST SP 800-53 控制对照表与故障即关闭的政府部署配置。"
     },
+    "schematic": "示意",
+    "rankCaption": "示意 · 顺序因请求而异",
     "atmosphere": {
       "soundOn": "声音开",
       "soundOff": "声音关",

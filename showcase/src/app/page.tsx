@@ -319,7 +319,7 @@ export default async function Home() {
             </Reveal>
             <Reveal className="hv3-stage v3-glass" delay={80}>
               <div className="hv3-stage__rank">
-                <VenueRank venues={rankVenues} />
+                <VenueRank venues={rankVenues} caption={h('rankCaption')} />
               </div>
               <div className="hv3-stage__map">
                 <RouteMap />
@@ -365,7 +365,7 @@ export default async function Home() {
               </Reveal>
               <Reveal stagger className="hv3-sparks">
                 {researchFacts.map((fact, i) => (
-                  <SparkCard key={fact.title} title={fact.title} body={fact.body} kind={(['ticks', 'line', 'bars'] as const)[i]} seed={i * 2 + 1} />
+                  <SparkCard key={fact.title} title={fact.title} body={fact.body} kind={(['ticks', 'line', 'bars'] as const)[i]} seed={i * 2 + 1} tag={h('schematic')} />
                 ))}
               </Reveal>
             </div>
