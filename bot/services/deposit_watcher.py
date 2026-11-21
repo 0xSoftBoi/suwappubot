@@ -242,7 +242,6 @@ class DepositWatcher:
     async def scan_chain(self, chain: str) -> int:
         """One pass over a chain. Returns the number of deposits credited."""
         from bot.services.hot_wallet import hot_wallet_service
-        from bot.services.rpc_manager import rpc_manager
 
         watched = hot_wallet_service.list_user_deposit_wallets("evm")
         if not watched:
