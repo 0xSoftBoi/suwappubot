@@ -259,3 +259,48 @@ ADRs 0001–0005.
   rejects). A `[skip ci]` journal commit must never be the head of a push that
   also carries code commits: GitHub reads the head commit and skips the whole
   push, so the code is never tested.
+
+
+## 2026-11-21 — A broadcast that raised is NOT a broadcast that failed [MONEY-PATH]
+
+- **What**: an exception from `send_raw_transaction` does not mean the
+  transaction failed to propagate. A client-side read timeout on a congested
+  RPC raises *after* the raw tx has already reached the node. So every
+  `except` around a broadcast must treat the outcome as **ambiguous**, never
+  as "nothing happened".
+- **Why it matters**: two swap paths re-sent on that exception, so both
+  transactions could execute and the user's funds moved twice.
+  `_execute_tempo_dex_swap` caught any exception from the sponsored (type-0x76
+  gasless) path and fell through to the user-paid path, which sends an approval
+  and a *second* swap. `_execute_lifi_swap` retried up to 3× whenever
+  `_is_retryable_rpc_error` matched — and that predicate matches any message
+  containing `"timeout"`, i.e. precisely the ambiguous case — re-fetching the
+  nonce and re-signing each time, so the second swap was an independent tx and
+  not even a nonce-collision no-op.
+- **The rule**: draw a hard line at the broadcast call. Pre-broadcast failures
+  (quote rejected, no sponsor wallet, signing, encoding) are safe to retry or
+  fall back from, and that fallback is worth keeping — narrow it, don't delete
+  it. At-or-after-broadcast failures raise a distinct type carrying
+  `keccak(signed payload)`, recovered *locally before* the send so the hash is
+  known even when the RPC returned nothing. Callers must not retry, re-sign,
+  refund, or fall back to another path that broadcasts.
+- **Where this is already done right** (copy these, don't reinvent):
+  `bot/utils/exceptions.py::PostBroadcastAmbiguous` (the one canonical class;
+  re-exported from `bot/services/hot_wallet.py` for existing import sites),
+  `PaymasterUnavailableError` vs `PaymasterSubmittedError` on the Starknet
+  gasless rail, the CCTP burn in `_execute_cctp_swap`, and
+  `TempoSponsorUnavailableError` vs `TempoSponsorSubmittedError` on Tempo.
+- **Not instances of this bug** (checked — don't "fix" them): the
+  Flashbots-relay-to-public fallback in `_broadcast_evm_tx` resubmits the SAME
+  signed tx to a different endpoint, so at worst the node sees one hash twice;
+  the LI.FI ERC20 approval retry is safe because `approve()` sets an *absolute*
+  allowance; `membership_service.submit_subscription` hands the user
+  broadcastable calldata instead of auto-resending, and the contract's `seq`
+  makes replaying the same signature revert.
+- **Latent trap**: `vault_service.py::_build_and_send` and
+  `morpho_api.py::_build_and_send` put the send *outside* their try, so wiring
+  either into a `_failover` loop would replay it with a fresh nonce. Keep sends
+  out of failover.
+- **Consequence if ignored**: a user's swap executes twice on a slow RPC, and
+  the row can also be marked FAILED from the first tx's receipt while the
+  second one actually moved the funds — which then reads as "safe to retry".
