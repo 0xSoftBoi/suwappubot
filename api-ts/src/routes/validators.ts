@@ -76,6 +76,9 @@ export const RESERVED_METADATA_KEYS = [
 	'internal_user_id',
 	'internal_wallet_id',
 	'intercepta',
+	// camelCase aliases that routes/predict.ts used to trust for signing.
+	'walletAddress',
+	'subOrgId',
 ] as const
 
 function rejectReservedMetadataKeys(metadata: Record<string, unknown> | undefined) {

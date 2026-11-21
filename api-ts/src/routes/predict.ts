@@ -240,7 +240,7 @@ predictRoutes.post('/order', agentBearerAuth(), regionGate(), async (c) => {
 			const turnkey = yield* TurnkeyService
 
 			// Step 1: Get or lazy-init CLOB API credentials
-			let credentials = yield* credService.getCredentials(agentId)
+			let credentials = yield* credService.getCredentials(agentId, managedWalletAddress(agent))
 
 			if (!credentials) {
 				// Need to create CLOB API credentials via wallet signature
@@ -401,7 +401,7 @@ predictRoutes.delete('/order/:id', agentBearerAuth(), regionGate(), async (c) =>
 			const pm = yield* PolymarketService
 			const credService = yield* PolymarketCredentialService
 
-			const credentials = yield* credService.getCredentials(agentId)
+			const credentials = yield* credService.getCredentials(agentId, managedWalletAddress(agent))
 			if (!credentials) {
 				return yield* Effect.fail(
 					new ValidationError({ message: 'No Polymarket credentials found. Place an order first to initialize.' }),
@@ -438,7 +438,7 @@ predictRoutes.get('/positions', agentBearerAuth(), regionGate(), async (c) => {
 			const pm = yield* PolymarketService
 			const credService = yield* PolymarketCredentialService
 
-			const credentials = yield* credService.getCredentials(agentId).pipe(
+			const credentials = yield* credService.getCredentials(agentId, managedWalletAddress(agent)).pipe(
 				Effect.tapError((e) => Effect.sync(() => logger.error({ err: e.message, agentId }, '[Predict] credential lookup failed'))),
 				Effect.mapError(() => new ExternalServiceError({
 					message: 'Polymarket credential lookup failed',
@@ -505,7 +505,7 @@ predictRoutes.get('/orders', agentBearerAuth(), regionGate(), async (c) => {
 			const pm = yield* PolymarketService
 			const credService = yield* PolymarketCredentialService
 
-			const credentials = yield* credService.getCredentials(agentId)
+			const credentials = yield* credService.getCredentials(agentId, managedWalletAddress(agent))
 			if (!credentials) {
 				return yield* Effect.fail(
 					new ValidationError({ message: 'No Polymarket credentials found. Place an order first to initialize.' }),

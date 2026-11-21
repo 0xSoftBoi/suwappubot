@@ -35,7 +35,7 @@ function deriveKey(secret: string): Buffer {
 }
 
 export interface PolymarketCredentialServiceInterface {
-	readonly getCredentials: (agentId: string) => Effect.Effect<ClobApiCredentials | null, Error, DrizzleService>
+	readonly getCredentials: (agentId: string, expectedWallet: string | undefined) => Effect.Effect<ClobApiCredentials | null, Error, DrizzleService>
 	readonly storeCredentials: (agentId: string, walletAddress: string, credentials: ClobApiCredentials) => Effect.Effect<void, Error, DrizzleService>
 	readonly deleteCredentials: (agentId: string) => Effect.Effect<void, Error, DrizzleService>
 }
@@ -56,7 +56,11 @@ export const PolymarketCredentialServiceLive = Layer.effect(
 			return deriveKey(keyMaterial)
 		}
 
-		const getCredentials = (agentId: string) =>
+		// `expectedWallet` is the agent's server-provisioned managed wallet. Stored
+		// credentials are only usable for that wallet: a row created for any other
+		// address (possible before the routes stopped trusting agent-supplied
+		// metadata) is treated as if no account existed.
+		const getCredentials = (agentId: string, expectedWallet: string | undefined) =>
 			Effect.gen(function* () {
 				const db = yield* requireDb
 
@@ -73,6 +77,7 @@ export const PolymarketCredentialServiceLive = Layer.effect(
 				const row = rows[0]
 				// No account yet: nothing to decrypt, so don't require the key.
 				if (!row || !row.isActive) return null
+				if (!expectedWallet || (row.walletAddress ?? '').toLowerCase() !== expectedWallet.toLowerCase()) return null
 				const key = yield* Effect.try({
 					try: () => getEncryptionKey(),
 					catch: (e) => (e instanceof Error ? e : new Error(String(e))),
