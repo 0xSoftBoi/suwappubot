@@ -41,6 +41,8 @@ export type GrowthReport = {
   series: Day[];
   topPages: { path: string; views: number; visitors: number }[];
   topSources: { source: string; visitors: number; conversions: number }[];
+  /** Recorded swaps per launch/micro-product ref (older API responses omit it). */
+  swapsBySource?: { source: string; swaps: number }[];
   topEvents: { name: string; count: number; visitors: number }[];
   leadSources: { source: string; count: number }[];
   recentLeads: Lead[];
@@ -493,6 +495,9 @@ export default function GrowthSection({ load }: { load: (path: string) => Promis
             <RankList title="Where sign-ups came from" hint="The campaign tag on leads and sign-ups, when there was one."
               empty="No sign-ups in this period yet."
               rows={report.leadSources.map((s) => ({ key: s.source, label: s.source, value: s.count }))} />
+            <RankList title="Swaps by source" hint="Recorded swaps tagged with the launch or product that sent the trader (the ref in the link)."
+              empty="No attributed swaps in this period yet."
+              rows={(report.swapsBySource ?? []).map((s) => ({ key: s.source, label: s.source, value: s.swaps }))} />
           </div>
 
           <div className={styles.panel}>

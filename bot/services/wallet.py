@@ -1156,7 +1156,7 @@ class WalletService:
         """
         endpoints = settings.starknet_rpc_endpoints()
         now = time.monotonic()
-        live = [(l, u) for l, u in endpoints if _STARKNET_COOLDOWN.get(l, 0.0) <= now]
+        live = [(label, u) for label, u in endpoints if _STARKNET_COOLDOWN.get(label, 0.0) <= now]
         if not live:
             raise ConnectionError(
                 f"All Starknet RPCs cooling down after failures ({method} not attempted)"
