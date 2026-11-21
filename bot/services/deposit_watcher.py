@@ -86,9 +86,19 @@ MIN_BLOCK_RANGE = 100
 # 1024 block range"; others "-32005 limit exceeded", "query returned more than
 # N results"). Halving the range is the fix for these; switching endpoint is
 # not, since the next provider usually has a cap of its own.
+#
+# Deliberately NOT matched, because halving does nothing for them and they need
+# a different endpoint instead: bare "limit exceeded" and "-32005", which
+# providers also use for RATE limits ("Rate limit exceeded", "compute units
+# limit exceeded"); and "block range extends beyond current head", which means
+# the node is lagging, not that the range is too wide.
 _RANGE_LIMIT_ERROR = re.compile(
-    r"block range|range (?:is )?too|limit exceeded|-32005|more than \d+ results|"
-    r"query returned more|too many (?:logs|results|blocks)",
+    r"limited to \d+ block|"
+    r"block range (?:is )?(?:too|exceed|larger|greater)|"
+    r"range (?:is )?too (?:large|wide|big)|"
+    r"exceed(?:s|ed)? (?:the )?(?:max(?:imum)? )?(?:allowed )?(?:block )?range|"
+    r"more than \d+ (?:results|logs|blocks)|query returned more|"
+    r"too many (?:logs|results|blocks)",
     re.IGNORECASE,
 )
 
@@ -104,6 +114,10 @@ ADDRESS_CHUNK = 100
 
 class _RangeLimited(Exception):
     """A provider rejected the block range as too large."""
+
+
+class _Lagging(Exception):
+    """A failover endpoint has not reached the end of the requested range."""
 
 
 # How far back to start when a chain has never been scanned. Deposits sent
@@ -229,12 +243,42 @@ class DepositWatcher:
             )
             return True
         except Exception as exc:
-            # The unique index doing its job is the expected path on a re-scan,
-            # not an error. Anything else is worth seeing.
-            if "unique" in str(exc).lower() or "duplicate" in str(exc).lower():
+            # The unique index doing its job is the expected path on a re-scan.
+            # Decide that by asking whether the ledger row exists, NOT by
+            # matching "unique" in the message: update_custodial_balance can hit
+            # a unique race on the BALANCE row, which rolls the ledger row back
+            # too, and reading that as "already credited" loses the deposit.
+            # (SQLite's message also never names the index, so name-matching
+            # cannot work on both backends.)
+            if self._already_credited(user_id, key):
                 logger.debug("Deposit %s already credited", key)
-            else:
-                logger.error("Failed to credit deposit %s: %s", key, exc)
+                return False
+            # Nothing was credited: the ledger row and the balance move rolled
+            # back together. Raise rather than return, so scan_chain stops before
+            # advancing the cursor and the next pass retries this range. This
+            # used to return False, the scan carried on, and the cursor moved
+            # past a deposit that was never booked — a transient DB error was
+            # enough to lose it for good. Re-crediting is idempotent; skipping
+            # is permanent.
+            logger.error("Failed to credit deposit %s: %s", key, exc)
+            raise
+
+    def _already_credited(self, user_id: int, key: str) -> bool:
+        """Whether the ledger row for this deposit is committed."""
+        try:
+            with get_session() as session:
+                return (
+                    session.query(CustodialTransaction.id)
+                    .filter(
+                        CustodialTransaction.user_id == user_id,
+                        CustodialTransaction.idempotency_key == key,
+                    )
+                    .first()
+                    is not None
+                )
+        except Exception:
+            # Cannot tell, so assume not credited. The caller then aborts the
+            # pass and retries, which is safe; guessing "credited" is not.
             return False
 
     # --- scan -------------------------------------------------------------
@@ -264,6 +308,10 @@ class DepositWatcher:
             return 0
 
         web3 = rpc_manager.get_web3(chain)
+        # Read the URL now, with no await in between: another task can rebuild
+        # the cache during the awaits below, and a mislabelled primary would
+        # cool down the wrong endpoint while the failing one gets retried.
+        primary_url = rpc_manager.current_url(chain)
         head = await asyncio.to_thread(lambda: web3.eth.block_number)
         safe_head = head - CONFIRMATIONS.get(chain, 12)
         if safe_head <= 0:
@@ -298,7 +346,16 @@ class DepositWatcher:
             to_block = min(safe_head, cursor + span)
             try:
                 logs = await self._fetch_range(
-                    chain, web3, from_block, to_block, token_addresses, addresses
+                    chain,
+                    web3,
+                    primary_url,
+                    from_block,
+                    to_block,
+                    token_addresses,
+                    addresses,
+                    # At the floor, a "range" error can only be the provider
+                    # misbehaving, so let it fall through to failover instead.
+                    allow_range_shrink=span > MIN_BLOCK_RANGE,
                 )
                 break
             except _RangeLimited as exc:
@@ -337,10 +394,13 @@ class DepositWatcher:
         self,
         chain: str,
         primary: Web3,
+        primary_url: Optional[str],
         from_block: int,
         to_block: int,
         token_addresses: List[str],
         addresses: List[str],
+        *,
+        allow_range_shrink: bool,
     ) -> list:
         """Every matching log in [from_block, to_block], or raise.
 
@@ -359,10 +419,21 @@ class DepositWatcher:
                 "address": token_addresses,
                 "topics": [TRANSFER_TOPIC0, None, [_topic_for_address(a) for a in chunk]],
             }
-            out.extend(await self._get_logs_with_failover(chain, primary, params))
+            out.extend(
+                await self._get_logs_with_failover(
+                    chain, primary, primary_url, params, allow_range_shrink
+                )
+            )
         return out
 
-    async def _get_logs_with_failover(self, chain: str, primary: Web3, params: dict) -> list:
+    async def _get_logs_with_failover(
+        self,
+        chain: str,
+        primary: Web3,
+        primary_url: Optional[str],
+        params: dict,
+        allow_range_shrink: bool,
+    ) -> list:
         """eth_getLogs, falling over to other endpoints when one rejects it.
 
         The RPC manager never probes eth_getLogs, so an endpoint that answers
@@ -374,28 +445,42 @@ class DepositWatcher:
         from bot.services.rpc_manager import rpc_manager
 
         now = time.monotonic()
-        primary_url = rpc_manager.current_url(chain)
-        candidates: List[Tuple[Optional[str], Web3]] = []
+        candidates: List[Tuple[Optional[str], bool]] = []
         if primary_url is None or self._logs_cooldown.get((chain, primary_url), 0.0) <= now:
-            candidates.append((primary_url, primary))
+            candidates.append((primary_url, True))
         for url in rpc_manager.get_healthy_urls(chain):
-            if len(candidates) >= MAX_LOG_ENDPOINTS:
-                break
-            if url == primary_url or self._logs_cooldown.get((chain, url), 0.0) > now:
-                continue
-            candidates.append((url, rpc_manager.web3_for_url(chain, url)))
-
+            if url != primary_url and self._logs_cooldown.get((chain, url), 0.0) <= now:
+                candidates.append((url, False))
         if not candidates:
             # Every endpoint is cooling down; fall back to the primary rather
             # than skip the pass, since a cooldown is a guess and the read is cheap.
-            candidates.append((primary_url, primary))
+            candidates.append((primary_url, True))
 
+        to_block = params["toBlock"]
         last_exc: Optional[Exception] = None
-        for url, client in candidates:
+        for url, is_primary in candidates[:MAX_LOG_ENDPOINTS]:
+            # Built lazily: most passes succeed on the primary and need none.
+            client = primary if is_primary else rpc_manager.web3_for_url(chain, url)
+
+            def _read(c: Web3 = client, check_head: bool = not is_primary) -> list:
+                # safe_head came from the PRIMARY. A failover endpoint behind it
+                # may answer a log query for blocks it has not reached with an
+                # empty list instead of an error, and trusting that would move
+                # the cursor past real deposits. So confirm it has reached the
+                # end of the range first.
+                if check_head:
+                    head = c.eth.block_number
+                    if head < to_block:
+                        raise _Lagging(f"head {head} is behind block {to_block}")
+                return c.eth.get_logs(params)
+
             try:
-                return await asyncio.to_thread(lambda c=client: c.eth.get_logs(params))
+                return await asyncio.to_thread(_read)
+            except _Lagging as exc:
+                # Behind, not broken: skip it this time without a cooldown.
+                last_exc = exc
             except Exception as exc:
-                if _RANGE_LIMIT_ERROR.search(str(exc)):
+                if allow_range_shrink and _RANGE_LIMIT_ERROR.search(str(exc)):
                     raise _RangeLimited(str(exc)[:160]) from exc
                 last_exc = exc
                 if url is not None:
