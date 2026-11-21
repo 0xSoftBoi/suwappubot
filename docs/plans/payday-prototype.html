@@ -1,0 +1,382 @@
+<title>Suwappu Payday</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Inter:wght@400;500;600&display=swap">
+<style>
+/* Layout: one phone-width app column, bottom tab bar, sheets slide up from the bottom. Persimmon accent from the Suwappu brand. */
+:root{
+  --bg:#fbf7f2; --surface:#ffffff; --sunk:#f3ece3; --fg:#1f1a15; --muted:#776b5f; --line:#e8ded2;
+  --accent:#f29a2e; --accent-ink:#2a1700; --accent-soft:#fde8cc;
+  --good:#1f8a5b; --good-soft:#dcf2e7; --warn:#a8650a; --warn-soft:#fbecd2;
+  --display:"Bricolage Grotesque", ui-rounded, "Segoe UI", system-ui, sans-serif;
+  --body:"Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --r:18px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#16120e; --surface:#211b16; --sunk:#2b241d; --fg:#f6efe7; --muted:#b3a597; --line:#3a3027;
+  --accent:#ffb45b; --accent-ink:#2a1700; --accent-soft:#3d2a14;
+  --good:#5fd09a; --good-soft:#173528; --warn:#f4b55a; --warn-soft:#3a2a12; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#16120e; --surface:#211b16; --sunk:#2b241d; --fg:#f6efe7; --muted:#b3a597; --line:#3a3027;
+  --accent:#ffb45b; --accent-ink:#2a1700; --accent-soft:#3d2a14;
+  --good:#5fd09a; --good-soft:#173528; --warn:#f4b55a; --warn-soft:#3a2a12; color-scheme:dark}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font:15px/1.5 var(--body);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.app{max-width:440px;margin:0 auto;padding-block:12px 110px;display:flex;flex-direction:column;gap:18px}
+h1,h2,h3{font-family:var(--display);margin:0;text-wrap:balance;letter-spacing:-.01em}
+h1{font-size:1.65rem;font-weight:800}
+h2{font-size:1.15rem;font-weight:700}
+.num{font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)}
+.small{font-size:.85rem}
+.proto{font-size:.78rem;color:var(--muted);text-align:center;background:var(--sunk);border-radius:999px;padding:6px 12px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.biz{display:flex;align-items:center;gap:10px;min-width:0}
+.logo{width:40px;height:40px;border-radius:12px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font:800 1.1rem var(--display);flex:none}
+.biz small{display:block;color:var(--muted);font-size:.8rem}
+.chip{border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:999px;padding:6px 12px;font:500 .85rem var(--body);cursor:pointer}
+.chip:focus-visible,.btn:focus-visible,.row:focus-visible,.tab:focus-visible,.opt:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+
+/* hero payday card */
+.payday{background:var(--accent);color:var(--accent-ink);border-radius:26px;padding:22px;display:flex;flex-direction:column;gap:14px;position:relative;overflow:hidden}
+.payday::after{content:"";position:absolute;right:-40px;top:-40px;width:170px;height:170px;border-radius:50%;background:rgba(255,255,255,.22)}
+.payday .label{font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;font-weight:600;opacity:.8}
+.payday .big{font:800 2.6rem/1 var(--display)}
+.payday .meta{display:flex;gap:8px;flex-wrap:wrap;position:relative;z-index:1}
+.payday .meta span{background:rgba(255,255,255,.35);border-radius:999px;padding:4px 10px;font-size:.82rem;font-weight:500}
+.btn{appearance:none;border:0;border-radius:14px;padding:14px 18px;font:600 1rem var(--body);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.btn-dark{background:var(--accent-ink);color:#fff}
+.btn-primary{background:var(--accent);color:var(--accent-ink)}
+.btn-ghost{background:var(--sunk);color:var(--fg)}
+.btn-wide{width:100%}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+
+/* money account */
+.account{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.account .amt{font:700 1.4rem var(--display)}
+.cover{height:6px;border-radius:999px;background:var(--sunk);overflow:hidden;margin-top:8px}
+.cover i{display:block;height:100%;background:var(--good);border-radius:999px}
+
+/* lists */
+.section{display:flex;flex-direction:column;gap:10px}
+.section-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.list{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.row{display:flex;align-items:center;gap:12px;padding:13px 14px;border-top:1px solid var(--line);background:none;border-left:0;border-right:0;border-bottom:0;width:100%;text-align:left;color:inherit;font:inherit;cursor:pointer}
+.row:first-child{border-top:0}
+.av{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font:700 .9rem var(--display);flex:none;background:var(--sunk);color:var(--fg)}
+.row .main{flex:1;min-width:0}
+.row .main b{font-weight:600;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .main small{color:var(--muted);font-size:.82rem}
+.row .right{text-align:right;flex:none}
+.row .right b{font-family:var(--display);font-weight:700}
+.pill{display:inline-block;border-radius:999px;padding:2px 8px;font-size:.74rem;font-weight:600}
+.pill.good{background:var(--good-soft);color:var(--good)}
+.pill.warn{background:var(--warn-soft);color:var(--warn)}
+.pill.plain{background:var(--sunk);color:var(--muted)}
+
+/* templates */
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.opt{background:var(--surface);border:1.5px solid var(--line);border-radius:16px;padding:14px;text-align:left;cursor:pointer;color:inherit;font:inherit;display:flex;flex-direction:column;gap:4px}
+.opt[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft)}
+.opt b{font-family:var(--display);font-weight:700}
+.opt small{color:var(--muted);font-size:.8rem;line-height:1.35}
+.opt svg{width:26px;height:26px;color:var(--accent)}
+
+/* tabs */
+.tabs{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line);
+  padding:8px max(16px,env(safe-area-inset-left,0px)) calc(8px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-right,0px));z-index:5}
+.tabs nav{max-width:440px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+.tab{background:none;border:0;color:var(--muted);font:500 .75rem var(--body);display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px;border-radius:12px;cursor:pointer}
+.tab svg{width:22px;height:22px}
+.tab[aria-current="page"]{color:var(--fg);background:var(--sunk)}
+
+/* sheet */
+.scrim{position:fixed;inset:0;background:rgba(20,12,4,.45);z-index:20;display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:var(--bg);width:100%;max-width:480px;border-radius:24px 24px 0 0;max-height:92%;overflow:auto;
+  padding:10px max(18px,env(safe-area-inset-left,0px)) calc(22px + env(safe-area-inset-bottom,0px)) max(18px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:16px;animation:up .22s ease-out}
+.grab{width:42px;height:5px;border-radius:999px;background:var(--line);margin:0 auto}
+@keyframes up{from{transform:translateY(30px);opacity:.6}to{transform:none;opacity:1}}
+@media (prefers-reduced-motion:reduce){.sheet{animation:none}}
+label{display:flex;flex-direction:column;gap:6px;font-weight:500;font-size:.9rem}
+input,select{font:inherit;padding:13px 14px;border-radius:12px;border:1.5px solid var(--line);background:var(--surface);color:var(--fg);width:100%}
+input:focus,select:focus{outline:none;border-color:var(--accent)}
+.money-in{position:relative}
+.money-in span{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--muted);font-weight:600}
+.money-in input{padding-left:28px;font:700 1.2rem var(--display)}
+.seg{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.seg button{border:1.5px solid var(--line);background:var(--surface);color:var(--fg);border-radius:10px;padding:9px 4px;font:500 .82rem var(--body);cursor:pointer}
+.seg button[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft)}
+.note{background:var(--sunk);border-radius:14px;padding:12px 14px;font-size:.88rem;color:var(--muted)}
+.sum{display:flex;flex-direction:column;gap:8px}
+.sum div{display:flex;justify-content:space-between;gap:12px}
+.sum .total{border-top:1px solid var(--line);padding-top:10px;font:700 1.15rem var(--display)}
+.done{text-align:center;display:flex;flex-direction:column;align-items:center;gap:10px;padding-top:6px}
+.check{width:72px;height:72px;border-radius:50%;background:var(--good-soft);color:var(--good);display:grid;place-items:center}
+.check svg{width:38px;height:38px}
+
+/* recipient preview */
+.phone{background:var(--surface);border:1px solid var(--line);border-radius:28px;padding:20px;display:flex;flex-direction:column;gap:16px}
+.bubble{background:var(--sunk);border-radius:18px 18px 18px 6px;padding:12px 14px;font-size:.92rem}
+.received{text-align:center;display:flex;flex-direction:column;gap:4px}
+.received .big{font:800 2.4rem var(--display)}
+.ways{display:flex;flex-direction:column;gap:8px}
+.way{display:flex;align-items:center;gap:12px;border:1.5px solid var(--line);border-radius:14px;padding:12px 14px;background:var(--bg);cursor:pointer;color:inherit;font:inherit;text-align:left;width:100%}
+.way[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft)}
+.way .main{flex:1;min-width:0}
+.way small{display:block;color:var(--muted);font-size:.8rem}
+.toast{position:fixed;left:50%;bottom:calc(86px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:999px;font-weight:500;font-size:.9rem;z-index:30;max-width:calc(100% - 32px)}
+</style>
+
+<div class="app" id="app"></div>
+<div class="tabs"><nav id="tabs" aria-label="Main"></nav></div>
+<div id="layer"></div>
+
+<script>
+(function(){
+const I = {
+  home:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>',
+  people:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.3-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><circle cx="17" cy="9" r="2.6"/><path d="M17 14.5c2.3 0 4 1.4 4.6 4"/></svg>',
+  clock:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  eye:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
+  check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+  shop:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9l1.5-5h13L20 9M4 9v11h16V9M4 9h16M9 20v-6h6v6"/></svg>',
+  laptop:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19h20"/></svg>',
+  ball:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18"/></svg>',
+  star:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg>',
+  heart:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 20s-7.5-4.6-9-9.5C2 6.9 4.5 4 7.5 4c2 0 3.5 1.2 4.5 2.7C13 5.2 14.5 4 16.5 4 19.5 4 22 6.9 21 10.5 19.5 15.4 12 20 12 20z"/></svg>',
+  trophy:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 4h8v5a4 4 0 0 1-8 0zM8 6H4.5a3 3 0 0 0 3.5 4M16 6h3.5a3 3 0 0 1-3.5 4M12 13v4M8 20h8"/></svg>'
+};
+
+// What you pay for changes the words, not the product.
+const USES = {
+  staff:{icon:'shop',name:'My staff',hint:'Shifts, hourly or salary',who:'staff',one:'team member',cta:'Run payroll'},
+  freelancers:{icon:'laptop',name:'Freelancers',hint:'Invoices and projects',who:'freelancers',one:'freelancer',cta:'Pay freelancers'},
+  club:{icon:'ball',name:'A club or team',hint:'Refs, coaches, helpers',who:'helpers',one:'helper',cta:'Pay the team'},
+  creators:{icon:'star',name:'Creators',hint:'Revenue share, affiliates',who:'creators',one:'creator',cta:'Send payouts'},
+  family:{icon:'heart',name:'Family',hint:'Allowance, help at home',who:'family',one:'person',cta:'Send allowance'},
+  prizes:{icon:'trophy',name:'Prizes & bounties',hint:'One-off rewards',who:'winners',one:'winner',cta:'Pay winners'}
+};
+
+const OFTEN = {once:'One time',weekly:'Every week',biweekly:'Every 2 weeks',monthly:'Every month'};
+const WAYS = {
+  bank:{name:'Bank account',time:'1–2 business days',fee:'Free'},
+  instant:{name:'Debit card',time:'Within minutes',fee:'1% fee'},
+  app:{name:'Keep in Suwappu',time:'Instantly · earns ~4% a year',fee:'Free'},
+  crypto:{name:'Crypto wallet',time:'Instantly · any coin, any network',fee:'Free'},
+  pending:{name:'Not picked yet',time:'We texted them a link',fee:''}
+};
+
+// Example data: a sample ramen shop, clearly not the user's own figures.
+const S = {
+  view:'home', use:'staff', biz:'Ramen Bar (sample)', balance:12300,
+  people:[
+    {id:1,name:'Maya Chen',contact:'(415) 555-0142',amount:2400,often:'biweekly',way:'bank',role:'Kitchen lead'},
+    {id:2,name:'Diego Ruiz',contact:'diego@example.com',amount:1850,often:'biweekly',way:'instant',role:'Line cook'},
+    {id:3,name:'Aiko Tanaka',contact:'@aiko_t',amount:1600,often:'biweekly',way:'app',role:'Server'},
+    {id:4,name:'Sam Okafor',contact:'(415) 555-0199',amount:1350,often:'biweekly',way:'crypto',role:'Server'},
+    {id:5,name:'Lena Park',contact:'lena@example.com',amount:2250,often:'biweekly',way:'pending',role:'Manager (new)'}
+  ],
+  activity:[
+    {date:'Nov 14',title:'Payroll · 4 people',amount:7200,status:'Everyone paid'},
+    {date:'Nov 10',title:'Added money from Chase ••4410',amount:-10000,status:'Arrived'},
+    {date:'Oct 31',title:'Payroll · 4 people',amount:7200,status:'Everyone paid'},
+    {date:'Oct 24',title:'Holiday bonus · Maya',amount:300,status:'Paid'}
+  ],
+  payday:'Fri, Nov 28', nextId:6, seeAs:1
+};
+
+const $ = (s,el=document)=>el.querySelector(s);
+const money = n => '$'+Math.round(n).toLocaleString('en-US');
+const esc = s => String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const initials = n => n.split(/\s+/).map(w=>w[0]||'').join('').slice(0,2).toUpperCase();
+const hue = id => ['#fde8cc','#dcefe6','#e3e4fb','#fbe0e6','#e6f0d6'][id%5];
+const U = ()=>USES[S.use];
+const due = ()=>S.people.reduce((a,p)=>a+p.amount,0);
+const fee = ()=>S.people.filter(p=>p.way==='instant').reduce((a,p)=>a+p.amount*0.01,0);
+
+function toast(msg){const t=document.createElement('div');t.className='toast';t.setAttribute('role','status');t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),2400)}
+
+function personRow(p,showAmount=true){
+  const w=WAYS[p.way];
+  const pill = p.way==='pending' ? '<span class="pill warn">Needs to pick</span>' : '<span class="pill plain">'+esc(w.name)+'</span>';
+  return `<button class="row" data-edit="${p.id}"><span class="av" style="background:${hue(p.id)};color:#2a1700">${initials(p.name)}</span>
+    <span class="main"><b>${esc(p.name)}</b><small>${esc(p.role||OFTEN[p.often])}</small></span>
+    <span class="right">${showAmount?`<b class="num">${money(p.amount)}</b><br>`:''}${pill}</span></button>`;
+}
+
+const views = {
+  home(){
+    const total=due(), cov=Math.min(100,S.balance/total*100), short=total+fee()-S.balance;
+    return `
+    <div class="proto">Prototype · example data · no real money moves</div>
+    <div class="top"><div class="biz"><div class="logo">${esc(S.biz[0])}</div><div><b>${esc(S.biz)}</b><small>Paying ${esc(U().who)}</small></div></div>
+      <button class="chip" data-act="use">Change</button></div>
+    <section class="payday" aria-label="Next payday">
+      <span class="label">Next payday · ${S.payday}</span>
+      <span class="big num">${money(total)}</span>
+      <div class="meta"><span>${S.people.length} ${esc(U().who)}</span><span>${OFTEN[S.people[0]?.often||'biweekly']}</span><span>Auto-pay on</span></div>
+      <button class="btn btn-dark btn-wide" data-act="review" ${S.people.length?'':'disabled'}>${esc(U().cta)} now</button>
+    </section>
+    <div class="account"><div style="flex:1;min-width:0"><span class="muted small">Money in your Payday account</span>
+      <div class="amt num">${money(S.balance)}</div>
+      <div class="cover" aria-hidden="true"><i style="width:${cov}%;${cov<100?'background:var(--warn)':''}"></i></div>
+      <span class="small ${short>0?'':'muted'}" style="${short>0?'color:var(--warn)':''}">${short>0?`Add ${money(short)} before ${S.payday.split(', ')[1]}`:'Enough for this payday'}</span></div>
+      <button class="btn btn-ghost" data-act="add-money">Add money</button></div>
+    <section class="section"><div class="section-head"><h2>Who gets paid</h2><button class="chip" data-act="add">+ Add</button></div>
+      <div class="list">${S.people.map(p=>personRow(p)).join('')||'<div class="row muted">No one yet. Add your first person.</div>'}</div></section>`;
+  },
+  people(){
+    return `<h1>Your ${esc(U().who)}</h1>
+    <p class="muted" style="margin:0">Tap someone to change their pay. They choose how they get it, you never handle bank details.</p>
+    <button class="btn btn-primary btn-wide" data-act="add">Add a ${esc(U().one)}</button>
+    <div class="list">${S.people.map(p=>personRow(p)).join('')}</div>
+    <div class="note">Got a spreadsheet? <b>Upload a list</b> with names, phone or email, and amounts. We'll invite everyone at once.</div>`;
+  },
+  activity(){
+    return `<h1>Activity</h1>
+    <div class="list">${S.activity.map(a=>`<div class="row" style="cursor:default"><span class="av">${a.amount<0?'+':'↗'}</span>
+      <span class="main"><b>${esc(a.title)}</b><small>${esc(a.date)} · ${esc(a.status)}</small></span>
+      <span class="right"><b class="num" style="${a.amount<0?'color:var(--good)':''}">${a.amount<0?'+'+money(-a.amount):money(a.amount)}</b><br><span class="pill good">Receipt</span></span></div>`).join('')}</div>
+    <div class="note">Every payment comes with a pay stub for them and a record for you. Year-end tax forms are made for you automatically.</div>`;
+  },
+  them(){
+    const p=S.people.find(x=>x.id===S.seeAs)||S.people[0];
+    if(!p) return '<h1>Add someone first</h1>';
+    return `<h1>What they see</h1>
+    <p class="muted" style="margin:0">No app to download. They get a text or Telegram message with a link.</p>
+    <label for="seeAs">Preview as<select id="seeAs">${S.people.map(x=>`<option value="${x.id}" ${x.id===p.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select></label>
+    <div class="phone">
+      <div class="bubble">Hi ${esc(p.name.split(' ')[0])}, ${esc(S.biz.replace(' (sample)',''))} sent you ${money(p.amount)} on Payday. Tap to get it: <u>pay.suwappu.bot/k7Q2</u></div>
+      <div class="received"><span class="muted small">You got paid</span><span class="big num">${money(p.amount)}</span><span class="muted small">from ${esc(S.biz.replace(' (sample)',''))} · ${S.payday}</span></div>
+      <div><h3 style="font-size:1rem;margin-bottom:8px">How do you want it?</h3>
+      <div class="ways">${['bank','instant','app','crypto'].map(k=>`<button class="way" data-way="${k}" aria-pressed="${p.way===k}">
+        <span class="main"><b>${WAYS[k].name}</b><small>${WAYS[k].time}</small></span><span class="pill ${WAYS[k].fee==='Free'?'good':'plain'}">${WAYS[k].fee}</span></button>`).join('')}</div></div>
+      <div class="note small">You can split it too, like 80% to the bank and 20% to savings. We'll remember your choice for next time.</div>
+    </div>`;
+  }
+};
+
+function render(){
+  $('#app').innerHTML = views[S.view]();
+  $('#tabs').innerHTML = [['home','Home','home'],['people','People','people'],['activity','Activity','clock'],['them','Their view','eye']]
+    .map(([k,l,ic])=>`<button class="tab" data-view="${k}" ${S.view===k?'aria-current="page"':''}>${I[ic]}${l}</button>`).join('');
+  const sel=$('#seeAs'); if(sel) sel.onchange=e=>{S.seeAs=+e.target.value;render()};
+}
+
+function sheet(html,onMount){
+  const layer=$('#layer');
+  layer.innerHTML=`<div class="scrim" data-close><div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>${html}</div></div>`;
+  const sc=$('.scrim',layer);
+  sc.addEventListener('click',e=>{if(e.target===sc||e.target.closest('[data-x]'))close()});
+  onMount&&onMount($('.sheet',layer));
+  const f=$('input,button.btn',layer); f&&f.focus();
+}
+function close(){ $('#layer').innerHTML=''; }
+
+function useSheet(){
+  sheet(`<h2>What are you paying for?</h2><p class="muted" style="margin:0">Same simple flow for all of them. We just use the right words.</p>
+  <div class="grid">${Object.entries(USES).map(([k,u])=>`<button class="opt" data-pick="${k}" aria-pressed="${S.use===k}">${I[u.icon]}<b>${u.name}</b><small>${u.hint}</small></button>`).join('')}</div>
+  <button class="btn btn-ghost btn-wide" data-x>Done</button>`, s=>{
+    s.querySelectorAll('[data-pick]').forEach(b=>b.onclick=()=>{S.use=b.dataset.pick;close();render();toast('Now paying '+U().who)});
+  });
+}
+
+function personSheet(p){
+  const editing=!!p; p=p||{name:'',contact:'',amount:'',often:'biweekly',role:''};
+  let often=p.often;
+  sheet(`<h2>${editing?esc(p.name):'Add a '+esc(U().one)}</h2>
+  <form id="pf" style="display:flex;flex-direction:column;gap:14px" novalidate>
+    <label for="pname">Name<input id="pname" value="${esc(p.name)}" placeholder="Jordan Lee" autocomplete="off"></label>
+    <label for="pcontact">Phone, email or Telegram<input id="pcontact" value="${esc(p.contact)}" placeholder="(415) 555-0100"></label>
+    <label for="pamt">How much each time<span class="money-in"><span>$</span><input id="pamt" inputmode="decimal" value="${p.amount}" placeholder="0"></span></label>
+    <div><div style="font-weight:500;font-size:.9rem;margin-bottom:6px">How often</div>
+    <div class="seg" id="seg">${Object.entries(OFTEN).map(([k,v])=>`<button type="button" data-o="${k}" aria-pressed="${often===k}">${v.replace('Every ','')}</button>`).join('')}</div></div>
+    ${editing?'':'<div class="note">We\'ll send them a link to choose how they get paid: bank, debit card, Suwappu, or crypto. You never see their account details.</div>'}
+    <p id="perr" class="small" style="color:var(--warn);margin:0" hidden></p>
+    <button class="btn btn-primary btn-wide" type="submit">${editing?'Save changes':'Add and send invite'}</button>
+    ${editing?'<button class="btn btn-ghost btn-wide" type="button" id="premove">Remove from payroll</button>':''}
+  </form>`, s=>{
+    s.querySelectorAll('[data-o]').forEach(b=>b.onclick=()=>{often=b.dataset.o;s.querySelectorAll('[data-o]').forEach(x=>x.setAttribute('aria-pressed',x===b))});
+    const rm=$('#premove',s); if(rm) rm.onclick=()=>{S.people=S.people.filter(x=>x.id!==p.id);close();render();toast(p.name+' removed')};
+    $('#pf',s).onsubmit=e=>{
+      e.preventDefault();
+      const name=$('#pname',s).value.trim(), contact=$('#pcontact',s).value.trim(), amount=parseFloat($('#pamt',s).value.replace(/[$,]/g,''));
+      const err=$('#perr',s);
+      if(!name){err.textContent='Add their name.';err.hidden=false;return}
+      if(!contact){err.textContent='Add a phone, email or Telegram so we can reach them.';err.hidden=false;return}
+      if(!(amount>0)){err.textContent='Enter an amount above $0.';err.hidden=false;return}
+      if(editing){Object.assign(p,{name,contact,amount,often})}
+      else S.people.push({id:S.nextId++,name,contact,amount,often,way:'pending',role:OFTEN[often]});
+      close();render();toast(editing?'Saved':'Invite sent to '+name.split(' ')[0]);
+    };
+  });
+}
+
+function addMoneySheet(){
+  const need=Math.max(0,Math.ceil(due()+fee()-S.balance));
+  sheet(`<h2>Add money</h2>
+  <label for="amt">Amount<span class="money-in"><span>$</span><input id="amt" inputmode="decimal" value="${need||1000}"></span></label>
+  <div class="ways">
+    <button class="way" data-src="bank" aria-pressed="true"><span class="main"><b>Bank transfer</b><small>Chase ••4410 · arrives in 1 day</small></span><span class="pill good">Free</span></button>
+    <button class="way" data-src="card" aria-pressed="false"><span class="main"><b>Debit card</b><small>Instant</small></span><span class="pill plain">1.5%</span></button>
+    <button class="way" data-src="crypto" aria-pressed="false"><span class="main"><b>From a crypto wallet</b><small>Send any coin, we turn it into dollars</small></span><span class="pill good">Free</span></button>
+  </div>
+  <button class="btn btn-primary btn-wide" id="go">Add money</button>`, s=>{
+    s.querySelectorAll('[data-src]').forEach(b=>b.onclick=()=>s.querySelectorAll('[data-src]').forEach(x=>x.setAttribute('aria-pressed',x===b)));
+    $('#go',s).onclick=()=>{const v=parseFloat($('#amt',s).value.replace(/[$,]/g,''));if(!(v>0))return;
+      S.balance+=v;S.activity.unshift({date:'Today',title:'Added money',amount:-v,status:'Arrived'});close();render();toast(money(v)+' added')};
+  });
+}
+
+function reviewSheet(){
+  const total=due(), f=fee(), all=total+f, short=all-S.balance, pending=S.people.filter(p=>p.way==='pending');
+  sheet(`<h2>Check and pay</h2>
+  <div class="list">${S.people.map(p=>personRow(p)).join('')}</div>
+  <div class="sum">
+    <div><span>${S.people.length} ${esc(U().who)}</span><span class="num">${money(total)}</span></div>
+    <div class="muted"><span>Instant card fees</span><span class="num">${money(f)}</span></div>
+    <div class="total"><span>Total</span><span class="num">${money(all)}</span></div>
+  </div>
+  ${pending.length?`<div class="note">${pending.map(p=>esc(p.name.split(' ')[0])).join(', ')} hasn't picked how to get paid yet. Their money waits safely until they do.</div>`:''}
+  ${short>0?`<div class="note" style="color:var(--warn)">You need ${money(short)} more in your Payday account.</div><button class="btn btn-primary btn-wide" id="topup">Add ${money(short)}</button>`
+    :`<button class="btn btn-primary btn-wide" id="pay">Pay ${money(all)}</button>`}
+  <button class="btn btn-ghost btn-wide" data-x>Not now</button>`, s=>{
+    const t=$('#topup',s); if(t) t.onclick=()=>{close();addMoneySheet()};
+    const p=$('#pay',s); if(p) p.onclick=()=>confirmPay(all);
+  });
+}
+
+function confirmPay(all){
+  sheet(`<h2>Pay ${money(all)} now?</h2><p class="muted" style="margin:0">We'll ask for your Face ID or passcode to confirm it's you.</p>
+  <button class="btn btn-primary btn-wide" id="yes">Confirm with Face ID</button><button class="btn btn-ghost btn-wide" data-x>Cancel</button>`, s=>{
+    $('#yes',s).onclick=()=>{
+      S.balance-=all;
+      const n=S.people.length;
+      S.activity.unshift({date:'Today',title:`${U().cta} · ${n} people`,amount:all,status:'Sent'});
+      sheet(`<div class="done"><div class="check">${I.check}</div><h2>Sent to ${n} ${esc(U().who)}</h2>
+        <p class="muted" style="margin:0">Each person gets a message and a pay stub.</p></div>
+        <div class="list">${S.people.map(p=>`<div class="row" style="cursor:default"><span class="av" style="background:${hue(p.id)};color:#2a1700">${initials(p.name)}</span>
+          <span class="main"><b>${esc(p.name)}</b><small>${esc(WAYS[p.way].name)} · ${esc(WAYS[p.way].time)}</small></span>
+          <span class="right"><b class="num">${money(p.amount)}</b><br><span class="pill ${p.way==='pending'?'warn':'good'}">${p.way==='pending'?'Waiting':'On its way'}</span></span></div>`).join('')}</div>
+        <button class="btn btn-primary btn-wide" data-x>Done</button>`, ()=>{});
+      render();
+    };
+  });
+}
+
+document.addEventListener('click',e=>{
+  const v=e.target.closest('[data-view]'); if(v){S.view=v.dataset.view;try{location.hash=S.view}catch(_){};render();window.scrollTo(0,0);return}
+  const a=e.target.closest('[data-act]');
+  if(a){({use:useSheet,add:()=>personSheet(),review:reviewSheet,'add-money':addMoneySheet})[a.dataset.act]();return}
+  const ed=e.target.closest('[data-edit]'); if(ed && !e.target.closest('.sheet')){personSheet(S.people.find(p=>p.id===+ed.dataset.edit));return}
+  const w=e.target.closest('[data-way]');
+  if(w){const p=S.people.find(x=>x.id===S.seeAs)||S.people[0];p.way=w.dataset.way;render();toast(p.name.split(' ')[0]+' will get it by '+WAYS[p.way].name.toLowerCase())}
+});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')close()});
+function fromHash(){const h=(location.hash||'').slice(1);if(views[h]){S.view=h;render()}}
+window.addEventListener('hashchange',fromHash);
+render(); fromHash();
+})();
+</script>
