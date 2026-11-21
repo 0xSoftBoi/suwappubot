@@ -62,3 +62,6 @@
 .v3-tone-light .agents-connect__item, .v3-tone-light .agents-cap { box-shadow: var(--v3-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.9); }
 .v3-tone-light .codeDark, .v3-tone-light .sw-card-dark { box-shadow: 0 28px 50px -26px rgba(10, 24, 38, 0.6); }
 .pv3-inpage { margin: 1.75rem auto 0; }
+.pv3-reserve .mkt-page { position: relative; isolation: isolate; }
+.pv3-reserve .mkt-page > .v3-bd { inset: -40px -10vw 0; }
+.pv3-heroband, .pv3-reserve .mkt-page { overflow-x: clip; }
