@@ -109,16 +109,16 @@
   },
   "home": {
     "hero": {
-      "eyebrow": "Plataforma de trading full-stack",
-      "h1": "La plataforma de trading full-stack para mercados cross-chain.",
-      "lead": "Ejecución, enrutamiento, investigación y gestión de portafolio en 45 cadenas, desde un solo lugar. Opera desde Terminal o Telegram, o integra mediante REST, MCP y SDK tipados.",
+      "h1": "Intercambia cualquier token en {platformChains} cadenas.",
+      "lead": "Un solo lugar para personas y agentes de IA: un Terminal y un bot de Telegram para operar, una API y un servidor MCP para construir.",
       "ctaTerminal": "Abrir Terminal",
       "ctaApi": "Obtener una clave API",
       "ctaTelegram": "Operar en Telegram",
       "telegramNav": "Telegram",
       "ticketLabel": "Ticket de ejecución · cotización de producción",
       "ticketStatus": "Datos de producción · vigencia indicada",
-      "ticketNote": "Este ticket solo muestra una cotización. La simulación y la autorización son pasos separados; si no hay datos en vivo, nunca se sustituyen por precios de demostración."
+      "ticketNote": "Este ticket solo muestra una cotización. La simulación y la autorización son pasos separados; si no hay datos en vivo, nunca se sustituyen por precios de demostración.",
+      "ctaAgents": "Para agentes"
     },
     "quote": {
       "stateChecking": "Comprobando cotización",
@@ -306,16 +306,7 @@
       "fedrampBody": "Un paquete de evidencias con correspondencia NIST SP 800-53 y un perfil de despliegue gubernamental fail-closed."
     },
     "schematic": "Esquema",
-    "rankCaption": "Esquema · el orden varía según la solicitud",
-    "atmosphere": {
-      "soundOn": "Sonido activado",
-      "soundOff": "Sonido apagado",
-      "videoLabel": "Vista aérea lenta del océano abierto"
-    },
-    "announce": {
-      "tag": "Nuevo · WebMCP",
-      "copy": "El Agent Desk: dale al agente de tu navegador un mandato, no tus claves. Sin registro."
-    }
+    "rankCaption": "Esquema · el orden varía según la solicitud"
   },
   "cta": {
     "kicker": "Empieza ahora",

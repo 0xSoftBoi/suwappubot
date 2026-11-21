@@ -4,11 +4,20 @@
    ========================================================================== */
 
 /* Hero: bigger, calmer headline rhythm */
-.hd .home-hero { padding-top: clamp(3rem, 7vh, 5.5rem); padding-bottom: clamp(2.5rem, 5vw, 4rem); }
-.hd .home-hero h1 { max-width: 22ch; font-size: clamp(2.75rem, 1.4rem + 4.6vw, 5.2rem); line-height: 1.01; letter-spacing: -0.032em; }
-.hd .home-hero__lead { max-width: 56ch; }
+.hd .home-hero { padding-top: clamp(3rem, 8vh, 6rem); padding-bottom: clamp(2rem, 4vw, 3rem); text-align: center; }
+.hd .home-hero h1 { max-width: 14ch; margin-inline: auto; font-size: clamp(2.5rem, 1.7rem + 3.4vw, 4.5rem); font-weight: 400; line-height: 1.04; letter-spacing: -0.03em; hyphens: none; text-wrap: balance; }
+.hd .home-hero__lead { max-width: 36rem; margin-inline: auto; font-size: clamp(1.0625rem, 1rem + 0.2vw, 1.125rem); line-height: 1.55; color: rgba(250, 250, 250, 0.82); }
+.hd .home-hero .home-actions { justify-content: center; }
+.hd .hd__btn.hd__btn--primary { background: #f6a93c; border-color: #f6a93c; color: #1a1208; font-weight: 650; }
+.hd .hd__btn.hd__btn--primary:hover { opacity: 1; background: #fbb957; border-color: #fbb957; }
 
-.hv3-heroshot { position: relative; z-index: 1; box-sizing: border-box; width: min(1240px, 100%); margin: 0 auto; padding: 0 24px clamp(3.5rem, 7vw, 6rem); }
+.hv3-heroshot { position: relative; z-index: 1; box-sizing: border-box; width: min(1320px, 100%); margin: 0 auto; padding: 0 24px clamp(3rem, 6vw, 5rem); }
+/* calm hero capture: flat, bordered, soft shadow, no glow, no chips */
+.v3-desk--calm { perspective: none; }
+.v3-desk--calm .v3-desk__glow { display: none; }
+.v3-desk--calm .v3-desk__stage { padding-bottom: 0; }
+.v3-desk--calm .v3-desk__frame { transform: none; border-color: rgba(255, 255, 255, 0.14); box-shadow: 0 40px 90px -40px rgba(0, 0, 0, 0.8); }
+.v3-desk--calm .v3-desk__sheen { display: none; }
 
 /* Product frame */
 .v3-desk { position: relative; perspective: 2000px; }
@@ -55,6 +64,7 @@
   .hv3-heroshot { padding-inline: 16px; }
   .v3-desk__frame { transform: none; }
   .v3-desk__frame img { height: 250px; object-fit: cover; object-position: 12% 50%; }
+  .v3-desk--calm .v3-desk__frame img { height: 300px; object-position: 100% 50%; }
 }
 @media (prefers-reduced-motion: reduce) { .v3-desk__chip, .v3-desk__run i { animation: none !important; } .v3-desk__run { display: none; } }
 

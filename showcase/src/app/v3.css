@@ -533,9 +533,6 @@
 .v3-desk__sheen { background: linear-gradient(115deg, rgba(255, 255, 255, 0.07) 0%, transparent 26%), linear-gradient(0deg, rgba(10, 11, 13, 0.22), transparent 22%); }
 .v3-desk__chip--a { left: 3%; bottom: -34px; }
 .v3-desk__stage { padding-bottom: 36px; }
-@media (max-width: 767px) {
-  .home-sound { display: none; }
-}
 @media (max-width: 640px) {
   .compare-table__rowhead, .compare-table__colhead, .compare-table th, .compare-table td { min-width: 0 !important; }
   .compare-table__rowhead { width: 27% !important; }

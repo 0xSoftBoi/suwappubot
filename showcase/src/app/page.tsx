@@ -4,7 +4,7 @@ import StructuredData from '@/components/StructuredData';
 import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import LiveQuote from '@/components/LiveQuote';
-import OceanAtmosphere from '@/components/OceanAtmosphere';
+import TrackedLink from '@/components/solve/TrackedLink';
 import ProofShot from '@/components/ProofShot';
 import {
   Reveal, CountUp, SpotlightCard, V3Section, SectionHead, Backdrop, MiniViz, RouteMap, PipelineFlow,
@@ -157,67 +157,42 @@ export default async function Home() {
 
   return (
     <>
-      {/* The hero poster is the largest contentful paint. Preloading it here
-          (Next hoists this into <head>) starts the fetch with the document
-          rather than after React hydrates and mounts the atmosphere layer. */}
-      <link rel="preload" as="image" href="/media/ocean-poster.webp" type="image/webp" />
       <StructuredData />
       <div className="hd sw sw-dark">
         <SummerNav />
 
-        <a href="/agent-terminal" className="home-announce">
-          <span className="home-announce__tag">{h('announce.tag')}</span>
-          <span className="home-announce__copy">{h('announce.copy')}</span>
-          <span className="home-announce__arrow" aria-hidden="true">
-            →
-          </span>
-        </a>
-
         <main id="main-content">
+          {/* One idea above the fold: a headline, a line, two doors, and the real
+              Terminal. The background is a flat deep-ocean wash with one soft
+              glow (no photo/video, so nothing competes with the capture). */}
           <div className="home-stage">
-            <OceanAtmosphere
-              labels={{
-                soundOn: h('atmosphere.soundOn'),
-                soundOff: h('atmosphere.soundOff'),
-                videoLabel: h('atmosphere.videoLabel'),
-              }}
-            />
             <section className="home-hero" aria-labelledby="home-hero-title">
               <div className="home-hero__copy">
-                <p className="home-eyebrow">{h('hero.eyebrow')}</p>
-                <h1 id="home-hero-title">{h('hero.h1')}</h1>
+                <h1 id="home-hero-title">{h('hero.h1', { platformChains: productStats.platformChains })}</h1>
                 <p className="home-hero__lead">{h('hero.lead')}</p>
 
                 <div className="home-actions">
-                  <a className="hd__btn" href={TERMINAL_URL}>{h('hero.ctaTerminal')}</a>
-                  <a className="hd__btn hd__btn--ghost" href="/start">
-                    {h('hero.ctaApi')}
-                  </a>
+                  <TrackedLink className="hd__btn hd__btn--primary" href={TERMINAL_URL} sameTab surface="home_hero" slug="home" kind="primary">
+                    {h('hero.ctaTerminal')}
+                  </TrackedLink>
+                  <TrackedLink className="hd__btn hd__btn--ghost" href="/agents" surface="home_hero" slug="home" kind="secondary">
+                    {h('hero.ctaAgents')} <span aria-hidden="true">→</span>
+                  </TrackedLink>
                 </div>
-                <a
-                  className="home-hero__telegram"
-                  href={TELEGRAM_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  {h('hero.ctaTelegram')} <span aria-hidden="true">→</span>
-                </a>
               </div>
             </section>
 
-            {/* The hero's visual is the real trading desk (a capture of the
-                shipped product), now framed, lit and given depth. The live
-                quote widget stays down in the engine section: it renders an
-                honest "unavailable" state and must not be the first thing seen. */}
+            {/* The real trading desk, large and flat. The live quote widget
+                stays down in the engine section: it renders an honest
+                "unavailable" state and must not be the first thing seen. */}
             <div className="hv3-heroshot">
               <ProductFrame
+                calm
                 src="/proof/spot-desk.png"
                 width={3160}
                 height={940}
                 alt={h('execution.screenshotAlt')}
                 title="ETH/USDC"
-                flow={executionSteps.map((s) => s.title)}
-                aside={<RouteMap />}
               />
             </div>
           </div>

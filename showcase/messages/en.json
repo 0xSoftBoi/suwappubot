@@ -109,16 +109,16 @@
   },
   "home": {
     "hero": {
-      "eyebrow": "Full-stack trading platform",
-      "h1": "The full-stack trading platform for cross-chain markets.",
-      "lead": "Execution, routing, research, and portfolio management across 45 chains, from one venue. Trade through Terminal or Telegram, or integrate through REST, MCP, and typed SDKs.",
+      "h1": "Swap any token across {platformChains} chains.",
+      "lead": "One venue for people and AI agents: a Terminal and Telegram bot to trade, an API and MCP server to build.",
       "ctaTerminal": "Launch Terminal",
       "ctaApi": "Get an API key",
       "ctaTelegram": "Trade in Telegram",
       "telegramNav": "Telegram",
       "ticketLabel": "Execution ticket · production quote",
       "ticketStatus": "Production data · freshness labeled",
-      "ticketNote": "This ticket only displays a quote. Simulation and authorization are separate steps; unavailable live data is never replaced with demo pricing."
+      "ticketNote": "This ticket only displays a quote. Simulation and authorization are separate steps; unavailable live data is never replaced with demo pricing.",
+      "ctaAgents": "For agents"
     },
     "quote": {
       "stateChecking": "Checking quote",
@@ -306,16 +306,7 @@
       "cta": "See the protocol"
     },
     "schematic": "Schematic",
-    "rankCaption": "Schematic · order varies per request",
-    "atmosphere": {
-      "soundOn": "Sound on",
-      "soundOff": "Sound off",
-      "videoLabel": "Slow aerial footage of open ocean water"
-    },
-    "announce": {
-      "tag": "New · WebMCP",
-      "copy": "The Agent Desk: give the agent in your browser a mandate, not your keys. No login."
-    }
+    "rankCaption": "Schematic · order varies per request"
   },
   "cta": {
     "kicker": "Start free",

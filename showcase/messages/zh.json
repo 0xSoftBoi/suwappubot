@@ -109,16 +109,16 @@
   },
   "home": {
     "hero": {
-      "eyebrow": "全栈交易平台",
-      "h1": "面向跨链市场的全栈交易平台。",
-      "lead": "执行、路由、研究和投资组合管理，覆盖 45 条链，全部在一个平台完成。可通过 Terminal 或 Telegram 交易，也可通过 REST、MCP 和类型化 SDK 集成。",
+      "h1": "在 {platformChains} 条链上兑换任意代币。",
+      "lead": "为人和 AI 智能体打造的统一交易场所：用终端和 Telegram 机器人交易，用 API 和 MCP 服务器构建。",
       "ctaTerminal": "打开终端",
       "ctaApi": "获取 API 密钥",
       "ctaTelegram": "在 Telegram 交易",
       "telegramNav": "Telegram",
       "ticketLabel": "执行票据 · 生产报价",
       "ticketStatus": "生产数据 · 明示时效状态",
-      "ticketNote": "此票据只展示报价。模拟与授权是独立步骤；实时数据不可用时，不会用演示价格替代。"
+      "ticketNote": "此票据只展示报价。模拟与授权是独立步骤；实时数据不可用时，不会用演示价格替代。",
+      "ctaAgents": "面向智能体"
     },
     "quote": {
       "stateChecking": "正在获取报价",
@@ -306,16 +306,7 @@
       "fedrampBody": "证据包内含 NIST SP 800-53 控制对照表与故障即关闭的政府部署配置。"
     },
     "schematic": "示意",
-    "rankCaption": "示意 · 顺序因请求而异",
-    "atmosphere": {
-      "soundOn": "声音开",
-      "soundOff": "声音关",
-      "videoLabel": "开阔海面的缓慢航拍画面"
-    },
-    "announce": {
-      "tag": "新功能 · WebMCP",
-      "copy": "Agent Desk：给浏览器里的代理一份授权书，而不是你的密钥。无需登录。"
-    }
+    "rankCaption": "示意 · 顺序因请求而异"
   },
   "cta": {
     "kicker": "立即开始",

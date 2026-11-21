@@ -305,10 +305,10 @@
   height: 36px;
   padding: 0 14px;
   border-radius: 8px;
-  background: var(--nav-fg);
-  color: var(--nav-pop-bg);
+  background: #f6a93c;
+  color: #1a1208;
   font-size: 0.875rem;
-  font-weight: 600;
+  font-weight: 650;
   white-space: nowrap;
   text-decoration: none;
   touch-action: manipulation;

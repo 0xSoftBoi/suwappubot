@@ -109,16 +109,16 @@
   },
   "home": {
     "hero": {
-      "eyebrow": "Plateforme de trading full-stack",
-      "h1": "La plateforme de trading full-stack pour les marchés cross-chain.",
-      "lead": "Exécution, routage, recherche et gestion de portefeuille sur 45 chaînes, depuis un seul endroit. Tradez depuis le Terminal ou Telegram, ou intégrez via REST, MCP et des SDK typés.",
+      "h1": "Échangez n'importe quel jeton sur {platformChains} chaînes.",
+      "lead": "Un seul lieu pour les humains et les agents IA : un Terminal et un bot Telegram pour trader, une API et un serveur MCP pour construire.",
       "ctaTerminal": "Lancer le Terminal",
       "ctaApi": "Obtenir une clé API",
       "ctaTelegram": "Trader dans Telegram",
       "telegramNav": "Telegram",
       "ticketLabel": "Ticket d’exécution · cotation de production",
       "ticketStatus": "Données de production · fraîcheur indiquée",
-      "ticketNote": "Ce ticket affiche uniquement une cotation. La simulation et l’autorisation sont des étapes distinctes ; des données indisponibles ne sont jamais remplacées par des prix de démonstration."
+      "ticketNote": "Ce ticket affiche uniquement une cotation. La simulation et l’autorisation sont des étapes distinctes ; des données indisponibles ne sont jamais remplacées par des prix de démonstration.",
+      "ctaAgents": "Pour les agents"
     },
     "quote": {
       "stateChecking": "Vérification de la cotation",
@@ -306,16 +306,7 @@
       "fedrampBody": "Un dossier de preuves avec correspondance NIST SP 800-53 et un profil de déploiement gouvernemental fail-closed."
     },
     "schematic": "Schéma",
-    "rankCaption": "Schéma · l'ordre varie selon la demande",
-    "atmosphere": {
-      "soundOn": "Son activé",
-      "soundOff": "Son coupé",
-      "videoLabel": "Vue aérienne lente de l’océan"
-    },
-    "announce": {
-      "tag": "Nouveau · WebMCP",
-      "copy": "L'Agent Desk : donnez un mandat à l'agent de votre navigateur, pas vos clés. Sans connexion."
-    }
+    "rankCaption": "Schéma · l'ordre varie selon la demande"
   },
   "cta": {
     "kicker": "Commencez maintenant",
