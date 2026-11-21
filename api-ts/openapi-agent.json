@@ -1398,7 +1398,7 @@
       "post": {
         "summary": "Create wallet policy",
         "operationId": "createWalletPolicy",
-        "description": "Create a wallet policy (per-transaction spending limit or address whitelist), stored in the agent's managed wallet sub-org. Scope: spending_limit is ENFORCED by the API before any managed-wallet swap is signed, as a per-transaction cap on the NATIVE token value (wei of the chain's gas token). It does NOT cap ERC-20 amounts (value 0), is not a time-window or aggregate limit, and because the same agent key can delete the policy it guards against runaway logic, not a compromised key. whitelist policies are recorded only (enforced: false). Max 20 policies per wallet; maxAmountWei 1-39 digits; allowedAddresses max 50. timeWindowSeconds is rejected with 400. Requires a wallet created via POST /wallets. Rate-limited by tier.",
+        "description": "Create a wallet policy (per-transaction spending limit or address whitelist), stored in the agent's managed wallet sub-org. Scope: spending_limit is ENFORCED by the API before any managed-wallet SWAP is signed (POST /swap/execute only; prediction-market orders are not covered), as a per-transaction cap on the NATIVE token value (wei of the chain's gas token). It does NOT cap ERC-20 amounts (value 0), is not a time-window or aggregate limit, and because the same agent key can delete the policy it guards against runaway logic, not a compromised key. whitelist policies are recorded only (enforced: false). Max 20 policies per wallet; maxAmountWei 1-39 digits; allowedAddresses max 50. timeWindowSeconds is rejected with 400. Requires a wallet created via POST /wallets. Rate-limited by tier.",
         "requestBody": {
           "required": true,
           "content": {

@@ -63,12 +63,40 @@ export function parseSpendingLimitPolicy(p: StoredPolicy): bigint | null {
 	return found.reduce((a, b) => (a < b ? a : b))
 }
 
+/**
+ * Classification uses stored effect + condition where available, NOT just the
+ * name: a policy defines the cap only if it is an agent-owned DENY with a value
+ * condition, or is named as a spending limit and is not provably something else
+ * (an `eth.tx.to` / ALLOW policy named like a spending limit is ignored, so a
+ * whitelist can never lower, raise or break the cap).
+ */
+function classify(p: StoredPolicy): 'ignore' | 'spending' {
+	if (!p.policyName.startsWith(AGENT_POLICY_PREFIX)) return 'ignore'
+	const cond = p.condition ?? ''
+	if (CONDITION_RE.test(cond)) return p.effect && p.effect !== 'EFFECT_DENY' ? 'ignore' : 'spending'
+	if (/^\s*eth\.tx\.to\b/.test(cond) || p.effect === 'EFFECT_ALLOW') return 'ignore'
+	return p.policyName.startsWith(SPENDING_LIMIT_PREFIX) ? 'spending' : 'ignore'
+}
+
+/**
+ * Native amount of an EVM-style transactionRequest. {evm:false} when the shape
+ * is not an EVM tx (no object, no `to`/`value`, or non-EVM fields such as Tron
+ * `call_value`) so callers can fail closed when a cap exists, never read it as 0.
+ */
+export function evmNativeValue(txRequest: unknown): { evm: true; value: unknown } | { evm: false } {
+	if (!txRequest || typeof txRequest !== 'object') return { evm: false }
+	const t = txRequest as Record<string, unknown>
+	if ('call_value' in t || 'callValue' in t || 'raw_data' in t) return { evm: false }
+	if (typeof t.to !== 'string' || t.value === undefined || t.value === null) return { evm: false }
+	return { evm: true, value: t.value }
+}
+
 /** Minimum cap across ALL of the agent's spending-limit policies; fail closed on any unparseable one. */
 export function deriveNativeCap(policies: readonly StoredPolicy[]): NativeCap {
 	let cap: bigint | null = null
 	const bad: string[] = []
 	for (const p of policies) {
-		if (!p.policyName.startsWith(SPENDING_LIMIT_PREFIX)) continue
+		if (classify(p) !== 'spending') continue
 		const n = parseSpendingLimitPolicy(p)
 		if (n === null) {
 			bad.push(p.policyName)
@@ -124,16 +152,22 @@ export function checkNativeValue(cap: NativeCap, txValue: unknown): NativeCapVer
 }
 
 // ---- per-process cache of the derived cap -------------------------------------
-// MULTI-REPLICA CAVEAT: this cache is in-memory per process. A create/delete
-// handled by replica A invalidates only A's entry; replica B can serve the old
-// cap for up to CAP_CACHE_TTL_MS (30 s). Accepted staleness window.
+// Dangerous direction = a "no cap" answer outliving a cap created elsewhere, so
+// "none" is cached only NONE_TTL_MS (5 s); a found cap / unparseable block is
+// cached CAP_CACHE_TTL_MS (30 s).
+// CROSS-REPLICA WINDOWS (exact): create/delete invalidate only THIS process's
+// entry. After a create on replica A, replica B may treat the wallet as
+// uncapped for up to 5 s. After a delete on A, B may keep enforcing the deleted
+// cap for up to 30 s (fails safe). No skip-lookup optimisation: managed wallets
+// sign through Turnkey, so a Turnkey outage already prevents execution.
 export const CAP_CACHE_TTL_MS = 30_000
+export const NONE_TTL_MS = 5_000
 const capCache = new Map<string, { cap: NativeCap; at: number }>()
 
 export function getCachedCap(subOrgId: string, now = Date.now()): NativeCap | null {
 	const e = capCache.get(subOrgId)
 	if (!e) return null
-	if (now - e.at > CAP_CACHE_TTL_MS) {
+	if (now - e.at > (e.cap.kind === 'none' ? NONE_TTL_MS : CAP_CACHE_TTL_MS)) {
 		capCache.delete(subOrgId)
 		return null
 	}

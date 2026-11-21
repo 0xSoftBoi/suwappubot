@@ -31,6 +31,7 @@ import { agentError } from '../lib/agentError'
 import {
 	checkNativeValue,
 	deriveNativeCap,
+	evmNativeValue,
 	getCachedCap,
 	invalidateCachedCap,
 	MAX_WEI_DIGITS,
@@ -1327,11 +1328,18 @@ function policyUnavailableResponse(
  * MONEY-PATH. Per-transaction NATIVE-VALUE cap from the agent's own wallet
  * policies (see lib/agentWalletCap.ts for why this is enforced here and not by
  * Turnkey). Runs before anything is handed to the signer on POST /swap/execute
- * (the only route that signs with an agent's managed wallet; signing itself
- * happens in python-api). Scope: caps the native token value (wei) of each
- * transaction only — NOT ERC-20 amounts, not a time-window limit, and the same
- * agent key can delete the policy, so it guards runaway logic, not a compromised
- * key. EVM only (policies live on the EVM sub-org).
+ * (the route that signs managed-wallet SWAPS; signing itself happens in
+ * python-api). It covers managed SWAP execution only: routes/predict.ts also
+ * signs Polymarket EIP-712 orders via signRawPayload, which this cap does not
+ * touch (those move USDC, not native value). Scope: caps the native token value
+ * (wei) of each swap transaction only — NOT ERC-20 amounts, not a time-window
+ * limit, and the same agent key can delete the policy, so it guards runaway
+ * logic, not a compromised key. Policies live on the EVM sub-org; if the agent
+ * HAS a cap and the quote's native amount is not an EVM-style `value` (Solana,
+ * Tron `call_value`, any non-EVM transactionRequest) the cap cannot be evaluated
+ * and the request is refused (fail closed). With no cap, behaviour is unchanged.
+ * Chains reaching managed execution: EVM (LI.FI quotes) and Solana (Jupiter);
+ * Starknet is rejected at quote time.
  *
  * Returns a Response to send (403 POLICY_VIOLATION / 503 POLICY_CHECK_UNAVAILABLE)
  * or null to proceed. Runs on every call, including idempotent replays.
@@ -1344,7 +1352,6 @@ async function enforceAgentNativeCap(
 	quote: any,
 	isSolana: boolean,
 ): Promise<Response | null> {
-	if (isSolana) return null
 	const subOrgId = ((agent.metadata || {}) as Record<string, unknown>).wallet_sub_org_id as string | undefined
 	if (!subOrgId) return null
 
@@ -1363,7 +1370,20 @@ async function enforceAgentNativeCap(
 		setCachedCap(subOrgId, cap)
 	}
 
-	const verdict = checkNativeValue(cap, quote?.transactionRequest?.value)
+	if (cap.kind === 'none') return null
+
+	let verdict: ReturnType<typeof checkNativeValue>
+	const nv = isSolana ? ({ evm: false } as const) : evmNativeValue(quote?.transactionRequest)
+	if (cap.kind === 'cap' && !nv.evm) {
+		verdict = {
+			ok: false,
+			reason: 'unparseable_value',
+			message:
+				'The wallet native-value spending limit cannot be evaluated for this chain/transaction shape (non-EVM or no EVM value field), so the swap was blocked.',
+		}
+	} else {
+		verdict = checkNativeValue(cap, nv.evm ? nv.value : undefined)
+	}
 	if (verdict.ok) return null
 	writeAuditLog({
 		userId: 0,
@@ -3801,6 +3821,16 @@ agentRoutes.post('/wallet/policy', async (c) => {
 	// conditions, so all of them are enforced and the strictest cap wins.
 	// whitelist policies are EFFECT_ALLOW, so multiple whitelists union.
 	const uniq = randomBytes(3).toString('hex')
+	// Type/name collision guard: only spending_limit may carry the spending-limit
+	// name prefix (the cap is derived from it + stored condition); a whitelist can
+	// never be named so it is read as a cap.
+	const generatedName =
+		type === 'spending_limit'
+			? `${AGENT_POLICY_PREFIX}spending-limit-${params.maxAmountWei}-${uniq}`
+			: `${AGENT_POLICY_PREFIX}whitelist-${checksummed.length}-${uniq}`
+	if ((type === 'spending_limit') !== generatedName.startsWith(`${AGENT_POLICY_PREFIX}spending-limit`)) {
+		return agentError(c, 500, 'INTERNAL', 'Policy name collision; request rejected')
+	}
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
