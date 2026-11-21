@@ -7171,6 +7171,7 @@ a.summer-button:active,
   cursor:pointer; padding:.4rem .8rem; border-radius:999px;
   border:1px solid var(--sw-accent); background:transparent; color:var(--sw-accent-bright); }
 .lq--warm .lq__retry { color: var(--sw-accent-deep); }
+a.lq__retry { display:inline-block; margin-right:.9rem; text-decoration:underline; text-underline-offset:3px; }
 .lq__body--error p { margin:0 0 .2rem; font-size:.85rem; }
 
 /* Dark hero candidates: the light .summer-nav is unreadable on them, so reuse

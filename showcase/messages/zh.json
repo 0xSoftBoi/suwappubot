@@ -171,7 +171,8 @@
       "quoteExpires": "报价有效期",
       "expired": "已过期",
       "seconds": "{seconds} 秒",
-      "freshQuote": "获取新报价"
+      "freshQuote": "获取新报价",
+      "keyCta": "用免费密钥运行实时报价"
     },
     "evidence": {
       "ariaLabel": "可验证的产品证据",

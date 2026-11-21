@@ -171,7 +171,8 @@
       "quoteExpires": "La cotización vence",
       "expired": "vencida",
       "seconds": "{seconds}s",
-      "freshQuote": "Obtener nueva cotización"
+      "freshQuote": "Obtener nueva cotización",
+      "keyCta": "Ejecuta una cotización real con una clave gratis"
     },
     "evidence": {
       "ariaLabel": "Evidencia verificable del producto",
