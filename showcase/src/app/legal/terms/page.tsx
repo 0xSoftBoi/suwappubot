@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
+import '../../content-v3.css';
 
 export const metadata: Metadata = {
   title: 'Terms of Service',
@@ -9,7 +10,7 @@ export const metadata: Metadata = {
 
 export default function TermsPage() {
   return (
-    <div className="summer-page docs-shell institutional-page">
+    <div className="summer-page docs-shell institutional-page cv3-legal">
       <SummerNav />
       <main id="main-content">
       <div className="summer-shell mkt-page">
