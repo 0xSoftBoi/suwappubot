@@ -87,6 +87,20 @@ COLD_START_LOOKBACK = 500
 # Endpoint attempts per scan before giving up until the next poll.
 RPC_ATTEMPTS = 3
 
+# A transport failure is the endpoint's fault (blame it, fail over). Anything else
+# — "query returned more than 10000 results", "block range too large", a JSON-RPC
+# error body — would recur on the next endpoint too, so blaming endpoints for it
+# just walks every healthy node of the chain into an open circuit (and takes swaps
+# on that chain down with them). Those shrink the block range instead.
+_TRANSPORT_HINTS = ("timeout", "timed out", "connection", "429", "502", "503", "504")
+
+
+def _is_transport_error(exc: BaseException) -> bool:
+    if isinstance(exc, (OSError, TimeoutError)):  # requests/aiohttp errors are OSErrors
+        return True
+    msg = str(exc).lower()
+    return any(h in msg for h in _TRANSPORT_HINTS)
+
 
 def _topic_for_address(address: str) -> str:
     """Left-pad an address to a 32-byte topic."""
@@ -106,6 +120,9 @@ class DepositWatcher:
         self.poll_seconds = poll_seconds
         self._task: Optional[asyncio.Task] = None
         self._running = False
+        # Per-chain block-range cap: halves when a provider rejects a range as too
+        # large, doubles back toward MAX_BLOCK_RANGE after each clean scan.
+        self._range_cap: Dict[str, int] = {}
 
     # --- cursor -----------------------------------------------------------
 
@@ -203,9 +220,13 @@ class DepositWatcher:
             # not an error. Anything else is worth seeing.
             if "unique" in str(exc).lower() or "duplicate" in str(exc).lower():
                 logger.debug("Deposit %s already credited", key)
-            else:
-                logger.error("Failed to credit deposit %s: %s", key, exc)
-            return False
+                return False
+            # Anything else (DB blip, lock timeout, ...) MUST propagate. Swallowing
+            # it let scan_chain advance the cursor past a deposit that was never
+            # booked — lost for good. Raising leaves the cursor where it was, and
+            # the next poll re-scans; re-crediting is idempotent on the key above.
+            logger.error("Failed to credit deposit %s: %s", key, exc)
+            raise
 
     # --- scan -------------------------------------------------------------
 
@@ -282,7 +303,8 @@ class DepositWatcher:
                     return None
 
                 from_block = start + 1
-                to_block = min(safe_head, start + MAX_BLOCK_RANGE)
+                cap = self._range_cap.get(chain, MAX_BLOCK_RANGE)
+                to_block = min(safe_head, start + cap)
                 logs: list = []
                 for i in range(0, len(addresses), ADDRESS_CHUNK):
                     chunk = addresses[i : i + ADDRESS_CHUNK]
@@ -294,11 +316,16 @@ class DepositWatcher:
                             )
                         )
                     )
+                self._range_cap[chain] = min(MAX_BLOCK_RANGE, cap * 2)
                 return to_block, logs
             except Exception as exc:
                 last_exc = exc
-                if url is not None:
-                    rpc_manager.report_failure(chain, url, str(exc)[:200])
+                if _is_transport_error(exc):
+                    if url is not None:
+                        rpc_manager.report_failure(chain, url, str(exc)[:200])
+                else:
+                    cur = self._range_cap.get(chain, MAX_BLOCK_RANGE)
+                    self._range_cap[chain] = max(1, cur // 2)
                 logger.warning(
                     "Deposit scan %s attempt %d/%d failed: %s", chain, attempt, RPC_ATTEMPTS, exc
                 )

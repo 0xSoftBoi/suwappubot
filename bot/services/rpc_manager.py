@@ -762,6 +762,16 @@ class RPCManager:
 
     def get_web3(self, chain_name: str) -> Web3:
         """Get a Web3 instance for the given chain (cached, auto-failover)."""
+        return self.get_web3_with_url(chain_name)[0]
+
+    def get_web3_with_url(self, chain_name: str) -> Tuple[Web3, str]:
+        """Like get_web3 but also returns the endpoint URL serving the client,
+        so callers can `report_failure` against the right endpoint and retry.
+
+        The pair is taken from one local, never re-read from the shared cache:
+        another thread can swap the cache entry in between, which would hand a
+        caller a URL that is not the one its client talks to.
+        """
         chain_name = chain_name.lower()
 
         cached = self._web3_cache.get(chain_name)
@@ -769,20 +779,13 @@ class RPCManager:
             web3, cached_url = cached
             ep = self._find_endpoint(chain_name, cached_url)
             if ep and not ep.is_circuit_open:
-                return web3
+                return web3, cached_url
             self._web3_cache.pop(chain_name, None)
 
         ep = self._select_endpoint(chain_name)
         web3 = self._create_web3(chain_name, ep.url)
         self._web3_cache[chain_name] = (web3, ep.url)
-        return web3
-
-    def get_web3_with_url(self, chain_name: str) -> Tuple[Web3, str]:
-        """Like get_web3 but also returns the endpoint URL serving the client,
-        so callers can `report_failure` against the right endpoint and retry."""
-        chain_name = chain_name.lower()
-        web3 = self.get_web3(chain_name)
-        return web3, self._web3_cache[chain_name][1]
+        return web3, ep.url
 
     def get_rpc_url(self, chain_name: str) -> str:
         """Get the best RPC URL (for raw aiohttp callers)."""
