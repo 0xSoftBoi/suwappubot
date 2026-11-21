@@ -134,6 +134,21 @@ input,select{font:inherit;color:var(--fg)}
   .content{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
   .grid2,.grid3{grid-template-columns:1fr}
 }
+.nav-sub{padding-left:38px;font-size:.84rem;color:var(--nav-muted)}
+.nav-sub[aria-current="page"]{color:var(--nav-fg)}
+.paybar{position:sticky;bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;background:var(--fg);color:var(--bg);border-radius:14px;padding:10px 14px;z-index:3}
+.paybar .btn-ghost{background:transparent;color:var(--bg);border-color:rgba(255,255,255,.3)}
+.chk{width:18px;height:18px;accent-color:var(--accent)}
+.lvl{border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;background:var(--bg)}
+.wsteps{display:flex;gap:6px;flex-wrap:wrap}
+.expand summary{cursor:pointer;font:600 .95rem var(--display);list-style:none;display:flex;justify-content:space-between;gap:10px;padding:4px 0}
+.expand summary::-webkit-details-marker{display:none}
+.expand summary::after{content:"＋";color:var(--muted)}
+.expand[open] summary::after{content:"－"}
+.tile{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;border:1px solid var(--line);border-radius:12px;padding:14px;background:var(--bg)}
+.tile .dl{display:flex;gap:22px;flex-wrap:wrap}
+.tile .dl span{display:block;font-size:.74rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.cite{font-size:.72rem;color:var(--muted);border-left:2px solid var(--line);padding-left:8px}
 </style>
 
 <div class="mobile-nav"><div class="logo">P</div><select id="mnav" aria-label="Go to"></select></div>
@@ -144,7 +159,7 @@ input,select{font:inherit;color:var(--fg)}
       <div class="crumbs" id="crumbs"></div>
       <div class="top-actions">
         <div class="rel"><button class="iconbtn" id="bell" aria-label="Notifications"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg><span class="dot"></span></button><div id="bellpop"></div></div>
-        <button class="btn btn-ghost" data-go="them">Payee view</button>
+        <button class="iconbtn" data-go="settings" aria-label="Organization settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg></button>
       </div>
     </div>
     <div class="content" id="view"></div>
@@ -154,362 +169,318 @@ input,select{font:inherit;color:var(--fg)}
 
 <script>
 (function(){
-const ic = {
- home:'<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
- pay:'<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h4"/>',
- people:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.3-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><circle cx="17" cy="9" r="2.6"/><path d="M17 14.5c2.3 0 4 1.4 4.6 4"/>',
- approvals:'<path d="M9 12l2 2 4-4"/><rect x="4" y="3" width="16" height="18" rx="2"/>',
- reports:'<path d="M5 20V10M12 20V4M19 20v-7"/>',
- taxes:'<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/>',
- settings:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>',
- eye:'<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'
-};
-const svg = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ic[k]}</svg>`;
-const $ = (s,el=document)=>el.querySelector(s);
-const $$ = (s,el=document)=>[...el.querySelectorAll(s)];
-const esc = s => String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const money = (n,d=0) => (n<0?'−':'')+'$'+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
+const ic={home:'<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',pay:'<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h4"/>',people:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.3-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><circle cx="17" cy="9" r="2.6"/>',fin:'<path d="M4 20V9l8-5 8 5v11M9 20v-6h6v6"/>',approvals:'<path d="M9 12l2 2 4-4"/><rect x="4" y="3" width="16" height="18" rx="2"/>',reports:'<path d="M5 20V10M12 20V4M19 20v-7"/>',taxes:'<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/>',settings:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>',eye:'<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'};
+const svg=k=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ic[k]}</svg>`;
+const $=(s,el=document)=>el.querySelector(s), $$=(s,el=document)=>[...el.querySelectorAll(s)];
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money=(n,d=0)=>(n<0?'−':'')+'$'+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
 const hues=['#fde3c2','#d6efe2','#dfe3fb','#fadbe2','#e3eecf','#f6e0c9','#d9ecf3'];
-const av = p => `<span class="av" style="background:${hues[p.id%hues.length]}">${p.name.split(' ').map(w=>w[0]).join('').slice(0,2)}</span>`;
-const pill = (t,k)=>`<span class="pill p-${k}">${esc(t)}</span>`;
-const toast = m => {const t=document.createElement('div');t.className='toast';t.setAttribute('role','status');t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),2600)};
+const av=p=>`<span class="av" style="background:${hues[p.id%hues.length]}">${(p.name||p.who).split(' ').map(w=>w[0]).join('').slice(0,2)}</span>`;
+const pill=(t,k)=>`<span class="pill p-${k}">${esc(t)}</span>`;
+const toast=m=>{const t=document.createElement('div');t.className='toast';t.setAttribute('role','status');t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),2600)};
+const cite=t=>`<div class="cite">Pattern: ${t}</div>`;
 
-/* ---------- Example data (sample company, not real people) ---------- */
-const ENT = {sf:'Ramen Bar SF LLC · CA', ny:'Ramen Bar NY LLC · NY'};
-const S = {
- view:'home', entity:'all', step:1, peopleTab:'employees', settingsTab:'entities', reportCat:'All', filter:'',
- balance:48200, speed:'2-day', autopilot:true,
+/* ---------- Sample company (example data, not real people) ---------- */
+const ENT={sf:'Ramen Bar SF LLC',ny:'Ramen Bar NY LLC'};
+const S={view:'home',entity:'all',step:'grid',gridTab:'earnings',grp:'all',cols:{bonus:true,commission:false,dot:false,reimb:true,note:false},compare:'last',
+ personTab:'personal',apTab:'pending',rptTab:'catalog',setTab:'entities',cycleTab:'upcoming',balance:42800,speed:'2-day',autopilot:true,variance:15,
+ selected:new Set([21,22]),dismissed:new Set(),payMethod:'ach',
  people:[
-  {id:1,name:'Maya Chen',title:'Kitchen lead',type:'employee',ent:'sf',pay:'hourly',rate:34,hrs:80,ot:6,bonus:0,reimb:42,last:3018,pto:0,k401:4,health:180,way:'bank',split:'80% Chase / 20% Suwappu savings'},
-  {id:2,name:'Diego Ruiz',title:'Line cook',type:'employee',ent:'sf',pay:'hourly',rate:26,hrs:80,ot:0,bonus:0,reimb:0,last:2080,pto:8,k401:3,health:180,way:'instant',split:'100% debit card'},
-  {id:3,name:'Aiko Tanaka',title:'Server',type:'employee',ent:'sf',pay:'hourly',rate:19,hrs:64,ot:0,bonus:0,reimb:0,last:1368,pto:0,k401:0,health:0,way:'app',split:'100% Suwappu balance'},
-  {id:4,name:'Sam Okafor',title:'Server',type:'employee',ent:'ny',pay:'hourly',rate:21,hrs:72,ot:0,bonus:250,reimb:0,last:1512,pto:0,k401:0,health:120,way:'crypto',split:'100% USDC · Base'},
-  {id:5,name:'Lena Park',title:'GM (new hire)',type:'employee',ent:'ny',pay:'salary',salary:98000,hrs:80,ot:0,bonus:0,reimb:0,last:0,pto:0,k401:5,health:240,way:'pending',split:'Not set up yet'},
-  {id:6,name:'Ravi Shah',title:'Bookkeeper',type:'employee',ent:'sf',pay:'salary',salary:72000,hrs:80,ot:0,bonus:0,reimb:0,last:2769,pto:16,k401:6,health:240,way:'bank',split:'100% Wells ••2201'},
-  {id:7,name:'Jo Alvarez',title:'Dishwasher',type:'employee',ent:'ny',pay:'hourly',rate:18,hrs:80,ot:12,bonus:0,reimb:0,last:1440,pto:0,k401:0,health:0,way:'bank',split:'100% Chase ••9910'}
- ],
- contractors:[
-  {id:11,name:'Studio Kiri',title:'Menu design',ent:'sf',country:'US',amount:1800,way:'bank',status:'Invoice approved'},
-  {id:12,name:'Tomás Vidal',title:'Photography',ent:'ny',country:'Mexico',amount:950,way:'crypto',status:'Invoice approved'},
-  {id:13,name:'Nkem Eze',title:'Social media',ent:'sf',country:'Nigeria',amount:700,way:'crypto',status:'Awaiting invoice'}
- ],
- runs:[
-  {id:'R-1128',name:'Regular payroll',sched:'Every other Friday',ent:'all',period:'Nov 10 – Nov 23',runBy:'Mon, Nov 24 · 4:00 pm PT',payday:'Fri, Nov 28',status:'Unprocessed'},
-  {id:'C-1130',name:'Contractor payments',sched:'Monthly',ent:'all',period:'November',runBy:'Thu, Nov 27',payday:'Sun, Nov 30',status:'Unprocessed'}
- ],
- history:[
-  {id:'R-1114',name:'Regular payroll',payday:'Nov 14',total:15187,people:6,status:'Paid'},
-  {id:'B-1107',name:'Bonus · Maya Chen',payday:'Nov 7',total:300,people:1,status:'Paid'},
-  {id:'R-1031',name:'Regular payroll',payday:'Oct 31',total:14902,people:6,status:'Paid'},
-  {id:'C-1031',name:'Contractor payments',payday:'Oct 31',total:3250,people:3,status:'Paid'}
- ],
- approvals:{
-  rules:[
-   {name:'Large payrolls',when:'Total is more than $15,000',who:['Ravi Shah (Payroll manager)','Owner'],on:true},
-   {name:'New entity runs',when:'Entity is Ramen Bar NY LLC',who:['Finance approver'],on:true},
-   {name:'International contractors',when:'Contractor country is not US',who:['Owner'],on:true}
-  ],
-  log:[]
- },
- roles:[
-  {who:'Kenji Mori',role:'All access admin',scope:'Entire company',note:'Account owner'},
-  {who:'Ravi Shah',role:'Custom admin · Full payroll access',scope:'Entire company',note:''},
-  {who:'Priya Nair',role:'Custom admin · Edit payroll access (needs approval)',scope:'Ramen Bar NY LLC',note:''},
-  {who:'Maya Chen',role:'People manager',scope:'Direct reports',note:''},
-  {who:'Harbor CPA',role:'Outside collaborator · Accountant',scope:'Reports, taxes (view)',note:'External'}
- ]
+  {id:1,name:'Maya Chen',title:'Kitchen lead',ent:'sf',pay:'hourly',rate:34,hrs:80,ot:6,dot:0,bonus:0,commission:0,reimb:42,note:'',last:[3018,2990],k401:4,health:180,way:'Chase ••4410 80% · Suwappu savings 20%',w4:'On file'},
+  {id:2,name:'Diego Ruiz',title:'Line cook',ent:'sf',pay:'hourly',rate:26,hrs:80,ot:0,dot:0,bonus:0,commission:0,reimb:0,note:'',last:[2080,2080],k401:3,health:180,way:'Debit card (instant)',w4:'On file'},
+  {id:3,name:'Aiko Tanaka',title:'Server',ent:'sf',pay:'hourly',rate:19,hrs:64,ot:0,dot:0,bonus:0,commission:310,reimb:0,note:'',last:[1368,1520],k401:0,health:0,way:'Suwappu balance',w4:'On file'},
+  {id:4,name:'Sam Okafor',title:'Server',ent:'ny',pay:'hourly',rate:21,hrs:72,ot:0,dot:0,bonus:250,commission:0,reimb:0,note:'',last:[1512,1470],k401:0,health:120,way:'USDC on Base',w4:'On file'},
+  {id:5,name:'Lena Park',title:'General manager (new hire)',ent:'ny',pay:'salary',salary:98000,hrs:80,ot:0,dot:0,bonus:0,commission:0,reimb:0,note:'Welcome aboard!',last:[0,0],k401:5,health:240,way:'',w4:'Waiting'},
+  {id:6,name:'Ravi Shah',title:'Bookkeeper',ent:'sf',pay:'salary',salary:72000,hrs:80,ot:0,dot:0,bonus:0,commission:0,reimb:0,note:'',last:[2769,2769],k401:6,health:240,way:'Wells ••2201',w4:'On file'},
+  {id:7,name:'Jo Alvarez',title:'Dishwasher',ent:'ny',pay:'hourly',rate:18,hrs:80,ot:12,dot:2,bonus:0,commission:0,reimb:0,note:'',last:[1440,1476],k401:0,health:0,way:'Chase ••9910',w4:'On file'}],
+ invoices:[
+  {id:21,who:'Studio Kiri',what:'Menu design · Nov',ent:'sf',country:'United States',amt:1800,cur:'USD',status:'Approved',payout:'Bank (ACH)'},
+  {id:22,who:'Tomás Vidal',what:'Food photography · Nov',ent:'ny',country:'Mexico',amt:950,cur:'USD',status:'Approved',payout:'USDC on Base'},
+  {id:23,who:'Nkem Eze',what:'Social media · Nov',ent:'sf',country:'Nigeria',amt:700,cur:'USD',status:'Pending approval',payout:'USDC on Solana'},
+  {id:24,who:'Hana Ito',what:'Translation · Nov',ent:'ny',country:'Japan',amt:640,cur:'USD',status:'Approved',payout:'Wise (JPY)'}],
+ cycles:[
+  {id:'R-1128',name:'Regular payroll',grp:'Every other Friday · all employees',deadline:'Mon, Nov 24 · 4:00 pm PT',payday:'Fri, Nov 28',status:'Not started'},
+  {id:'C-1130',name:'Contractor invoices',grp:'Monthly',deadline:'Thu, Nov 27',payday:'Sun, Nov 30',status:'Awaiting approval'},
+  {id:'R-1212',name:'Regular payroll',grp:'Every other Friday · all employees',deadline:'Mon, Dec 8 · 4:00 pm PT',payday:'Fri, Dec 12',status:'Not started'}],
+ history:[{id:'R-1114',name:'Regular payroll',payday:'Nov 14',total:21410,n:6,status:'Done'},{id:'B-1107',name:'Extra pay (bonus) · Maya Chen',payday:'Nov 7',total:300,n:1,status:'Done'},{id:'R-1031',name:'Regular payroll',payday:'Oct 31',total:20988,n:6,status:'Done'},{id:'C-1031',name:'Contractor invoices',payday:'Oct 31',total:3250,n:3,status:'Done'},{id:'R-1017',name:'Regular payroll',payday:'Oct 17',total:20711,n:6,status:'Failed · resubmitted'}],
+ activity:['Ravi Shah edited hours for Jo Alvarez · 9:14 am','Lena Park signed her offer letter · yesterday','Payroll R-1114 marked Done · Nov 14','Harbor CPA downloaded Payroll journal · Nov 14','Approval policy "Large payrolls" edited by Kenji Mori · Nov 3'],
+ policies:[
+  {name:'Large payrolls',flow:'Payroll package approval',group:'All employees',cond:'Total debit is greater than $15,000',levels:[['Ravi Shah (specific user)'],['Owner (role)','Finance approver (role)']],sub:'Priya Nair',on:true},
+  {name:'NY entity submissions',flow:'Payroll submission',group:'Ramen Bar NY LLC',cond:'Entity is Ramen Bar NY LLC',levels:[['Finance approver (role)']],sub:'',on:true},
+  {name:'International contractors',flow:'Payroll package approval',group:'Contractors',cond:'Country is not United States',levels:[['Owner (role)']],sub:'Ravi Shah',on:true}],
+ requests:[],
+ roles:[['Kenji Mori','Primary account owner','Entire company'],['Ravi Shah','Full access admin','Entire company'],['Priya Nair','Custom · Run payroll (edit access, needs approval)','Ramen Bar NY LLC'],['Maya Chen','People manager','Direct reports'],['Harbor CPA','Outside collaborator · Accountant','Reports, tax documents (view)']]
 };
+const cyc=id=>S.cycles.find(c=>c.id===id);
+const inEnt=x=>S.entity==='all'||x.ent===S.entity;
+const emps=()=>S.people.filter(inEnt).filter(p=>S.grp==='all'||p.pay===S.grp);
+const allEmps=()=>S.people.filter(inEnt);
+function gross(p){const reg=p.pay==='salary'?p.salary/26:p.rate*p.hrs;const ot=p.pay==='salary'?0:p.rate*1.5*p.ot+p.rate*2*p.dot;return reg+ot+p.bonus+p.commission}
+function calc(p){const g=gross(p),pre=g*p.k401/100+p.health,tx=g-pre,fed=tx*.11,fica=g*.0765,st=tx*(p.ent==='sf'?.05:.055),er=g*.0765+Math.min(g,7000)*.006;return{g,pre,fed,fica,st,er,net:g-pre-fed-fica-st+p.reimb,reimb:p.reimb}}
+function totals(list=allEmps()){const t={g:0,pre:0,fed:0,fica:0,st:0,er:0,net:0,reimb:0};list.forEach(p=>{const c=calc(p);for(const k in t)t[k]+=c[k]});t.ee=t.fed+t.fica+t.st;t.debit=t.net+t.ee+t.er+t.pre;return t}
+const vs=p=>{const base=S.compare==='last'?p.last[0]:p.last[1];return base?(gross(p)-base)/base*100:null};
+function flags(){const f=[];allEmps().forEach(p=>{const v=vs(p);
+ if(!p.last[0])f.push({id:'new'+p.id,t:`${p.name} is on their first payroll. Pay is prorated from their start date.`});
+ else if(Math.abs(v)>=S.variance)f.push({id:'v'+p.id,t:`${p.name}'s gross pay is ${v>0?'up':'down'} ${Math.abs(v).toFixed(0)}% from the ${S.compare==='last'?'last':'second-to-last'} payroll.`});
+ if(p.dot>0)f.push({id:'dot'+p.id,t:`${p.name} has ${p.dot} double-overtime hours.`});
+ if(!p.way)f.push({id:'pm'+p.id,t:`${p.name} hasn't added a payment method. Their pay will be held until they do.`});});return f.filter(x=>!S.dismissed.has(x.id))}
+function tasks(){const t=[],R=cyc('R-1128');
+ if(R.status==='Not started'||R.status==='Changes requested')t.push({sev:'warn',title:'Run payroll for Nov 28',sub:'Payroll deadline Mon, Nov 24 · 4:00 pm PT',act:'run',btn:'Run payroll'});
+ if(R.status==='Awaiting approval')t.push({sev:'warn',title:'Review request: Regular payroll · Nov 28',sub:'Level 2 of 2 · you are an approver',act:'approvals',btn:'Review'});
+ if(cyc('C-1130').status==='Awaiting approval')t.push({sev:'info',title:'Pay 3 contractor invoices',sub:'Due Nov 30 · '+money(S.invoices.filter(i=>i.status==='Approved').reduce((a,i)=>a+i.amt,0)),act:'billing',btn:'Pay'});
+ if(!S.people.find(p=>p.id===5).way)t.push({sev:'info',title:'Lena Park needs to finish onboarding',sub:'W-4 and payment method missing',act:'remind',btn:'Remind'});
+ t.push({sev:'warn',title:'Add NY unemployment insurance number',sub:'Needed for Q4 NYS-45',act:'taxes',btn:'Open'});
+ t.push({sev:'plain',title:'Approve Nkem Eze invoice',sub:'$700 · payment item approval',act:'billing',btn:'Review'});return t}
 
-const inEnt = p => S.entity==='all' || p.ent===S.entity;
-function gross(p){ const reg = p.pay==='salary' ? p.salary/26 : p.rate*p.hrs; const ot = p.pay==='salary'?0:p.rate*1.5*p.ot; return reg+ot+p.bonus; }
-// Estimate only: in production gross-to-net comes from the tax partner.
-function calc(p){ const g=gross(p); const pre=g*p.k401/100+p.health; const taxable=g-pre;
-  const fed=taxable*0.11, fica=g*0.0765, state=taxable*(p.ent==='sf'?0.05:0.055), erTax=g*0.0765+Math.min(g,7000)*0.006;
-  const net=g-pre-fed-fica-state+p.reimb; return {g,pre,fed,fica,state,er:erTax,net,reimb:p.reimb}; }
-function variance(p){ if(!p.last) return null; return (gross(p)-p.last)/p.last*100; }
-const emps = ()=>S.people.filter(inEnt);
-const ctrs = ()=>S.contractors.filter(inEnt);
-function totals(){ const t={g:0,pre:0,fed:0,fica:0,state:0,er:0,net:0,reimb:0};
-  emps().forEach(p=>{const c=calc(p);for(const k in t)t[k]+=c[k]}); t.taxes=t.fed+t.fica+t.state+t.er; t.debit=t.net+t.taxes+t.pre; return t; }
-const run = id => S.runs.find(r=>r.id===id);
-function alerts(){ const a=[];
-  emps().forEach(p=>{ const v=variance(p);
-    if(p.way==='pending') a.push({k:'warn',t:`${p.name} hasn't chosen how to get paid. Their pay will wait safely until they do.`});
-    if(!p.last) a.push({k:'info',t:`${p.name} is on their first payroll.`});
-    else if(Math.abs(v)>=15) a.push({k:'warn',t:`${p.name}'s gross pay is ${v>0?'up':'down'} ${Math.abs(v).toFixed(0)}% from last payroll.`});
-    if(p.ot>=10) a.push({k:'info',t:`${p.name} has ${p.ot} overtime hours.`}); });
-  return a; }
-function tasks(){ const t=[]; const R=run('R-1128');
-  if(R.status==='Unprocessed') t.push({sev:'warn',title:'Run payroll for Nov 28',sub:'Run by Mon, Nov 24 · 4:00 pm PT for 2-day pay',act:'run',btn:'Run payroll'});
-  if(R.status==='Awaiting approval') t.push({sev:'warn',title:'Approve Regular payroll (R-1128)',sub:'Submitted by Ravi Shah · needs Owner approval',act:'approvals',btn:'Review'});
-  const t2=totals(); if(S.balance<t2.debit+ctrs().reduce((a,c)=>a+c.amount,0)) t.push({sev:'bad',title:'Add money before payday',sub:`${money(t2.debit-S.balance)} short for upcoming debits`,act:'fund',btn:'Add money'});
-  S.people.filter(p=>p.way==='pending').forEach(p=>t.push({sev:'info',title:`${p.name} needs to set up payment`,sub:'Invite sent by text · reminder in 2 days',act:'remind',btn:'Resend'}));
-  t.push({sev:'info',title:'NY unemployment registration',sub:'Needed before Ramen Bar NY LLC files Q4',act:'taxes',btn:'Open'});
-  t.push({sev:'plain',title:'Approve 1 contractor invoice',sub:'Nkem Eze · $700 · due Nov 30',act:'pay',btn:'Review'});
-  return t; }
-
-/* ---------- Navigation ---------- */
-const NAV=[['home','Home'],['pay','Pay'],['people','People'],['approvals','Approvals'],['reports','Reports'],['taxes','Taxes & compliance'],['settings','Settings']];
-const TITLES={home:'Home',pay:'Pay',run:'Pay › Run payroll',people:'People',approvals:'Approvals',reports:'Reports',taxes:'Taxes & compliance',settings:'Settings',them:'Payee view'};
-function renderNav(){
-  const pend = S.runs.filter(r=>r.status==='Awaiting approval').length;
-  $('#side').innerHTML = `<div class="brand"><div class="logo">P</div><div><b>Payday</b><small>Ramen Bar Group (sample)</small></div></div>
-   ${NAV.map(([k,l])=>`<button class="nav-btn" data-go="${k}" ${S.view===k||(k==='pay'&&S.view==='run')?'aria-current="page"':''}>${svg(k)}${l}${k==='approvals'&&pend?`<span class="count">${pend}</span>`:''}</button>`).join('')}
-   <div class="nav-sep"></div><div class="nav-label">Preview</div>
-   <button class="nav-btn" data-go="them" ${S.view==='them'?'aria-current="page"':''}>${svg('eye')}What payees see</button>
-   <label class="entity" for="ent">Entity<select id="ent"><option value="all">All entities</option>${Object.entries(ENT).map(([k,v])=>`<option value="${k}" ${S.entity===k?'selected':''}>${v}</option>`).join('')}</select></label>`;
-  $('#mnav').innerHTML = [...NAV,['them','What payees see']].map(([k,l])=>`<option value="${k}" ${S.view===k||(k==='pay'&&S.view==='run')?'selected':''}>${l}</option>`).join('');
-  $('#crumbs').innerHTML = `Ramen Bar Group (sample) › <b>${TITLES[S.view]}</b>`;
-}
+/* ---------- Nav ---------- */
+const NAV=[['home','Home','home'],['payroll','Payroll','pay',[['run','Run payroll'],['cycles','Payroll cycles']]],['people','People','people',[['people','Directory']]],['billing','Finance','fin',[['billing','Billing']]],['approvals','Approvals','approvals'],['reports','Analytics','reports',[['reports','Reports']]],['taxes','Taxes & compliance','taxes'],['settings','Org settings','settings']];
+const TITLE={home:'Home',run:'Payroll › Run payroll',cycles:'Payroll › Payroll cycles',people:'People › Directory',billing:'Finance › Billing',approvals:'Approvals',reports:'Analytics › Reports',taxes:'Taxes & compliance',settings:'Org settings',them:'Payee view'};
+function renderNav(){const pend=S.cycles.filter(c=>c.status==='Awaiting approval').length;
+ $('#side').innerHTML=`<div class="brand"><div class="logo">P</div><div><b>Payday</b><small>Ramen Bar Group (sample)</small></div></div>`+
+ NAV.map(([k,l,i,sub])=>{const on=S.view===k||(sub||[]).some(s=>s[0]===S.view);return sub?`<button class="nav-btn" data-go="${sub[0][0]}" ${on?'aria-current="page"':''}>${svg(i)}${l}</button>`+(on?sub.map(([sk,sl])=>`<button class="nav-btn nav-sub" data-go="${sk}" ${S.view===sk?'aria-current="page"':''}>${sl}</button>`).join(''):''):`<button class="nav-btn" data-go="${k}" ${on?'aria-current="page"':''}>${svg(i)}${l}${k==='approvals'&&pend?`<span class="count">${pend}</span>`:''}</button>`}).join('')+
+ `<div class="nav-sep"></div><div class="nav-label">Preview</div><button class="nav-btn" data-go="them" ${S.view==='them'?'aria-current="page"':''}>${svg('eye')}What payees see</button>
+ <label class="entity" for="ent">Entity<select id="ent"><option value="all">All entities</option>${Object.entries(ENT).map(([k,v])=>`<option value="${k}" ${S.entity===k?'selected':''}>${v}</option>`).join('')}</select></label>`;
+ $('#mnav').innerHTML=Object.entries(TITLE).map(([k,l])=>`<option value="${k}" ${S.view===k?'selected':''}>${l}</option>`).join('');
+ $('#crumbs').innerHTML=`Ramen Bar Group (sample) › <b>${TITLE[S.view]}</b>`;}
+const statusPill=s=>pill(s,{'Not started':'plain','Awaiting approval':'warn','Changes requested':'bad','Awaiting funding':'info','Processing funding':'info','Done':'good','Failed · resubmitted':'bad','Approved':'good','Pending approval':'warn','Paid':'good'}[s]||'plain');
 
 /* ---------- Views ---------- */
 const V={};
-V.home=()=>{ const t=totals(), tk=tasks(), R=run('R-1128'), C=run('C-1130'), ct=ctrs().reduce((a,c)=>a+c.amount,0);
- return `<span class="proto">Prototype · sample company · no real money moves · tax math is an estimate</span>
- <div class="head"><div><h1>Good morning, Kenji</h1><p>${tk.length} things need you this week.</p></div><button class="btn btn-primary" data-go="run">Run payroll</button></div>
- <div class="grid3">
-  <div class="card stat"><span>Next payday</span><b>Fri, Nov 28</b><span>Run by Mon, Nov 24 · 4:00 pm PT</span></div>
-  <div class="card stat"><span>Upcoming debits (payroll + contractors)</span><b class="num">${money(t.debit+ct)}</b><span>Payroll ${money(t.debit)} · Contractors ${money(ct)}</span></div>
-  <div class="card stat"><span>Payday account balance</span><b class="num">${money(S.balance)}</b><span style="color:${S.balance>=t.debit+ct?'var(--good)':'var(--bad)'}">${S.balance>=t.debit+ct?'Covers everything upcoming':'Not enough for upcoming debits'}</span></div>
- </div>
- <div class="grid2">
-  <div class="card"><div class="card-head"><h2>To do</h2><span class="muted small">Also in the bell</span></div>
-   ${tk.map(x=>`<div class="todo"><span class="sev" style="background:var(--${x.sev==='plain'?'line':x.sev==='info'?'info':x.sev})"></span><div class="t"><b>${esc(x.title)}</b><small>${esc(x.sub)}</small></div><button class="btn btn-quiet" data-act="${x.act}">${x.btn}</button></div>`).join('')}
-  </div>
-  <div class="card"><div class="card-head"><h2>Upcoming payrolls</h2><button class="btn btn-ghost" data-go="pay">All</button></div>
-   ${[R,C].map(r=>`<div class="todo"><div class="t"><b>${r.name}</b><small>Payday ${r.payday} · run by ${r.runBy}</small></div>${statusPill(r.status)}</div>`).join('')}
-   <div class="alert ${S.autopilot?'good':'info'}">${S.autopilot?'AutoPilot is on: Regular payroll submits itself one day before the deadline. You get 24 hours to change or cancel it.':'AutoPilot is off. You submit each payroll yourself.'}</div>
-  </div>
- </div>
- <div class="card"><div class="card-head"><h2>Cash requirements · Nov 28 payroll</h2><span class="src">Matches the Cash requirements report</span></div>
-  <div class="grid3">
-   <div><div class="kv"><span>Employee take-home</span><b class="num">${money(t.net)}</b></div><div class="kv"><span>Reimbursements (included)</span><span class="num">${money(t.reimb)}</span></div></div>
-   <div><div class="kv"><span>Taxes (employee + employer)</span><b class="num">${money(t.taxes)}</b></div><div class="kv"><span>Benefits & 401(k)</span><span class="num">${money(t.pre)}</span></div></div>
-   <div><div class="kv total"><span>Total debit</span><span class="num">${money(t.debit)}</span></div><div class="small muted">Debited ${S.speed==='2-day'?'Wed, Nov 26':'Mon, Nov 24'} from your Payday account</div></div>
-  </div></div>`;
-};
-function statusPill(s){ return pill(s,{'Unprocessed':'plain','Awaiting approval':'warn','Changes requested':'bad','Submitted':'info','Paid':'good','Cancelled':'plain'}[s]||'plain'); }
+V.home=()=>{const tk=tasks(),t=totals(),R=cyc('R-1128');
+ return `<span class="proto">Prototype · sample company · no real money moves · taxes are estimates (a payroll tax partner calculates them in production)</span>
+ <div class="head"><div><h1>Welcome back, Kenji</h1><p>${tk.length} tasks · next payday Fri, Nov 28</p></div></div>
+ <div class="tile"><div class="dl"><div><span>Regular payroll</span><b>Nov 10 – Nov 23</b></div><div><span>Payroll deadline</span><b>Mon, Nov 24 · 4:00 pm PT</b></div><div><span>Payday</span><b>Fri, Nov 28</b></div><div><span>Est. debit</span><b class="num">${money(t.debit)}</b></div></div>
+  <div class="toolbar">${statusPill(R.status)}<button class="btn btn-primary" data-act="run" ${R.status!=='Not started'&&R.status!=='Changes requested'?'disabled':''}>Run payroll</button></div></div>
+ <div class="grid2"><div class="card"><div class="card-head"><h2>Tasks</h2><button class="btn btn-quiet" data-act="bell">View all tasks</button></div>
+  ${tk.slice(0,3).map(x=>`<div class="todo"><span class="sev" style="background:var(--${x.sev==='plain'?'line':x.sev})"></span><div class="t"><b>${esc(x.title)}</b><small>${esc(x.sub)}</small></div><button class="btn btn-quiet" data-act="${x.act}">${x.btn}</button></div>`).join('')}
+  ${cite('Gusto Home "Tasks" widget shows top 3 · Deel "All tasks" card')}</div>
+  <div class="card"><div class="card-head"><h2>Recent activity</h2><button class="btn btn-quiet" data-act="bellact">View all updates</button></div>
+  ${S.activity.slice(0,4).map(a=>`<div class="todo"><div class="t small">${esc(a)}</div></div>`).join('')}</div></div>
+ <div class="grid3"><div class="card stat"><span>Payday account</span><b class="num">${money(S.balance)}</b><span>${S.balance>=t.debit?'Covers next payroll':'Short '+money(t.debit-S.balance)}</span></div>
+  <div class="card stat"><span>Team</span><b>${allEmps().length} employees</b><span>${S.invoices.length} contractors in 3 countries</span></div>
+  <div class="card stat"><span>Last payroll</span><b class="num">${money(21410)}</b><span>Nov 14 · Done</span></div></div>`};
 
-V.pay=()=>`<div class="head"><div><h1>Pay</h1><p>Payroll cycles, off-cycle payments and history.</p></div>
-  <div class="toolbar"><div class="rel"><button class="btn btn-ghost" id="offcycle">Off-cycle payroll ▾</button><div id="offmenu"></div></div><button class="btn btn-primary" data-go="run">Run payroll</button></div></div>
- <div class="card"><h2>Payroll cycles</h2><div class="tw"><table><thead><tr><th>Payroll</th><th>Pay period</th><th>Run by</th><th>Payday</th><th>Status</th><th></th></tr></thead><tbody>
-  ${S.runs.map(r=>`<tr><td><b>${r.name}</b><div class="small muted">${r.sched} · <span class="mono">${r.id}</span></div></td><td>${r.period}</td><td>${r.runBy}</td><td>${r.payday}</td><td>${statusPill(r.status)}</td>
-   <td class="r">${r.id==='R-1128'?(r.status==='Unprocessed'||r.status==='Changes requested'?'<button class="btn btn-quiet" data-go="run">Run</button>':r.status==='Submitted'?'<button class="btn btn-danger" data-act="cancel">Cancel</button>':''):'<button class="btn btn-quiet" data-act="contractors">Pay contractors</button>'}</td></tr>`).join('')}
- </tbody></table></div></div>
- <div class="grid2">
-  <div class="card"><h2>Payroll calendar · Nov 28 payday</h2><div class="timeline">
-   ${[['Pay period closes','Sun, Nov 23',1],['Hours and changes cut-off','Mon, Nov 24 · 10:00 am',run('R-1128').status!=='Unprocessed'],['Run by (2-day pay)','Mon, Nov 24 · 4:00 pm PT',['Submitted','Paid'].includes(run('R-1128').status)],['Approval due','Mon, Nov 24 · 4:00 pm PT',['Submitted','Paid'].includes(run('R-1128').status)],['Money leaves your account','Wed, Nov 26',run('R-1128').status==='Paid'],['Payday','Fri, Nov 28',run('R-1128').status==='Paid']]
-    .map(([a,b,d],i,arr)=>{const now=!d&&(i===0||arr[i-1][2]);return `<div class="tl ${d?'done':now?'now':''}"><i></i><span>${a}</span><span class="muted small">${b}</span></div>`}).join('')}</div>
-   <label class="small" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="auto" ${S.autopilot?'checked':''}> AutoPilot: submit one day before the deadline, with 24 hours to change or cancel</label></div>
-  <div class="card"><h2>History</h2><div class="tw"><table style="min-width:420px"><thead><tr><th>Payday</th><th>Payroll</th><th class="r">Total</th><th>Status</th></tr></thead><tbody>
-   ${S.history.map(h=>`<tr><td>${h.payday}</td><td>${esc(h.name)}<div class="small muted">${h.people} paid · <span class="mono">${h.id}</span></div></td><td class="r num">${money(h.total)}</td><td>${statusPill(h.status)}</td></tr>`).join('')}
-   </tbody></table></div><div class="small muted">Paid payrolls can be reversed or corrected with an off-cycle correction payroll.</div></div>
- </div>`;
-
-V.run=()=>{ const R=run('R-1128'); const locked=!['Unprocessed','Changes requested'].includes(R.status);
- const stepper=`<div class="steps">${['Hours & earnings','Time off & deductions','Review & submit'].map((l,i)=>`<button class="step ${S.step>i+1?'done':''}" data-step="${i+1}" ${S.step===i+1?'aria-current="step"':''}><b>${S.step>i+1?'✓':i+1}</b>${l}</button>`).join('')}</div>`;
- const head=`<div class="head"><div><h1>Regular payroll · Nov 28</h1><p>Pay period Nov 10 – Nov 23 · ${emps().length} employees · run by Mon, Nov 24 · 4:00 pm PT</p></div>${statusPill(R.status)}</div>${stepper}
-  ${locked?`<div class="alert info">This payroll is ${R.status.toLowerCase()}. Edits are locked. ${R.status==='Submitted'?'You can cancel it until money leaves your account.':''}</div>`:''}`;
- const list=emps().filter(p=>!S.filter||p.name.toLowerCase().includes(S.filter.toLowerCase()));
- if(S.step===1) return head+`<div class="card"><div class="card-head"><div class="toolbar"><input class="field" id="flt" placeholder="Search people" value="${esc(S.filter)}" aria-label="Search people"><button class="btn btn-ghost" id="bulk" ${locked?'disabled':''}>Bulk edit: set hours to 80</button></div><span class="small muted">Edit cells directly. Changes recalculate instantly.</span></div>
-  <div class="tw"><table><thead><tr><th>Employee</th><th>Pay</th><th class="r">Reg. hours</th><th class="r">Overtime</th><th class="r">Bonus</th><th class="r">Reimb.</th><th class="r">Gross</th><th class="r">vs last</th></tr></thead><tbody>
-  ${list.map(p=>{const v=variance(p);const flag=v===null||Math.abs(v)>=15;return `<tr class="${flag?'flag':''}"><td><div class="who">${av(p)}<div>${esc(p.name)}<small>${esc(p.title)} · ${p.ent.toUpperCase()}</small></div></div></td>
+V.run=()=>{const R=cyc('R-1128'),locked=!['Not started','Changes requested'].includes(R.status);
+ const head=`<div class="head"><div><h1>Regular payroll</h1><p>Pay period Nov 10 – Nov 23 · Payroll deadline Mon, Nov 24 · 4:00 pm PT · Payday Fri, Nov 28</p></div>
+  <div class="toolbar">${statusPill(R.status)}<div class="rel"><button class="btn btn-ghost" id="types">Other payrolls ▾</button><div id="typemenu"></div></div><button class="btn btn-ghost" data-act="skip">Skip payroll</button></div></div>`;
+ if(S.step==='done')return head+confirmView();
+ if(S.step==='review')return head+reviewView(locked);
+ const cols=[['hrs','Regular hours',1],['ot','Overtime hours',1],['dot','Double overtime',S.cols.dot],['bonus','Bonus',S.cols.bonus],['commission','Commission',S.cols.commission],['reimb','Reimbursement',S.cols.reimb]].filter(c=>c[2]);
+ const list=emps();
+ return head+(locked?`<div class="alert info">This payroll is ${R.status.toLowerCase()} and locked for editing.</div>`:'')+`
+ <div class="card"><div class="card-head"><div class="toolbar">
+   <div class="tabs" role="tablist">${[['earnings','Earnings'],['deductions','Deductions']].map(([k,l])=>`<button class="tab" role="tab" data-gtab="${k}" aria-selected="${S.gridTab===k}">${l}</button>`).join('')}</div>
+   <select class="field" id="grp" aria-label="Show"><option value="all">Everyone</option><option value="salary" ${S.grp==='salary'?'selected':''}>Salaried</option><option value="hourly" ${S.grp==='hourly'?'selected':''}>Hourly</option></select></div>
+  <div class="rel"><button class="btn btn-ghost" id="colsbtn">Columns</button><div id="colsmenu"></div></div></div>
+ ${S.gridTab==='earnings'?`<div class="tw"><table><thead><tr><th>Team member</th><th>Rate</th>${cols.map(c=>`<th class="r">${c[1]}</th>`).join('')}${S.cols.note?'<th>Personal note</th>':''}<th class="r">Gross pay</th></tr></thead><tbody>
+  ${list.map(p=>`<tr><td><button class="who" data-person="${p.id}" style="background:none;border:0;color:inherit;font:inherit;cursor:pointer;text-align:left;padding:0">${av(p)}<div>${esc(p.name)}<small>${esc(p.title)} · ${ENT[p.ent].replace(' LLC','')}</small></div></button></td>
    <td class="small">${p.pay==='salary'?money(p.salary)+'/yr':money(p.rate,2)+'/hr'}</td>
-   ${['hrs','ot','bonus','reimb'].map(k=>`<td class="r">${p.pay==='salary'&&(k==='hrs'||k==='ot')?'<span class="muted small">Salary</span>':`<input class="cell-in num" data-p="${p.id}" data-k="${k}" value="${p[k]}" ${locked?'disabled':''} aria-label="${k} for ${esc(p.name)}">`}</td>`).join('')}
-   <td class="r num"><b>${money(gross(p),2)}</b></td><td class="r num">${v===null?pill('New','info'):`<span style="color:var(--${Math.abs(v)>=15?'warn':'muted'})">${v>0?'+':''}${v.toFixed(1)}%</span>`}</td></tr>`}).join('')}
-  </tbody></table></div><div class="toolbar" style="justify-content:flex-end"><button class="btn btn-primary" data-step="2">Continue</button></div></div>`;
- if(S.step===2) return head+`<div class="card"><h2>Time off & deductions</h2><div class="tw"><table><thead><tr><th>Employee</th><th class="r">Paid time off (hrs)</th><th class="r">401(k) %</th><th class="r">Health premium</th><th>Payment</th></tr></thead><tbody>
-  ${list.map(p=>`<tr><td><div class="who">${av(p)}<div>${esc(p.name)}<small>${esc(p.title)}</small></div></div></td>
-   ${['pto','k401','health'].map(k=>`<td class="r"><input class="cell-in num" data-p="${p.id}" data-k="${k}" value="${p[k]}" ${locked?'disabled':''} aria-label="${k} for ${esc(p.name)}"></td>`).join('')}
-   <td>${p.way==='pending'?pill('Not set up','warn'):`<span class="small">${esc(p.split)}</span>`}</td></tr>`).join('')}
-  </tbody></table></div><div class="toolbar" style="justify-content:space-between"><button class="btn btn-ghost" data-step="1">Back</button><button class="btn btn-primary" data-step="3">Continue to review</button></div></div>`;
- const t=totals(), al=alerts();
- return head+`<div class="grid3">
-   <div class="card"><h3>What gets taxed and debited</h3><div class="kv"><span>Employee take-home</span><span class="num">${money(t.net)}</span></div><div class="kv"><span>Employee taxes</span><span class="num">${money(t.fed+t.fica+t.state)}</span></div><div class="kv"><span>Employer taxes</span><span class="num">${money(t.er)}</span></div><div class="kv"><span>Benefits & 401(k)</span><span class="num">${money(t.pre)}</span></div><div class="kv total"><span>Total debit</span><span class="num">${money(t.debit)}</span></div></div>
-   <div class="card"><h3>What your team takes home</h3>${emps().map(p=>`<div class="kv"><span>${esc(p.name)}</span><span class="num">${money(calc(p).net)}</span></div>`).join('')}</div>
-   <div class="card"><h3>What your company pays</h3><div class="kv"><span>Gross wages</span><span class="num">${money(t.g)}</span></div><div class="kv"><span>Employer taxes</span><span class="num">${money(t.er)}</span></div><div class="kv"><span>Reimbursements</span><span class="num">${money(t.reimb)}</span></div><div class="kv total"><span>Company cost</span><span class="num">${money(t.g+t.er+t.reimb)}</span></div></div>
-  </div>
-  <div class="grid2"><div class="card"><div class="card-head"><h2>Before you submit</h2><span class="small muted">Alerts never change anyone's pay</span></div>${al.map(a=>`<div class="alert ${a.k}">${esc(a.t)}</div>`).join('')||'<div class="alert good">No alerts.</div>'}</div>
-  <div class="card"><h2>Payment speed</h2>${[['4-day','Debit Mon, Nov 24','Free'],['2-day','Debit Wed, Nov 26','Free'],['next-day','Debit Thu, Nov 27','Plus plan'],['same-day','Debit Fri, Nov 28','Premium']].map(([k,a,b])=>`<button class="way" data-speed="${k}" aria-pressed="${S.speed===k}" ${locked?'disabled':''}><span class="m"><b>${k[0].toUpperCase()+k.slice(1)} pay</b><small>${a}</small></span>${pill(b,b==='Free'?'good':'plain')}</button>`).join('')}
-   <div class="small muted">Payees on Suwappu balance or crypto get paid instantly on payday regardless of speed.</div></div></div>
-  <div class="card"><div class="toolbar" style="justify-content:space-between"><button class="btn btn-ghost" data-step="2">Back</button>
-   <div class="toolbar">${R.status==='Submitted'?'<button class="btn btn-danger" data-act="cancel">Cancel payroll</button>':''}
-   <button class="btn btn-primary" data-act="submit" ${locked?'disabled':''}>${t.debit>15000?'Submit for approval':'Submit payroll'} · ${money(t.debit)}</button></div></div>
-   ${t.debit>15000?'<div class="small muted">Over $15,000, so the "Large payrolls" rule sends this to Ravi Shah, then the Owner.</div>':'<div class="small muted">Under your approval thresholds, so this submits directly after you confirm with your passkey.</div>'}</div>`;
-};
+   ${cols.map(([k])=>`<td class="r">${p.pay==='salary'&&['hrs','ot','dot'].includes(k)?'<span class="muted small">N/A</span>':`<input class="cell-in num" data-p="${p.id}" data-k="${k}" value="${p[k]}" ${locked?'disabled':''} aria-label="${k} for ${esc(p.name)}">`}</td>`).join('')}
+   ${S.cols.note?`<td><input class="field" style="width:150px" data-p="${p.id}" data-k="note" value="${esc(p.note)}" ${locked?'disabled':''} aria-label="Note for ${esc(p.name)}"></td>`:''}
+   <td class="r num"><b>${money(gross(p),2)}</b></td></tr>`).join('')}</tbody></table></div>`
+ :`<div class="tw"><table><thead><tr><th>Team member</th><th class="r">401(k) %</th><th class="r">Health premium</th><th>Applies to</th></tr></thead><tbody>
+  ${list.map(p=>`<tr><td><div class="who">${av(p)}<div>${esc(p.name)}<small>${esc(p.title)}</small></div></div></td>${['k401','health'].map(k=>`<td class="r"><input class="cell-in num" data-p="${p.id}" data-k="${k}" value="${p[k]}" ${locked?'disabled':''} aria-label="${k} for ${esc(p.name)}"></td>`).join('')}<td class="small muted">All payrolls</td></tr>`).join('')}</tbody></table></div>`}
+ <div class="toolbar" style="justify-content:space-between"><span class="small muted">Hours synced from Toast POS · decimals (1.25 = 1h 15m) · saved automatically</span><button class="btn btn-primary" data-act="toreview">Review summary</button></div>
+ ${cite('Gusto spreadsheet view + Columns button · Rippling Earnings / Deductions tabs (we keep salaried and hourly in one grid)')}</div>`};
 
-V.approvals=()=>{ const R=run('R-1128'); const t=totals(); const waiting=R.status==='Awaiting approval';
- return `<div class="head"><div><h1>Approvals</h1><p>Requests waiting on you, and the rules that create them.</p></div></div>
- <div class="card"><h2>Waiting for approval</h2>
-  ${waiting?`<div class="todo"><div class="t"><b>Regular payroll · Nov 28 · ${money(t.debit)}</b><small>Submitted by you as Payroll manager · step 2 of 2: Owner · rule "Large payrolls"</small></div>
-   <div class="toolbar"><button class="btn btn-ghost" data-act="request">Request changes</button><button class="btn btn-primary" data-act="approve">Approve</button></div></div>
-   <div class="timeline"><div class="tl done"><i></i><span>Submitted by Kenji Mori</span><span class="muted small">Just now</span></div><div class="tl done"><i></i><span>Approved by Ravi Shah (Payroll manager)</span><span class="muted small">Just now</span></div><div class="tl now"><i></i><span>Owner approval</span><span class="muted small">Due Mon 4:00 pm PT</span></div></div>`
-  :`<div class="muted">Nothing waiting. Payrolls that match a rule below show up here and in the bell.</div>`}
-  ${S.approvals.log.map(l=>`<div class="alert ${l.k}">${esc(l.t)}</div>`).join('')}
- </div>
- <div class="card"><div class="card-head"><h2>Approval rules</h2><button class="btn btn-ghost" data-act="newrule">New rule</button></div>
-  <div class="tw"><table><thead><tr><th>Rule</th><th>When</th><th>Approvers (in order)</th><th>Status</th></tr></thead><tbody>
-  ${S.approvals.rules.map((r,i)=>`<tr><td><b>${esc(r.name)}</b></td><td>${esc(r.when)}</td><td>${r.who.map((w,j)=>`<span class="small">${j+1}. ${esc(w)}</span>`).join('<br>')}</td><td><button class="btn btn-quiet" data-rule="${i}">${r.on?pill('On','good'):pill('Off','plain')}</button></td></tr>`).join('')}
-  </tbody></table></div>
-  <div class="alert warn">Priya Nair is marked out of office until Dec 2. Rules that route to her will stall, so add a backup approver.</div>
-  <div class="small muted">Approvers can approve or request changes with a comment. Final approval asks for a passkey. Every decision is in the audit log.</div></div>`;
-};
+function reviewView(locked){const t=totals(),f=flags(),R=cyc('R-1128');const needs=t.debit>15000;
+ return `<div class="card"><div class="card-head"><h2>Flagged pay changes or trends</h2><span class="small muted">Flags never change pay</span></div>
+  ${f.length?f.map(x=>`<div class="todo"><div class="t">${esc(x.t)}</div><div class="toolbar"><button class="btn btn-quiet" data-act="togrid">Edit</button><button class="btn btn-ghost" data-dismiss="${x.id}">Dismiss</button></div></div>`).join(''):'<div class="alert good">Nothing flagged.</div>'}</div>
+ <div class="card"><div class="card-head"><h2>Payroll details</h2><label class="small">Compare to <select class="field" id="cmp"><option value="last">Nov 14 payroll</option><option value="prev" ${S.compare==='prev'?'selected':''}>Oct 31 payroll</option></select></label></div>
+  <details class="expand" open><summary>What will get taxed and debited <span class="num">${money(t.debit)}</span></summary>
+   <div class="kv"><span>Employee take-home (direct deposits)</span><span class="num">${money(t.net)}</span></div><div class="kv"><span>Employee taxes</span><span class="num">${money(t.ee)}</span></div><div class="kv"><span>Employer taxes</span><span class="num">${money(t.er)}</span></div><div class="kv"><span>Benefits & 401(k)</span><span class="num">${money(t.pre)}</span></div><div class="kv total"><span>Total debit · ${S.speed==='2-day'?'Wed, Nov 26':S.speed==='4-day'?'Mon, Nov 24':'Thu, Nov 27'}</span><span class="num">${money(t.debit)}</span></div></details>
+  <details class="expand"><summary>What your employees worked and take home <span class="num">${money(t.net)}</span></summary>
+   <div class="tw"><table style="min-width:520px"><thead><tr><th>Team member</th><th class="r">Gross</th><th class="r">vs ${S.compare==='last'?'Nov 14':'Oct 31'}</th><th class="r">Take-home</th><th></th></tr></thead><tbody>
+   ${allEmps().map(p=>{const v=vs(p),c=calc(p);return `<tr><td>${esc(p.name)}</td><td class="r num">${money(c.g,2)}</td><td class="r num">${v===null?pill('New','info'):`<span style="color:var(--${Math.abs(v)>=S.variance?'warn':'muted'})">${v>0?'+':''}${v.toFixed(1)}%</span>`}</td><td class="r num">${money(c.net,2)}</td><td class="r"><button class="btn btn-quiet" data-stub="${p.id}">Pay stub</button></td></tr>`}).join('')}</tbody></table></div></details>
+  <details class="expand"><summary>What your company will pay <span class="num">${money(t.g+t.er+t.reimb)}</span></summary>
+   <div class="kv"><span>Gross wages</span><span class="num">${money(t.g)}</span></div><div class="kv"><span>Employer taxes</span><span class="num">${money(t.er)}</span></div><div class="kv"><span>Reimbursements</span><span class="num">${money(t.reimb)}</span></div><div class="kv total"><span>Company cost</span><span class="num">${money(t.g+t.er+t.reimb)}</span></div></details>
+  ${cite('Gusto Review summary sections · Rippling Preview compares against either of the last two runs')}</div>
+ <div class="grid2"><div class="card"><h2>Payment speed</h2>${[['4-day','Debit Mon, Nov 24','Included'],['2-day','Debit Wed, Nov 26','Included'],['next-day','Debit Thu, Nov 27','Plus'],['same-day','Debit Fri, Nov 28','Premium']].map(([k,a,b])=>`<button class="way" data-speed="${k}" aria-pressed="${S.speed===k}" ${locked?'disabled':''}><span class="m"><b>${k[0].toUpperCase()+k.slice(1)} pay</b><small>${a}</small></span>${pill(b,b==='Included'?'good':'plain')}</button>`).join('')}
+  <div class="small muted">Suwappu balance and crypto payouts land on payday at any speed.</div></div>
+  <div class="card"><h2>Funding</h2><div class="kv"><span>Payday account</span><b class="num">${money(S.balance)}</b></div><div class="kv"><span>This payroll</span><span class="num">${money(t.debit)}</span></div>
+   ${S.balance<t.debit?`<div class="alert warn">Add ${money(t.debit-S.balance)} before the debit date.</div><button class="btn btn-ghost" data-act="fund">Add money</button>`:'<div class="alert good">Enough to cover this payroll.</div>'}</div></div>
+ <div class="card"><div class="toolbar" style="justify-content:space-between"><button class="btn btn-ghost" data-act="togrid">Back to spreadsheet</button>
+  <button class="btn btn-primary" data-act="${needs?'reqapproval':'submit'}" ${locked?'disabled':''}>${needs?'Request approval':'Submit payroll'}</button></div>
+  <div class="small muted">${needs?'Total is over $15,000, so policy "Large payrolls" applies: Level 1 Ravi Shah, then Level 2 Owner or Finance approver. Requesting approval locks the payroll.':'Under all approval thresholds. You confirm with your passkey.'}</div></div>`}
 
-V.people=()=>{ const tab=S.peopleTab;
- const rows = tab==='employees' ? emps().map(p=>`<tr><td><button class="row-btn who" data-person="${p.id}" style="background:none;border:0;color:inherit;font:inherit;cursor:pointer;text-align:left">${av(p)}<div>${esc(p.name)}<small>${esc(p.title)}</small></div></button></td><td>${ENT[p.ent]}</td><td>${p.pay==='salary'?money(p.salary)+'/yr':money(p.rate,2)+'/hr'}</td><td>${p.way==='pending'?pill('Not set up','warn'):esc(p.split)}</td><td>${p.last?pill('Active','good'):pill('Onboarding','info')}</td></tr>`).join('')
-  : ctrs().map(c=>`<tr><td><div class="who">${av(c)}<div>${esc(c.name)}<small>${esc(c.title)}</small></div></div></td><td>${c.country}${c.country!=='US'?' '+pill('International','info'):''}</td><td>${money(c.amount)} / month</td><td>${c.way==='crypto'?'USDC (their choice)':'Bank transfer'}</td><td>${pill(c.status,c.status.includes('approved')?'good':'warn')}</td></tr>`).join('');
- return `<div class="head"><div><h1>People</h1><p>${emps().length} employees and ${ctrs().length} contractors${S.entity!=='all'?' in '+ENT[S.entity]:''}.</p></div><div class="toolbar"><button class="btn btn-ghost" data-act="import">Import from spreadsheet</button><button class="btn btn-primary" data-act="addperson">Add person</button></div></div>
- <div class="tabs" role="tablist">${[['employees','Employees'],['contractors','Contractors']].map(([k,l])=>`<button class="tab" role="tab" data-ptab="${k}" aria-selected="${tab===k}">${l}</button>`).join('')}</div>
- <div class="tw"><table><thead><tr><th>Name</th><th>${tab==='employees'?'Entity':'Country'}</th><th>Pay</th><th>Gets paid by</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>
- <div class="small muted">People choose how they're paid through a secure link. Admins never see full bank or wallet details, and any change to them needs the person's passkey and triggers a 48-hour hold plus a notice to the old contact.</div>`;
-};
+function confirmView(){const t=totals(),R=cyc('R-1128');return `<div class="card"><div class="alert good">Payroll submitted. ${money(t.debit)} will be debited ${S.speed==='2-day'?'Wed, Nov 26':'on the debit date'}. A confirmation email is on its way.</div>
+ <div class="toolbar"><button class="btn btn-ghost" data-act="noop">See the full summary</button><button class="btn btn-ghost" data-act="noop">Export payroll details</button><button class="btn btn-ghost" data-act="noop">Download cash requirement report</button>${R.status!=='Done'?'<button class="btn btn-danger" data-act="cancel">Cancel this payroll</button>':''}</div>
+ <div class="small muted">You can cancel until 4:00 pm PT on the deadline. Cancelling keeps your entries.</div>${cite('Gusto confirmation page actions')}</div>`}
 
-const REPORTS=[
- ['Payroll','Payroll journal (payroll register)','Every payroll line by person'],['Payroll','Pay history','All past payrolls and totals'],['Payroll','Gross-to-net','Earnings to take-home, by person'],['Payroll','Variance','Changes vs the previous payroll'],['Payroll','Cash requirements','Money needed for upcoming payrolls'],
- ['Finance','Payroll cost','Total company cost by entity and department'],['Finance','General ledger','Journal entries for QuickBooks, Xero or NetSuite'],['Finance','Labor cost allocation','Cost split across locations and jobs'],['Finance','Workforce costing','Cost per person including taxes and benefits'],
- ['People','Reports by department','Headcount and pay by department'],['People','Compensation change history','Every raise and change, with who made it'],['People','Contractor payments','All contractor payments by country'],
- ['Time','Time-tracking hours','Hours and overtime by person'],['Time','Time off','Balances and usage'],
- ['Compliance','Workers’ comp audit','Wages by class code'],['Compliance','Pre-tax benefit accounts','HSA, FSA and commuter totals'],['Compliance','Tax liabilities','Taxes owed and paid by agency'],['Compliance','Audit log','Every admin action with time and person'],
- ['Crypto','Payout value at payment time','Dollar value of each crypto payout for taxes']
-];
-V.reports=()=>{ const cats=['All',...new Set(REPORTS.map(r=>r[0]))]; const list=REPORTS.filter(r=>S.reportCat==='All'||r[0]===S.reportCat);
- return `<div class="head"><div><h1>Reports</h1><p>Standard reports, plus your own saved reports. Download as PDF, CSV or Excel.</p></div><button class="btn btn-primary" data-act="custom">Build a custom report</button></div>
- <div class="tabs" role="tablist">${cats.map(c=>`<button class="tab" role="tab" data-rcat="${c}" aria-selected="${S.reportCat===c}">${c}</button>`).join('')}</div>
- <div class="tw"><table><thead><tr><th>Report</th><th>Shows</th><th>Category</th><th></th></tr></thead><tbody>
- ${list.map(r=>`<tr><td><b>${r[1]}</b></td><td class="muted">${r[2]}</td><td>${pill(r[0],r[0]==='Crypto'?'info':'plain')}</td><td class="r"><button class="btn btn-quiet" data-act="runreport">Run</button></td></tr>`).join('')}
+V.cycles=()=>{const tab=S.cycleTab;return `<div class="head"><div><h1>Payroll cycles</h1><p>Every payroll by status. Click one to open it.</p></div><button class="btn btn-ghost" data-act="calendar">View payroll calendar</button></div>
+ <div class="tabs" role="tablist">${[['upcoming','Upcoming'],['history','Pay history']].map(([k,l])=>`<button class="tab" role="tab" data-ctab="${k}" aria-selected="${tab===k}">${l}</button>`).join('')}</div>
+ ${tab==='upcoming'?`<div class="tw"><table><thead><tr><th>Payroll</th><th>Group</th><th>Deadline</th><th>Payday</th><th>Status</th><th></th></tr></thead><tbody>
+  ${S.cycles.map(c=>`<tr><td><b>${c.name}</b><div class="small muted mono">${c.id}</div></td><td class="small">${c.grp}</td><td>${c.deadline}</td><td>${c.payday}</td><td>${statusPill(c.status)}</td>
+   <td class="r">${c.id==='R-1128'?(['Not started','Changes requested'].includes(c.status)?'<button class="btn btn-quiet" data-act="run">Run payroll</button>':c.status==='Awaiting approval'?'<button class="btn btn-quiet" data-go="approvals">Review</button>':c.status==='Awaiting funding'?'<button class="btn btn-quiet" data-act="payfunding">Pay funding</button>':''):c.id==='C-1130'?'<button class="btn btn-quiet" data-go="billing">Open invoices</button>':''}</td></tr>`).join('')}</tbody></table></div>
+  <div class="card"><h2>Automation</h2><label class="small" style="display:flex;gap:8px;align-items:center"><input type="checkbox" class="chk" id="auto" ${S.autopilot?'checked':''}> Payroll on AutoPilot: submit 1 day before the deadline; you have 24 hours to change or cancel</label>
+   <label class="small" style="display:flex;gap:8px;align-items:center">Pause automation and alert 2 admins if any person's pay changes more than <input class="cell-in" id="var" value="${S.variance}" style="width:56px">%</label>
+   ${cite('Gusto Payroll on AutoPilot · Deel Automatic payroll submission/approval with variance threshold')}</div>`
+ :`<div class="tw"><table><thead><tr><th>Payday</th><th>Payroll</th><th class="r">Total</th><th>Status</th><th></th></tr></thead><tbody>${S.history.map(h=>`<tr><td>${h.payday}</td><td>${esc(h.name)}<div class="small muted">${h.n} paid · <span class="mono">${h.id}</span></div></td><td class="r num">${money(h.total)}</td><td>${statusPill(h.status)}</td><td class="r"><button class="btn btn-quiet" data-act="noop">Download</button></td></tr>`).join('')}</tbody></table></div>
+  <div class="toolbar"><button class="btn btn-ghost" data-act="actlog">View activity log</button></div>`}`};
+
+V.people=()=>`<div class="head"><div><h1>Directory</h1><p>${allEmps().length} employees · ${S.invoices.filter(inEnt).length} contractors</p></div><div class="toolbar"><button class="btn btn-ghost" data-act="noop">Edit worker details (bulk)</button><button class="btn btn-primary" data-act="addperson">Add team member</button></div></div>
+ <div class="tw"><table><thead><tr><th>Name</th><th>Type</th><th>Entity / country</th><th>Pay</th><th>Payment method</th><th>Status</th></tr></thead><tbody>
+ ${allEmps().map(p=>`<tr><td><button class="who" data-person="${p.id}" style="background:none;border:0;color:inherit;font:inherit;cursor:pointer;text-align:left;padding:0">${av(p)}<div>${esc(p.name)}<small>${esc(p.title)}</small></div></button></td><td>Employee (W-2)</td><td>${ENT[p.ent]}</td><td>${p.pay==='salary'?money(p.salary)+'/yr':money(p.rate,2)+'/hr'}</td><td class="small">${p.way?esc(p.way):pill('Missing','warn')}</td><td>${p.last[0]?pill('Active','good'):pill('Onboarding','info')}</td></tr>`).join('')}
+ ${S.invoices.filter(inEnt).map(c=>`<tr><td><div class="who">${av(c)}<div>${esc(c.who)}<small>${esc(c.what.split(' · ')[0])}</small></div></div></td><td>Contractor</td><td>${c.country}</td><td>Per invoice</td><td class="small">${esc(c.payout)}</td><td>${pill('Active','good')}</td></tr>`).join('')}
+ </tbody></table></div><div class="small muted">People add their own tax forms and payment method from a secure link. Admins see masked details only.</div>`;
+
+V.billing=()=>{const list=S.invoices.filter(inEnt),sel=list.filter(i=>S.selected.has(i.id)),tot=sel.reduce((a,i)=>a+i.amt,0);
+ return `<div class="head"><div><h1>Billing</h1><p>Contractor invoices and payment history.</p></div></div>
+ <div class="tabs" role="tablist"><button class="tab" aria-selected="true">Invoices</button><button class="tab" data-act="noop" aria-selected="false">Payment history</button><button class="tab" data-act="noop" aria-selected="false">Invoicing policies</button></div>
+ <div class="tw"><table><thead><tr><th><span class="sr">Select</span></th><th>Contractor</th><th>Invoice</th><th>Country</th><th>Payout</th><th class="r">Amount</th><th>Status</th></tr></thead><tbody>
+ ${list.map(i=>`<tr><td><input type="checkbox" class="chk" data-sel="${i.id}" ${S.selected.has(i.id)?'checked':''} ${i.status!=='Approved'?'disabled':''} aria-label="Select ${esc(i.who)}"></td><td><b>${esc(i.who)}</b></td><td class="small">${esc(i.what)}</td><td>${i.country}</td><td class="small">${esc(i.payout)}</td><td class="r num">${money(i.amt)}</td><td>${i.status==='Pending approval'?`<button class="btn btn-quiet" data-approveinv="${i.id}">Approve</button>`:statusPill(i.status)}</td></tr>`).join('')}
  </tbody></table></div>
- <div class="card"><h2>Saved reports</h2><div class="todo"><div class="t"><b>Monthly cost by location</b><small>Payroll cost · grouped by entity · emailed to Harbor CPA on the 1st</small></div><button class="btn btn-quiet" data-act="runreport">Run</button></div></div>`;
-};
+ ${sel.length?`<div class="paybar"><span>${sel.length} selected · estimated total <b class="num">${money(tot)}</b></span><div class="toolbar"><button class="btn btn-ghost" data-act="clearsel">Clear selection</button><button class="btn btn-primary" data-act="paysel">Pay selected</button></div></div>`:''}
+ ${cite('Deel Finance › Billing › Invoices → Pay selected → Pay your team → Select payment method → Confirm payment')}`};
 
-V.taxes=()=>`<div class="head"><div><h1>Taxes & compliance</h1><p>We file and pay payroll taxes for you. Here's what's done and what needs you.</p></div></div>
- <div class="alert warn">Ramen Bar NY LLC needs a New York unemployment insurance account number before Q4 filings. <b>Add it</b> or let us register for you.</div>
- <div class="grid2">
-  <div class="card"><h2>Filings</h2><div class="tw"><table style="min-width:440px"><thead><tr><th>Form</th><th>Agency</th><th>Period</th><th>Status</th></tr></thead><tbody>
-   ${[['941','IRS','Q3 2026','Filed'],['DE 9 / DE 9C','California EDD','Q3 2026','Filed'],['NYS-45','New York DOL','Q3 2026','Filed'],['940','IRS','2026','Due Jan 31'],['W-2 / W-3','SSA','2026','Due Jan 31'],['1099-NEC','IRS','2026','Due Jan 31']].map(r=>`<tr><td><b>${r[0]}</b></td><td>${r[1]}</td><td>${r[2]}</td><td>${pill(r[3],r[3]==='Filed'?'good':'plain')}</td></tr>`).join('')}
-  </tbody></table></div></div>
-  <div class="card"><h2>Compliance</h2>
-   <div class="todo"><div class="t"><b>Tax setup</b><small>Federal EIN, CA EDD, NY DOL and withholding accounts</small></div>${pill('1 missing','warn')}</div>
-   <div class="todo"><div class="t"><b>Tax documents</b><small>Filed forms, W-2s, 1099s, year-end packets</small></div>${pill('Up to date','good')}</div>
-   <div class="todo"><div class="t"><b>Report a notice</b><small>Got a letter from an agency? Upload it and we'll handle it</small></div><button class="btn btn-quiet" data-act="notice">Upload</button></div>
-   <div class="todo"><div class="t"><b>Workers' compensation</b><small>Pay-as-you-go policy, synced each payroll</small></div>${pill('Active','good')}</div>
-   <div class="todo"><div class="t"><b>Contractor tax forms</b><small>W-9 for US, W-8BEN for international contractors</small></div>${pill('1 pending','warn')}</div>
-   <div class="todo"><div class="t"><b>Tax credits</b><small>Tip credit (FICA) for restaurant staff may apply</small></div><button class="btn btn-quiet" data-act="credit">Check</button></div>
-  </div></div>
- <div class="small muted">In production these filings are made through a licensed payroll tax partner.</div>`;
+V.approvals=()=>{const tab=S.apTab,R=cyc('R-1128'),t=totals();
+ const pending=R.status==='Awaiting approval';
+ return `<div class="head"><div><h1>Approvals</h1><p>Pending requests, the policies that create them, and history.</p></div>${tab==='policies'?'<div class="toolbar"><button class="btn btn-ghost" data-act="noop">Adjust priority</button><button class="btn btn-primary" data-act="newpolicy">Create a policy</button></div>':''}</div>
+ <div class="tabs" role="tablist">${[['pending','Pending'+(pending?' (1)':'')],['policies','Approval policies'],['history','History']].map(([k,l])=>`<button class="tab" role="tab" data-atab="${k}" aria-selected="${tab===k}">${l}</button>`).join('')}</div>
+ ${tab==='pending'?(pending?`<div class="card"><div class="card-head"><div><h2>Regular payroll · Nov 28 · ${money(t.debit)}</h2><div class="small muted">Policy "Large payrolls" · Payroll package approval</div></div>${statusPill('Awaiting approval')}</div>
+  <div class="timeline"><div class="tl done"><i></i><span>Requested by Kenji Mori</span><span class="small muted">Just now</span></div><div class="tl done"><i></i><span>Level 1 · Ravi Shah approved</span><span class="small muted">Just now</span></div><div class="tl now"><i></i><span>Level 2 · Owner or Finance approver (any one)</span><span class="small muted">Due Mon, Nov 24 · 4:00 pm PT</span></div></div>
+  <div class="toolbar"><button class="btn btn-ghost" data-act="toreviewro">Open payroll package</button><button class="btn btn-ghost" data-act="reportissues">Report issues</button><button class="btn btn-danger" data-act="decline">Decline request</button><button class="btn btn-primary" data-act="approve">Approve payroll</button></div>
+  ${cite('Gusto Submit / Edit / Decline request · Deel Approve Payroll / Report issues · Rippling multi-step single request')}</div>`
+  :'<div class="card muted">No pending requests. New ones also appear in Home › Tasks and the bell.</div>')
+ :tab==='policies'?`<div class="tw"><table><thead><tr><th>Policy</th><th>Flow</th><th>When</th><th>Approvers</th><th>Substitute</th><th>Status</th></tr></thead><tbody>
+  ${S.policies.map((p,i)=>`<tr><td><b>${esc(p.name)}</b><div class="small muted">${esc(p.group)}</div></td><td class="small">${p.flow}</td><td class="small">${esc(p.cond)}</td><td class="small">${p.levels.map((l,j)=>`Level ${j+1}: ${l.map(esc).join(' or ')}`).join('<br>')}</td><td class="small">${esc(p.sub)||'—'}</td><td><button class="btn btn-quiet" data-pol="${i}">${p.on?pill('Active','good'):pill('Off','plain')}</button></td></tr>`).join('')}</tbody></table></div>
+  <div class="small muted">Policies apply in priority order and combine into one request. Someone in several levels approves once.</div>`
+ :`<div class="tw"><table style="min-width:520px"><thead><tr><th>When</th><th>Request</th><th>Outcome</th></tr></thead><tbody>${[...S.requests,['Nov 10','Regular payroll · Nov 14','Approved by Kenji Mori'],['Oct 27','Regular payroll · Oct 31','Approved by Kenji Mori'],['Oct 13','Regular payroll · Oct 17','Changes requested: "Jo OT"']].map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td><td class="small">${r[2]}</td></tr>`).join('')}</tbody></table></div>`}`};
 
-V.settings=()=>{ const tab=S.settingsTab; const T={
- entities:`<div class="tw"><table><thead><tr><th>Entity</th><th>State</th><th>EIN</th><th>Pay schedule</th><th>Funding account</th></tr></thead><tbody>
-  <tr><td><b>Ramen Bar SF LLC</b></td><td>California</td><td class="mono">••-•••4410</td><td>Every other Friday</td><td>Payday account · USD</td></tr>
-  <tr><td><b>Ramen Bar NY LLC</b></td><td>New York</td><td class="mono">••-•••8822</td><td>Every other Friday</td><td>Payday account · USD</td></tr></tbody></table></div><button class="btn btn-ghost" style="align-self:flex-start" data-act="noop">Add entity</button>`,
- roles:`<div class="tw"><table><thead><tr><th>Person</th><th>Role</th><th>Can see</th><th></th></tr></thead><tbody>${S.roles.map(r=>`<tr><td><b>${esc(r.who)}</b>${r.note?`<div class="small muted">${esc(r.note)}</div>`:''}</td><td>${esc(r.role)}</td><td>${esc(r.scope)}</td><td class="r"><button class="btn btn-quiet" data-act="noop">Edit</button></td></tr>`).join('')}</tbody></table></div>
-  <div class="small muted">Role types: All access admin, Custom admin (pick exactly what they can do), People manager, Outside collaborator. Each role can be limited to an entity, a state or direct reports.</div>`,
- schedules:`<div class="tw"><table><thead><tr><th>Schedule</th><th>Who</th><th>Next payday</th><th>Default speed</th><th>AutoPilot</th></tr></thead><tbody><tr><td><b>Every other Friday</b></td><td>All employees</td><td>Nov 28</td><td>${S.speed}</td><td>${S.autopilot?pill('On','good'):pill('Off','plain')}</td></tr><tr><td><b>Monthly, last day</b></td><td>Contractors</td><td>Nov 30</td><td>Instant</td><td>${pill('Off','plain')}</td></tr></tbody></table></div>`,
- integrations:`<div class="tw"><table><thead><tr><th>App</th><th>What syncs</th><th>Status</th></tr></thead><tbody>${[['QuickBooks Online','Journal entry per payroll, by location and department','Connected'],['Xero','General ledger','Available'],['NetSuite','General ledger, multi-entity','Available'],['Toast POS','Hours and tips into payroll','Connected'],['Homebase','Timesheets','Available'],['HRIS sync (BambooHR, Workday, Rippling…)','People and pay changes','Available']].map(r=>`<tr><td><b>${r[0]}</b></td><td class="muted">${r[1]}</td><td>${pill(r[2],r[2]==='Connected'?'good':'plain')}</td></tr>`).join('')}</tbody></table></div>`,
- security:`<div class="card" style="padding:0;border:0"><div class="todo"><div class="t"><b>Single sign-on (SAML / OIDC)</b><small>Okta, Google Workspace, Microsoft Entra</small></div>${pill('Okta connected','good')}</div>
-  <div class="todo"><div class="t"><b>Automatic user provisioning (SCIM)</b><small>Add and remove admins from your identity provider</small></div>${pill('On','good')}</div>
-  <div class="todo"><div class="t"><b>Passkey for approvals and payouts</b><small>Required for submit, approve and payment-detail changes</small></div>${pill('Required','good')}</div>
-  <div class="todo"><div class="t"><b>Payment-detail change hold</b><small>48 hours before a new bank or wallet receives pay</small></div>${pill('48 h','good')}</div>
-  <div class="todo"><div class="t"><b>Audit log</b><small>Every admin action, exportable</small></div><button class="btn btn-quiet" data-go="reports">View</button></div></div>`,
- api:`<div class="card" style="padding:0;border:0"><div class="todo"><div class="t"><b>API keys</b><small>2 active · last used 3 hours ago</small></div><button class="btn btn-quiet" data-act="noop">Manage</button></div>
-  <div class="todo"><div class="t"><b>Webhooks</b><small>payroll.submitted, payroll.paid, payment.failed, person.payment_method_changed · signed</small></div>${pill('3 endpoints','good')}</div>
-  <div class="todo"><div class="t"><b>AI agents</b><small>Let an assistant prepare payrolls and pay prizes within your approval rules</small></div>${pill('Off','plain')}</div></div>`};
- return `<div class="head"><div><h1>Settings</h1><p>Company, access and connections.</p></div></div>
-  <div class="tabs" role="tablist">${[['entities','Entities'],['roles','Roles & permissions'],['schedules','Pay schedules'],['integrations','Integrations'],['security','Security'],['api','API & webhooks']].map(([k,l])=>`<button class="tab" role="tab" data-stab="${k}" aria-selected="${tab===k}">${l}</button>`).join('')}</div>
-  <div class="card">${T[tab]}</div>`;
-};
+const RPT=[['Payroll','Payroll journal'],['Payroll','Payroll summary'],['Payroll','Cash requirements'],['Payroll','Payroll data export'],['Payroll','Year-to-date'],['Payroll','Gross-to-net'],['Payroll','Variance'],['Finance','General ledger'],['Finance','Bank transactions'],['Finance','Labor cost allocation'],['Finance','Payroll cost'],['Taxes','Agency payments'],['Taxes','Tax documents'],['Taxes','1099 tax forms'],['People','Workers'],['People','Contractor information'],['People','Contractor payments'],['People','Compensation change history'],['Time','Time off'],['Time','Attendance'],['Crypto','Payout value at payment time']];
+V.reports=()=>`<div class="head"><div><h1>Reports</h1><p>Standard reports and your own. Download as PDF, CSV or Excel.</p></div><button class="btn btn-primary" data-act="builder">Create report</button></div>
+ <div class="card"><h2>Favorites</h2><div class="toolbar">${['Payroll journal','Cash requirements','General ledger'].map(r=>`<button class="btn btn-quiet" data-act="runreport">★ ${r}</button>`).join('')}</div></div>
+ <div class="tw"><table><thead><tr><th>Name</th><th>Category</th><th>Owner</th><th></th></tr></thead><tbody>
+ ${RPT.map(r=>`<tr><td><b>${r[1]}</b></td><td>${pill(r[0],r[0]==='Crypto'?'info':'plain')}</td><td class="small muted">Standard</td><td class="r"><button class="btn btn-quiet" data-act="runreport">Run</button></td></tr>`).join('')}
+ <tr><td><b>Monthly cost by location</b></td><td>${pill('Finance','plain')}</td><td class="small">Ravi Shah · shared with team</td><td class="r"><button class="btn btn-quiet" data-act="runreport">Run</button></td></tr></tbody></table></div>
+ ${cite('Gusto report names · Rippling recipes · Deel Analytics favorites + Report Builder')}`;
 
-const WAYS=[['bank','Bank account','1–2 business days','Free'],['instant','Debit card','Within minutes','1%'],['app','Keep in Suwappu','Instant · can earn interest','Free'],['wise','Wise / Revolut','Up to 1 business day','Free'],['paypal','PayPal','Up to 1 day','2%'],['crypto','Crypto wallet','Instant · USDC or another coin, any network · we cover network fees','Free']];
-V.them=()=>{ const p=S.people.find(x=>x.id===(S.seeAs||1)); const c=calc(p);
- return `<div class="head"><div><h1>What payees see</h1><p>No app to download. They get a text, email or Telegram message with a link.</p></div>
-  <label class="small" for="seeas">Preview as <select class="field" id="seeas">${S.people.map(x=>`<option value="${x.id}" ${x.id===p.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select></label></div>
- <div class="grid2"><div class="phone">
-   <div class="muted small">Ramen Bar SF · Payday</div>
-   <div><div class="muted small">You get paid Fri, Nov 28</div><div style="font:800 2.2rem var(--display)" class="num">${money(c.net,2)}</div><div class="small muted">from ${money(c.g,2)} before taxes and deductions</div></div>
-   <h3>How do you want to get paid?</h3>
-   ${WAYS.map(w=>`<button class="way" data-way="${w[0]}" aria-pressed="${p.way===w[0]}"><span class="m"><b>${w[1]}</b><small>${w[2]}</small></span>${pill(w[3],w[3]==='Free'?'good':'plain')}</button>`).join('')}
-   <div class="small muted">You can split it, like 80% to your bank and 20% to savings.</div></div>
-  <div class="card"><h2>Pay stub · Nov 28</h2>
-   <div class="kv"><span>Gross pay</span><span class="num">${money(c.g,2)}</span></div><div class="kv"><span>Federal income tax</span><span class="num">−${money(c.fed,2)}</span></div><div class="kv"><span>Social Security & Medicare</span><span class="num">−${money(c.fica,2)}</span></div><div class="kv"><span>State tax</span><span class="num">−${money(c.state,2)}</span></div><div class="kv"><span>401(k) & health</span><span class="num">−${money(c.pre,2)}</span></div><div class="kv"><span>Reimbursements</span><span class="num">+${money(c.reimb,2)}</span></div><div class="kv total"><span>Take-home</span><span class="num">${money(c.net,2)}</span></div>
-   <div class="small muted">Also in their link: past pay stubs, paycheck comparison, W-2 and tax forms, and payment method changes (passkey + 48-hour hold).</div></div></div>`;
-};
+V.taxes=()=>`<div class="head"><div><h1>Taxes & compliance</h1><p>Filed and paid for you. Here's what's done and what needs you.</p></div></div>
+ <div class="alert warn">Ramen Bar NY LLC is missing its New York unemployment insurance number. Add it, or we can register for you.</div>
+ <div class="grid2"><div class="card"><h2>Filings</h2><div class="tw"><table style="min-width:420px"><thead><tr><th>Form</th><th>Agency</th><th>Period</th><th>Status</th></tr></thead><tbody>
+ ${[['941','IRS','Q3 2026','Filed'],['DE 9 / DE 9C','CA EDD','Q3 2026','Filed'],['NYS-45','NY DOL','Q3 2026','Filed'],['940','IRS','2026','Due Jan 31'],['W-2 / W-3','SSA','2026','Due Jan 31'],['1099-NEC','IRS','2026','Due Jan 31']].map(r=>`<tr><td><b>${r[0]}</b></td><td>${r[1]}</td><td>${r[2]}</td><td>${pill(r[3],r[3]==='Filed'?'good':'plain')}</td></tr>`).join('')}</tbody></table></div></div>
+ <div class="card"><h2>Compliance</h2>${[['Tax setup','EIN, CA EDD, NY DOL accounts','1 missing','warn'],['Tax documents','Quarterly packages, W-2s, 1099s','Up to date','good'],['Workers’ compensation','Pay-as-you-go, synced each payroll','Active','good'],['Contractor tax forms','W-9 (US), W-8BEN (international)','1 pending','warn'],['Tax credits','Restaurant tip credit may apply','Check','plain']].map(r=>`<div class="todo"><div class="t"><b>${r[0]}</b><small>${r[1]}</small></div>${pill(r[2],r[3])}</div>`).join('')}
+ <div class="todo"><div class="t"><b>Report a notice</b><small>Upload an agency letter and we'll handle it</small></div><button class="btn btn-quiet" data-act="noop">Upload</button></div></div></div>
+ <div class="small muted">In production, filings go through a licensed payroll tax partner.</div>`;
 
-/* ---------- Render + events ---------- */
-function render(){ renderNav(); $('#view').innerHTML=V[S.view](); }
-function go(v){ S.view=v; if(v==='run'&&S.step>3)S.step=1; try{history.replaceState(null,'','#'+v)}catch(_){} render(); window.scrollTo(0,0); $('#bellpop').innerHTML=''; }
+V.settings=()=>{const tab=S.setTab;const T={
+ entities:`<div class="tw"><table><thead><tr><th>Entity</th><th>State</th><th>Pay schedule</th><th>Payroll policies</th><th>Automations</th></tr></thead><tbody>${Object.entries(ENT).map(([k,v])=>`<tr><td><b>${v}</b></td><td>${k==='sf'?'California':'New York'}</td><td>Every other Friday</td><td>${S.policies.filter(p=>p.group==='All employees'||p.group===v).length} active</td><td>${S.autopilot?pill('AutoPilot on','good'):pill('Off','plain')}</td></tr>`).join('')}</tbody></table></div>`,
+ roles:`<div class="toolbar" style="justify-content:flex-end"><button class="btn btn-primary" data-act="noop">Create role</button></div><div class="tw"><table><thead><tr><th>Person</th><th>Role</th><th>Access scope</th></tr></thead><tbody>${S.roles.map(r=>`<tr><td><b>${r[0]}</b></td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join('')}</tbody></table></div><div class="small muted">Roles combine what someone can do (view, edit, approve) with whose data they can see (company, entity, department, direct reports). Start from a template or create your own.</div>`,
+ methods:`<div class="tw"><table><thead><tr><th>Funding method</th><th>Arrives</th><th>Provider fee</th><th>Status</th></tr></thead><tbody>${[['Bank transfer (ACH) · Chase ••4410','1 business day','$5','Default'],['Wire','Same day','Bank fees','Available'],['Card','Instant','$0.30 + 2.9%','Available'],['USDC (Base, Solana, Ethereum…)','Minutes','$0','Connected']].map(r=>`<tr><td><b>${r[0]}</b></td><td>${r[1]}</td><td>${r[2]}</td><td>${pill(r[3],r[3]==='Available'?'plain':'good')}</td></tr>`).join('')}</tbody></table></div>`,
+ integrations:`<div class="tw"><table><thead><tr><th>App</th><th>Syncs</th><th>Status</th></tr></thead><tbody>${[['QuickBooks Online','Journal entry per payroll by location','Connected'],['Xero','General ledger','Available'],['NetSuite','Multi-entity general ledger','Available'],['Toast POS','Hours and tips','Connected'],['Okta','SSO (SAML) and SCIM provisioning','Connected']].map(r=>`<tr><td><b>${r[0]}</b></td><td class="muted">${r[1]}</td><td>${pill(r[2],r[2]==='Connected'?'good':'plain')}</td></tr>`).join('')}</tbody></table></div>`,
+ audit:`<div class="tw"><table style="min-width:520px"><thead><tr><th>When</th><th>Who</th><th>Action</th></tr></thead><tbody>${S.activity.map(a=>{const [x,w]=a.split(' · ');return `<tr><td class="small">${w||''}</td><td>${x.split(' ').slice(0,2).join(' ')}</td><td class="small">${x.split(' ').slice(2).join(' ')}</td></tr>`}).join('')}</tbody></table></div>`};
+ return `<div class="head"><div><h1>Org settings</h1><p>Entities, access, money and connections.</p></div></div>
+ <div class="tabs" role="tablist">${[['entities','Entities'],['roles','Roles and permissions'],['methods','Payment methods'],['integrations','Integrations'],['audit','Audit logs']].map(([k,l])=>`<button class="tab" role="tab" data-stab="${k}" aria-selected="${tab===k}">${l}</button>`).join('')}</div><div class="card">${T[tab]}</div>`};
 
-function drawer(html){ $('#layer').innerHTML=`<div class="drawer-scrim"><div class="drawer" role="dialog" aria-modal="true">${html}</div></div>`;
- const sc=$('.drawer-scrim'); sc.addEventListener('click',e=>{if(e.target===sc||e.target.closest('[data-x]'))$('#layer').innerHTML=''}); }
+const WAYS=[['Bank account','1–2 business days','Free'],['Debit card','Within minutes','1%'],['Keep in Suwappu','Instant · can earn interest','Free'],['Wise / Revolut','Up to 1 business day','Free'],['PayPal / Payoneer','Up to 1 day','1–2.5%'],['Crypto wallet (USDC or other coins)','Instant · any network · we cover network fees','Free']];
+V.them=()=>{const p=S.people.find(x=>x.id===(S.seeAs||1)),c=calc(p);return `<div class="head"><div><h1>What payees see</h1><p>No app to install. A text, email or Telegram link.</p></div><label class="small" for="seeas">Preview as <select class="field" id="seeas">${S.people.map(x=>`<option value="${x.id}" ${x.id===p.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select></label></div>
+ <div class="grid2"><div class="phone"><div class="small muted">Ramen Bar · Payday</div><div><div class="small muted">Next payday Fri, Nov 28</div><div style="font:800 2.2rem var(--display)" class="num">${money(c.net,2)}</div></div><h3>How do you want to get paid?</h3>
+ ${WAYS.map(w=>`<button class="way" data-way="${esc(w[0])}" aria-pressed="${p.way.startsWith(w[0].split(' ')[0])}"><span class="m"><b>${w[0]}</b><small>${w[1]}</small></span>${pill(w[2],w[2]==='Free'?'good':'plain')}</button>`).join('')}
+ <div class="small muted">Split across up to 3 methods. Changes need your passkey and start after a 48-hour hold.</div></div>
+ <div class="card"><h2>Pay stub · Nov 28</h2>${stub(p)}<div class="small muted">Also here: past pay stubs, paycheck comparison, W-2, withholding settings.</div>${cite('Deel withdrawal menu with speed + fee · Rippling Payroll › Paystubs / Withholding / Settings')}</div></div>`};
+function stub(p){const c=calc(p);return `<div class="kv"><span>Gross pay</span><span class="num">${money(c.g,2)}</span></div><div class="kv"><span>Federal income tax</span><span class="num">−${money(c.fed,2)}</span></div><div class="kv"><span>Social Security & Medicare</span><span class="num">−${money(c.fica,2)}</span></div><div class="kv"><span>State tax</span><span class="num">−${money(c.st,2)}</span></div><div class="kv"><span>401(k) & health</span><span class="num">−${money(c.pre,2)}</span></div><div class="kv"><span>Reimbursements</span><span class="num">+${money(c.reimb,2)}</span></div><div class="kv total"><span>Take-home</span><span class="num">${money(c.net,2)}</span></div>${p.note?`<div class="alert info">Note: ${esc(p.note)}</div>`:''}`}
 
-function confirmSubmit(){ const t=totals(); const needs=t.debit>15000;
- drawer(`<h2>${needs?'Submit for approval':'Submit payroll'}</h2><p class="muted" style="margin:0">${money(t.debit)} will be debited from your Payday account${needs?' after approval':''}. ${S.speed} pay.</p>
-  <button class="btn btn-primary" id="pk">Confirm with passkey</button><button class="btn btn-ghost" data-x>Cancel</button>`);
- $('#pk').onclick=()=>{ const R=run('R-1128'); R.status=needs?'Awaiting approval':'Submitted'; $('#layer').innerHTML=''; toast(needs?'Sent to approvers':'Payroll submitted'); go(needs?'approvals':'pay'); };
-}
+/* ---------- Render / drawers ---------- */
+function render(){renderNav();$('#view').innerHTML=V[S.view]()}
+function go(v){if(v==='payroll')v='run';S.view=v;try{history.replaceState(null,'','#'+v)}catch(_){}render();window.scrollTo(0,0);$('#bellpop').innerHTML=''}
+function drawer(html,mount){$('#layer').innerHTML=`<div class="drawer-scrim"><div class="drawer" role="dialog" aria-modal="true">${html}</div></div>`;const sc=$('.drawer-scrim');sc.addEventListener('click',e=>{if(e.target===sc||e.target.closest('[data-x]'))close()});mount&&mount($('.drawer'))}
+const close=()=>{$('#layer').innerHTML=''};
+function bell(tab){$('#bellpop').innerHTML=`<div class="pop"><div class="tabs"><button class="tab" data-btab="tasks" aria-selected="${tab==='tasks'}">Tasks</button><button class="tab" data-btab="activity" aria-selected="${tab==='activity'}">Activity</button></div>${tab==='tasks'?tasks().map(x=>`<div class="todo"><div class="t"><b class="small">${esc(x.title)}</b><small>${esc(x.sub)}</small></div><button class="btn btn-quiet" data-act="${x.act}">${x.btn}</button></div>`).join(''):S.activity.map(a=>`<div class="todo small">${esc(a)}</div>`).join('')}</div>`}
+
+function payFlow(){const sel=S.invoices.filter(i=>S.selected.has(i.id)&&inEnt(i)),tot=sel.reduce((a,i)=>a+i.amt,0);
+ const M={ach:['Bank transfer (ACH) · Chase ••4410',5],card:['Card ••8812',+(tot*.029+.3).toFixed(2)],usdc:['USDC on Base',0]};let m=S.payMethod;
+ const draw=()=>drawer(`<h2>Pay your team</h2>
+  ${sel.map(i=>`<div class="kv"><span>${esc(i.who)} <span class="small muted">· ${i.country} · ${esc(i.payout)}${i.country!=='United States'?' · est. arrival '+(i.payout.startsWith('USDC')?'minutes':'1–2 days'):''}</span></span><span class="num">${money(i.amt)}</span></div>`).join('')}
+  <div class="kv"><span>Bill to entity</span><span>${S.entity==='all'?'Per invoice':ENT[S.entity]}</span></div><div class="kv"><span>Billing credits applied</span><span class="num">−$0</span></div>
+  <div class="kv"><span>Payment method</span><span>${M[m][0]}</span></div><div class="kv"><span>Provider fee</span><span class="num">${money(M[m][1],2)}</span></div>
+  <div class="kv total"><span>Total due</span><span class="num">${money(tot+M[m][1],2)}</span></div>
+  <h3>Select payment method</h3>${Object.entries(M).map(([k,v])=>`<button class="way" data-pm="${k}" aria-pressed="${m===k}"><span class="m"><b>${v[0]}</b><small>${k==='ach'?'1 business day':k==='card'?'Instant':'Minutes, any time'}</small></span>${pill(k==='usdc'?'$0 fee':money(v[1],2)+' fee',k==='usdc'?'good':'plain')}</button>`).join('')}
+  <button class="btn btn-primary" id="cont">Continue</button><button class="btn btn-ghost" data-x>Cancel</button>${cite('Deel Pay your team / Select payment method / provider fee per method')}`,d=>{
+   $$('[data-pm]',d).forEach(b=>b.onclick=()=>{m=b.dataset.pm;S.payMethod=m;draw()});
+   $('#cont',d).onclick=()=>drawer(`<h2>Confirm payment</h2><p class="muted" style="margin:0">Pay ${money(tot+M[m][1],2)} to ${sel.length} contractors with ${M[m][0]}?</p><button class="btn btn-primary" id="conf">Confirm</button><button class="btn btn-ghost" data-x>Cancel</button>`,d2=>{
+     $('#conf',d2).onclick=()=>{sel.forEach(i=>i.status='Paid');S.selected.clear();if(!S.invoices.some(i=>i.status==='Approved'))cyc('C-1130').status='Done';S.activity.unshift('Kenji Mori paid '+sel.length+' contractor invoices · just now');
+      drawer(`<div class="alert good"><b>Payment confirmed.</b> Your payment is now processing.</div><div class="timeline"><div class="tl done"><i></i><span>Review details</span><span class="small muted">Completed</span></div><div class="tl done"><i></i><span>Payment confirmation</span><span class="small muted">Completed</span></div></div>
+       <div class="toolbar"><button class="btn btn-ghost" data-act="noop">Track payment</button><button class="btn btn-ghost" data-act="noop">Share receipt</button><button class="btn btn-ghost" data-act="noop">Download CSV</button><button class="btn btn-ghost" data-act="noop">Download PDF</button></div><button class="btn btn-primary" data-x>Done</button>`);render()}})});
+ draw()}
+
+function policyWizard(){let step=1;const P={name:'',flow:'Payroll package approval',group:'All employees',cond:'Total debit is greater than $25,000',levels:[['Owner (role)']],sub:'',email:true};
+ const draw=()=>drawer(`<h2>Create a policy</h2><div class="wsteps">${['Policy information','Approvers','Notification'].map((l,i)=>`<span class="step ${step>i+1?'done':''}" ${step===i+1?'aria-current="step"':''}><b>${step>i+1?'✓':i+1}</b>${l}</span>`).join('')}</div>
+  ${step===1?`<label class="small" for="pn">Policy name<input class="field" id="pn" style="width:100%" value="${esc(P.name)}" placeholder="e.g. Holiday bonus payrolls"></label>
+   <label class="small" for="pg">Payroll group<select class="field" id="pg" style="width:100%"><option>All employees</option><option>Ramen Bar SF LLC</option><option>Ramen Bar NY LLC</option><option>Contractors</option></select></label>
+   <div class="small" style="font-weight:600">Flow type</div>${['Payroll submission','Payroll package approval'].map(f=>`<button class="way" data-flow="${f}" aria-pressed="${P.flow===f}"><span class="m"><b>${f}</b><small>${f==='Payroll submission'?'Approve before the payroll is submitted':'Approve the calculated payroll before money moves'}</small></span></button>`).join('')}
+   <label class="small" for="pc">Condition<select class="field" id="pc" style="width:100%"><option>Total debit is greater than $25,000</option><option>Any person's pay changes more than 20%</option><option>Payroll includes a new hire</option><option>Country is not United States</option></select></label>`
+  :step===2?`${P.levels.map((l,i)=>`<div class="lvl"><b>Level ${i+1}</b><select class="field" data-lvl="${i}"><option>Owner (role)</option><option>Finance approver (role)</option><option>Payroll manager (role)</option><option>Ravi Shah (specific user)</option></select><span class="small muted">Approvers on the same level work in parallel and all must approve.</span></div>`).join('')}
+   <button class="btn btn-ghost" id="addlvl">+ Add level</button><label class="small" for="ps">Substitute approver (optional)<select class="field" id="ps" style="width:100%"><option value="">None</option><option>Ravi Shah</option><option>Priya Nair</option></select></label><div class="small muted">Levels run in order. The substitute steps in when an approver is out of office.</div>`
+  :`<label class="small" style="display:flex;gap:8px;align-items:center"><input type="checkbox" class="chk" id="pe" checked> Email approvers when a request is waiting</label><div class="alert info">Admins are notified if an automated submission can't proceed.</div>`}
+  <div class="toolbar" style="justify-content:space-between">${step>1?'<button class="btn btn-ghost" id="back">Back</button>':'<button class="btn btn-ghost" data-x>Cancel</button>'}<button class="btn btn-primary" id="next">${step<3?'Next':'Create'}</button></div>${cite('Deel Create a policy: Policy information → Approvers (levels, substitute) → Notification')}`,d=>{
+   $$('[data-flow]',d).forEach(b=>b.onclick=()=>{P.name=$('#pn',d).value;P.flow=b.dataset.flow;draw()});
+   const add=$('#addlvl',d);if(add)add.onclick=()=>{P.levels.push(['Finance approver (role)']);draw()};
+   const bk=$('#back',d);if(bk)bk.onclick=()=>{step--;draw()};
+   $('#next',d).onclick=()=>{if(step===1){P.name=$('#pn',d).value.trim();P.group=$('#pg',d).value;P.cond=$('#pc',d).value;if(!P.name){toast('Give the policy a name');return}}
+    if(step===2){$$('[data-lvl]',d).forEach(s=>P.levels[+s.dataset.lvl]=[s.value]);P.sub=$('#ps',d).value}
+    if(step<3){step++;draw()}else{S.policies.push({...P,on:true});close();S.apTab='policies';toast('Policy created');render()}}});
+ draw()}
+
+function builder(){drawer(`<h2>Create report</h2><div class="small muted">Pick a data model or start from a recipe.</div>
+ ${[['Payroll','One row per person per payroll'],['Gross-to-net','One row per earning, tax and deduction'],['Contractor payments','One row per invoice'],['Taxes','One row per tax per payroll'],['People','One row per person']].map((d,i)=>`<button class="way" data-dm="${i}" aria-pressed="${i===0}"><span class="m"><b>${d[0]}</b><small>${d[1]}</small></span></button>`).join('')}
+ <label class="small" for="rg">Group by<select class="field" id="rg" style="width:100%"><option>Entity</option><option>Department</option><option>Location</option><option>Pay period</option></select></label>
+ <label class="small" for="ra">Who can see it<select class="field" id="ra" style="width:100%"><option>Only you</option><option>Your team</option><option>Everyone with report access</option></select></label>
+ <button class="btn btn-primary" id="build">Start building report</button><button class="btn btn-ghost" data-x>Cancel</button>${cite('Rippling recipes → Start Building Report · Deel data models + access you / team / org')}`,d=>{
+  $$('[data-dm]',d).forEach(b=>b.onclick=()=>$$('[data-dm]',d).forEach(x=>x.setAttribute('aria-pressed',x===b)));$('#build',d).onclick=()=>{close();toast('Report draft ready: choose columns and filters')}})}
 
 const ACT={
- run:()=>{S.step=1;go('run')}, approvals:()=>go('approvals'), taxes:()=>go('taxes'), pay:()=>go('pay'),
- fund:()=>drawer(`<h2>Add money</h2><label class="small" for="amt">Amount<input class="field" id="amt" value="10000" inputmode="decimal" style="width:100%"></label>
-   ${[['Bank transfer (ACH)','Chase ••4410 · 1 business day','Free'],['Wire','Same day','Bank fees'],['Stablecoin (USDC)','Any network · arrives in minutes','Free']].map((w,i)=>`<button class="way" data-src="${i}" aria-pressed="${i===0}"><span class="m"><b>${w[0]}</b><small>${w[1]}</small></span>${pill(w[2],w[2]==='Free'?'good':'plain')}</button>`).join('')}
-   <button class="btn btn-primary" id="addm">Add money</button><button class="btn btn-ghost" data-x>Cancel</button>`),
- remind:()=>toast('Invite resent by text'),
- submit:confirmSubmit,
- approve:()=>{run('R-1128').status='Submitted';S.approvals.log.unshift({k:'good',t:'You approved Regular payroll · Nov 28. It will be debited on schedule.'});toast('Approved');render()},
- request:()=>{run('R-1128').status='Changes requested';S.approvals.log.unshift({k:'warn',t:'You requested changes: "Check Jo Alvarez overtime." Sent back to Ravi Shah.'});toast('Changes requested');render()},
- cancel:()=>{run('R-1128').status='Unprocessed';toast('Payroll cancelled. Nothing was debited.');render()},
- contractors:()=>{ const c=ctrs(); drawer(`<h2>Pay contractors · November</h2><p class="muted" style="margin:0">Approve invoices, then pay. International contractors see an estimated arrival date.</p>
-   ${c.map(x=>`<div class="todo"><div class="t"><b>${esc(x.name)}</b><small>${esc(x.title)} · ${x.country} · ${x.way==='crypto'?'USDC, arrives in minutes':'bank, 1–2 days'}</small></div><span class="num">${money(x.amount)}</span></div>`).join('')}
-   <div class="kv total"><span>Total</span><span class="num">${money(c.filter(x=>x.status!=='Awaiting invoice').reduce((a,x)=>a+x.amount,0))}</span></div>
-   <div class="alert info">Nkem Eze's invoice isn't in yet. Approve all pays the others now.</div>
-   <button class="btn btn-primary" id="payc">Approve all & pay</button><button class="btn btn-ghost" data-x>Close</button>`);
-   $('#payc').onclick=()=>{run('C-1130').status='Submitted';$('#layer').innerHTML='';toast('Contractor payments sent');render()}; },
- addperson:()=>drawer(`<h2>Add person</h2><label class="small" for="nm">Name<input class="field" id="nm" style="width:100%" placeholder="Jordan Lee"></label>
-   <label class="small" for="ty">Type<select class="field" id="ty" style="width:100%"><option>Employee (W-2)</option><option>Contractor (US)</option><option>Contractor (international)</option></select></label>
-   <label class="small" for="ct">Phone, email or Telegram<input class="field" id="ct" style="width:100%"></label>
-   <div class="alert info">We send them a link to fill in tax forms and choose how to get paid. You never handle their bank details.</div>
-   <button class="btn btn-primary" id="addp">Send invite</button><button class="btn btn-ghost" data-x>Cancel</button>`),
- import:()=>toast('Upload a CSV: name, contact, pay, entity'), custom:()=>toast('Custom report builder: pick fields, filters, grouping'),
- runreport:()=>toast('Report ready: PDF, CSV or Excel'), notice:()=>toast('Upload a photo or PDF of the notice'), credit:()=>toast('Checking tip credit eligibility'),
- newrule:()=>toast('New rule: pick a condition (amount, entity, country) and approvers'), noop:()=>toast('Not in this prototype')
+ run:()=>{S.step='grid';go('run')},approvals:()=>{S.apTab='pending';go('approvals')},taxes:()=>go('taxes'),billing:()=>go('billing'),
+ bell:()=>bell('tasks'),bellact:()=>bell('activity'),remind:()=>toast('Reminder sent to Lena Park'),
+ toreview:()=>{S.step='review';render();window.scrollTo(0,0)},togrid:()=>{S.step='grid';render()},toreviewro:()=>{S.step='review';go('run')},
+ skip:()=>toast('Skip payroll: nobody is paid this period. Salaried pay is not carried over.'),
+ submit:()=>drawer(`<h2>Submit payroll</h2><p class="muted" style="margin:0">${money(totals().debit)} · ${S.speed} pay</p><button class="btn btn-primary" id="pk">Confirm with passkey</button><button class="btn btn-ghost" data-x>Cancel</button>`,d=>{$('#pk',d).onclick=()=>{cyc('R-1128').status='Awaiting funding';S.step='done';close();render()}}),
+ reqapproval:()=>{cyc('R-1128').status='Awaiting approval';S.activity.unshift('Kenji Mori requested approval for Regular payroll · just now');toast('Approval requested. Payroll is locked.');S.apTab='pending';go('approvals')},
+ approve:()=>drawer(`<h2>Approve payroll</h2><p class="muted" style="margin:0">Final approval releases ${money(totals().debit)} on the debit date.</p><button class="btn btn-primary" id="pk">Approve with passkey</button><button class="btn btn-ghost" data-x>Cancel</button>`,d=>{$('#pk',d).onclick=()=>{cyc('R-1128').status='Awaiting funding';S.requests.unshift(['Today','Regular payroll · Nov 28','Approved by Kenji Mori']);close();toast('Approved');S.step='done';render()}}),
+ decline:()=>{cyc('R-1128').status='Changes requested';S.requests.unshift(['Today','Regular payroll · Nov 28','Declined: sent back to Kenji Mori']);toast('Declined. The requester gets a task to update payroll.');render()},
+ reportissues:()=>drawer(`<h2>Report payroll issues</h2><label class="small" for="iss">Issue<input class="field" id="iss" style="width:100%" value="Check Jo Alvarez double overtime"></label><button class="btn btn-quiet" data-act="noop">Add issue</button><button class="btn btn-primary" id="subiss">Submit issues</button><button class="btn btn-ghost" data-x>Cancel</button>`,d=>{$('#subiss',d).onclick=()=>{cyc('R-1128').status='Changes requested';S.requests.unshift(['Today','Regular payroll · Nov 28','Issues reported: "'+$('#iss',d).value+'"']);close();toast('Issues sent. Payroll unlocked for edits.');render()}}),
+ cancel:()=>{cyc('R-1128').status='Not started';S.step='grid';toast('Payroll cancelled. Nothing was debited; entries kept.');render()},
+ payfunding:()=>{cyc('R-1128').status='Processing funding';toast('Funding sent from your Payday account');render()},
+ fund:()=>drawer(`<h2>Add money</h2><label class="small" for="amt">Amount<input class="field" id="amt" value="10000" style="width:100%"></label><button class="btn btn-primary" id="addm">Add from Chase ••4410</button><button class="btn btn-ghost" data-x>Cancel</button>`,d=>{$('#addm',d).onclick=()=>{const v=parseFloat($('#amt',d).value.replace(/[$,]/g,''));if(v>0){S.balance+=v;close();toast(money(v)+' added');render()}}}),
+ paysel:payFlow,clearsel:()=>{S.selected.clear();render()},newpolicy:policyWizard,builder,
+ calendar:()=>drawer(`<h2>Payroll calendar · Nov 28 payday</h2><div class="timeline">${[['Start date','Mon, Nov 10',1],['Timesheet cut off','Sun, Nov 23',1],['Payroll deadline (2-day)','Mon, Nov 24 · 4:00 pm PT',0],['Payroll approval','Mon, Nov 24 · 4:00 pm PT',0],['Debit','Wed, Nov 26',0],['Payday','Fri, Nov 28',0]].map(([a,b,d],i,arr)=>`<div class="tl ${d?'done':(!d&&arr[i-1]&&arr[i-1][2])?'now':''}"><i></i><span>${a}</span><span class="small muted">${b}</span></div>`).join('')}</div><button class="btn btn-ghost" data-act="noop">Edit payroll calendar</button><button class="btn btn-primary" data-x>Close</button>`),
+ actlog:()=>drawer(`<h2>Activity log</h2>${S.activity.map(a=>`<div class="todo small">${esc(a)}</div>`).join('')}<button class="btn btn-primary" data-x>Close</button>`),
+ addperson:()=>drawer(`<h2>Add team member</h2><label class="small" for="nm">Name<input class="field" id="nm" style="width:100%"></label><label class="small" for="ty">Type<select class="field" id="ty" style="width:100%"><option>Employee (W-2)</option><option>Contractor (US)</option><option>Contractor (international)</option></select></label><label class="small" for="ct">Email, phone or Telegram<input class="field" id="ct" style="width:100%"></label><div class="alert info">They'll get a link to add tax forms and a payment method.</div><button class="btn btn-primary" id="addp">Send invite</button><button class="btn btn-ghost" data-x>Cancel</button>`,d=>{$('#addp',d).onclick=()=>{const n=$('#nm',d).value.trim();if(!n){toast('Add a name');return}close();toast('Invite sent to '+n)}}),
+ runreport:()=>toast('Report ready: PDF, CSV or Excel'),noop:()=>toast('Not in this prototype')
 };
 
-document.addEventListener('click',e=>{
- const g=e.target.closest('[data-go]'); if(g){go(g.dataset.go);return}
- const a=e.target.closest('[data-act]'); if(a){ACT[a.dataset.act]&&ACT[a.dataset.act]();return}
- const st=e.target.closest('[data-step]'); if(st){S.step=+st.dataset.step;render();window.scrollTo(0,0);return}
- const sp=e.target.closest('[data-speed]'); if(sp){S.speed=sp.dataset.speed;render();return}
- const pt=e.target.closest('[data-ptab]'); if(pt){S.peopleTab=pt.dataset.ptab;render();return}
- const stb=e.target.closest('[data-stab]'); if(stb){S.settingsTab=stb.dataset.stab;render();return}
- const rc=e.target.closest('[data-rcat]'); if(rc){S.reportCat=rc.dataset.rcat;render();return}
- const ru=e.target.closest('[data-rule]'); if(ru){const r=S.approvals.rules[+ru.dataset.rule];r.on=!r.on;render();return}
- const w=e.target.closest('[data-way]'); if(w){const p=S.people.find(x=>x.id===(S.seeAs||1));p.way=w.dataset.way;p.split='100% '+WAYS.find(x=>x[0]===p.way)[1];render();toast('Saved. Applies from the next payday.');return}
- const src=e.target.closest('[data-src]'); if(src){$$('[data-src]').forEach(x=>x.setAttribute('aria-pressed',x===src));return}
- if(e.target.id==='addm'){const v=parseFloat($('#amt').value.replace(/[$,]/g,''));if(v>0){S.balance+=v;$('#layer').innerHTML='';toast(money(v)+' added');render()}return}
- if(e.target.id==='addp'){const n=$('#nm').value.trim();if(!n){toast('Add a name first');return}$('#layer').innerHTML='';toast('Invite sent to '+n);return}
- if(e.target.id==='bulk'){emps().forEach(p=>{if(p.pay==='hourly')p.hrs=80});render();toast('Set regular hours to 80 for hourly staff');return}
- const pr=e.target.closest('[data-person]'); if(pr){const p=S.people.find(x=>x.id===+pr.dataset.person);const c=calc(p);
-  drawer(`<div class="who">${av(p)}<div><h2>${esc(p.name)}</h2><small>${esc(p.title)} · ${ENT[p.ent]}</small></div></div>
-   <div class="card"><h3>Job & pay</h3><div class="kv"><span>Pay</span><span>${p.pay==='salary'?money(p.salary)+' per year':money(p.rate,2)+' per hour'}</span></div><div class="kv"><span>Schedule</span><span>Every other Friday</span></div><div class="kv"><span>This payroll (est.)</span><span class="num">${money(c.g,2)} gross · ${money(c.net,2)} take-home</span></div></div>
-   <div class="card"><h3>Payment</h3><div class="kv"><span>Gets paid by</span><span>${esc(p.split)}</span></div><div class="small muted">Only ${esc(p.name.split(' ')[0])} can change this, with their passkey.</div></div>
-   <div class="card"><h3>Taxes & documents</h3><div class="kv"><span>W-4</span><span>${p.last?'On file':'Waiting'}</span></div><div class="kv"><span>State withholding</span><span>${p.ent==='sf'?'DE 4 on file':'IT-2104 on file'}</span></div><div class="kv"><span>Pay stubs</span><span>${p.last?'6':'0'}</span></div></div>
-   <button class="btn btn-ghost" data-x>Close</button>`);return}
- if(e.target.closest('#offcycle')){const m=$('#offmenu');m.innerHTML=m.innerHTML?'':`<div class="menu">${[['Bonus','Taxed at the supplemental rate, skips regular deductions'],['Correction','Fix a past paycheck, regular rate with deductions'],['Dismissal','Final paycheck following state rules'],['Past check date','Record a paycheck paid outside Payday'],['Prize or one-off payout','For contractors, creators or winners']].map(([a,b])=>`<button data-act="noop"><b>${a}</b><small>${b}</small></button>`).join('')}</div>`;return}
- if(e.target.closest('#bell')){const b=$('#bellpop');if(b.innerHTML){b.innerHTML='';return}
-  b.innerHTML=`<div class="pop"><div class="tabs"><button class="tab" aria-selected="true">Tasks</button><button class="tab" aria-selected="false" data-act="noop">Activity</button></div>${tasks().slice(0,4).map(x=>`<div class="todo"><div class="t"><b class="small">${esc(x.title)}</b><small>${esc(x.sub)}</small></div><button class="btn btn-quiet" data-act="${x.act}">${x.btn}</button></div>`).join('')}</div>`;return}
- if(!e.target.closest('.pop')&&!e.target.closest('.menu')){$('#bellpop').innerHTML='';const m=$('#offmenu');if(m)m.innerHTML=''}
+document.addEventListener('click',e=>{const T=e.target;
+ const g=T.closest('[data-go]');if(g){go(g.dataset.go);return}
+ const a=T.closest('[data-act]');if(a){(ACT[a.dataset.act]||ACT.noop)();return}
+ const q=(sel,fn)=>{const el=T.closest(sel);if(el){fn(el);return true}};
+ if(q('[data-gtab]',el=>{S.gridTab=el.dataset.gtab;render()}))return;
+ if(q('[data-ctab]',el=>{S.cycleTab=el.dataset.ctab;render()}))return;
+ if(q('[data-atab]',el=>{S.apTab=el.dataset.atab;render()}))return;
+ if(q('[data-stab]',el=>{S.setTab=el.dataset.stab;render()}))return;
+ if(q('[data-btab]',el=>bell(el.dataset.btab)))return;
+ if(q('[data-speed]',el=>{S.speed=el.dataset.speed;render()}))return;
+ if(q('[data-dismiss]',el=>{S.dismissed.add(el.dataset.dismiss);render()}))return;
+ if(q('[data-pol]',el=>{const p=S.policies[+el.dataset.pol];p.on=!p.on;render()}))return;
+ if(q('[data-approveinv]',el=>{const i=S.invoices.find(x=>x.id===+el.dataset.approveinv);i.status='Approved';toast(i.who+' invoice approved');render()}))return;
+ if(q('[data-stub]',el=>{const p=S.people.find(x=>x.id===+el.dataset.stub);drawer(`<h2>${esc(p.name)} · Nov 28</h2>${stub(p)}<button class="btn btn-primary" data-x>Close</button>`)}))return;
+ if(q('[data-way]',el=>{const p=S.people.find(x=>x.id===(S.seeAs||1));p.way=el.dataset.way;render();toast('Saved. Starts after the 48-hour hold.')}))return;
+ if(q('[data-person]',el=>{const p=S.people.find(x=>x.id===+el.dataset.person);let tab='personal';const draw=()=>drawer(`<div class="who">${av(p)}<div><h2>${esc(p.name)}</h2><small>${esc(p.title)} · ${ENT[p.ent]}</small></div></div>
+   <div class="tabs">${[['personal','Personal information'],['work','Work & pay'],['payroll','Payroll'],['docs','Documents']].map(([k,l])=>`<button class="tab" data-pt="${k}" aria-selected="${tab===k}">${l}</button>`).join('')}</div>
+   <div class="card">${tab==='personal'?`<div class="kv"><span>Contact</span><span>On file (masked)</span></div><div class="kv"><span>Home address</span><span>${p.ent==='sf'?'San Francisco, CA':'Brooklyn, NY'}</span></div>`:tab==='work'?`<div class="kv"><span>Job</span><span>${esc(p.title)}</span></div><div class="kv"><span>Compensation</span><span>${p.pay==='salary'?money(p.salary)+' / year':money(p.rate,2)+' / hour'}</span></div><div class="kv"><span>Pay schedule</span><span>Every other Friday</span></div>`:tab==='payroll'?`<div class="kv"><span>Paystubs</span><span>${p.last[0]?'6':'0'}</span></div><div class="kv"><span>Withholding (W-4)</span><span>${p.w4}</span></div><div class="kv"><span>Payment method</span><span>${p.way?esc(p.way):'Missing'}</span></div>`:`<div class="kv"><span>Offer letter</span><span>Signed</span></div><div class="kv"><span>I-9</span><span>${p.last[0]?'Verified':'Pending'}</span></div>`}</div>
+   ${cite('Rippling employee detail: Personal information / Documents / Payroll (Paystubs, Withholding, Settings) · Gusto Work tab')}<button class="btn btn-ghost" data-x>Close</button>`,d=>$$('[data-pt]',d).forEach(b=>b.onclick=()=>{tab=b.dataset.pt;draw()}));draw()}))return;
+ if(T.closest('#types')){const m=$('#typemenu');m.innerHTML=m.innerHTML?'':`<div class="menu">${[['Off-cycle','Extra pay outside the schedule'],['Extra pay (bonus)','Supplemental tax rate, no regular deductions'],['Correction','Fix a past paycheck'],['Termination / dismissal','Final pay under state rules'],['Contractor payment','One-off payment to a contractor']].map(([x,y])=>`<button data-act="noop"><b>${x}</b><small>${y}</small></button>`).join('')}</div>`;return}
+ if(T.closest('#colsbtn')){const m=$('#colsmenu');m.innerHTML=m.innerHTML?'':`<div class="menu">${[['bonus','Bonus'],['commission','Commission'],['dot','Double overtime'],['reimb','Reimbursement'],['note','Personal note']].map(([k,l])=>`<label style="display:flex;gap:8px;padding:8px 10px"><input type="checkbox" class="chk" data-col="${k}" ${S.cols[k]?'checked':''}>${l}</label>`).join('')}</div>`;return}
+ if(T.closest('#bell')){$('#bellpop').innerHTML?$('#bellpop').innerHTML='':bell('tasks');return}
+ if(!T.closest('.pop')&&!T.closest('.menu')){$('#bellpop').innerHTML='';['#typemenu','#colsmenu'].forEach(s=>{const m=$(s);if(m)m.innerHTML=''})}
 });
-document.addEventListener('input',e=>{
- const t=e.target;
- if(t.dataset.p){const p=S.people.find(x=>x.id===+t.dataset.p);const v=parseFloat(t.value);if(!isNaN(v)&&v>=0){p[t.dataset.k]=v;const pos=t.selectionStart, id=t.dataset.p+t.dataset.k;render();const n=$(`[data-p="${t.dataset.p}"][data-k="${t.dataset.k}"]`);if(n){n.focus();try{n.setSelectionRange(pos,pos)}catch(_){}}}}
- if(t.id==='flt'){S.filter=t.value;render();const n=$('#flt');n.focus();n.setSelectionRange(n.value.length,n.value.length)}
-});
-document.addEventListener('change',e=>{
- if(e.target.id==='ent'){S.entity=e.target.value;render()}
- if(e.target.id==='mnav'){go(e.target.value)}
- if(e.target.id==='auto'){S.autopilot=e.target.checked;toast(S.autopilot?'AutoPilot on':'AutoPilot off')}
- if(e.target.id==='seeas'){S.seeAs=+e.target.value;render()}
-});
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('#layer').innerHTML='';$('#bellpop').innerHTML=''}});
-const h=(location.hash||'').slice(1); if(V[h]) S.view=h;
-render();
+document.addEventListener('input',e=>{const t=e.target;
+ if(t.dataset.p){const p=S.people.find(x=>x.id===+t.dataset.p);if(t.dataset.k==='note'){p.note=t.value;return}const v=parseFloat(t.value);if(!isNaN(v)&&v>=0){p[t.dataset.k]=v;const pos=t.selectionStart;render();const n=$(`[data-p="${t.dataset.p}"][data-k="${t.dataset.k}"]`);if(n){n.focus();try{n.setSelectionRange(pos,pos)}catch(_){}}}}
+ if(t.id==='var'){const v=parseFloat(t.value);if(v>0)S.variance=v}});
+document.addEventListener('change',e=>{const t=e.target;
+ if(t.id==='ent'){S.entity=t.value;render()} if(t.id==='mnav')go(t.value); if(t.id==='grp'){S.grp=t.value;render()} if(t.id==='cmp'){S.compare=t.value;render()}
+ if(t.id==='auto'){S.autopilot=t.checked;toast(S.autopilot?'AutoPilot on':'AutoPilot off')} if(t.id==='seeas'){S.seeAs=+t.value;render()}
+ if(t.dataset.sel){const id=+t.dataset.sel;t.checked?S.selected.add(id):S.selected.delete(id);render()}
+ if(t.dataset.col){S.cols[t.dataset.col]=t.checked;render()}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){close();$('#bellpop').innerHTML=''}});
+const h=(location.hash||'').slice(1);if(V[h])S.view=h;render();
 })();
 </script>

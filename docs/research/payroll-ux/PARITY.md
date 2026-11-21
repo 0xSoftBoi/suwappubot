@@ -1,59 +1,51 @@
-# Payroll admin UX — parity spec (sourced)
+# Payroll admin UX — parity spec v2 (screen-level, sourced)
 
-Every row cites the research file that verifies it: **G** = `gusto-rippling.md`, **D** = `deel-verified.md` / `deel-remote-adp.md`, **R** = Remote (in `deel-remote-adp.md`), **A** = ADP, **C** = `crypto-payroll.md`. "Ours" is what the Payday prototype (`docs/plans/payday-prototype.html`) now implements. Items without a source are **not** parity claims.
+Sources: **G** `gusto-verified.md` · **R** `rippling-verified.md` · **D** `deel-verified.md` · **Rm** Remote in `deel-remote-adp.md` · **C** `crypto-payroll.md`. Each file cites the exact help article or review for every label. "Ours" = `docs/plans/payday-prototype.html` v4.
 
-## 1. Information architecture
-| Area | Benchmark | Source | Ours |
+## 1. Shell
+| Element | What the leaders actually ship | Src | Ours |
 |---|---|---|---|
-| Left nav | Gusto areas: Payroll (Pay), People, Reports, Taxes & compliance, Time & attendance, Benefits, App directory, Company settings. Deel: Payroll → Payroll cycles, People, Contractors, Expenses, Reports (Analytics), Time off, Organization settings | G pass 2, D | Home · Pay · People · Approvals · Reports · Taxes & compliance · Settings |
-| Notifications | Bell in top nav with **Tasks** + **Activity** tabs; approval requests show as a Home task | G | Bell with Tasks / Activity; approvals as tasks |
-| Home | Upcoming payrolls with **run-by date** + **payday**; to-dos; Remote "Things To Do" | G, R | Upcoming payrolls card, to-dos, cash requirements |
+| Left nav | Gusto: Home, Pay, People, Reports (+ Billing, Settings via name menu). Rippling: Tools (Reports, Tasks, Documents, Workflow builder), HR, Benefits, IT, Finance (Payroll), Settings. Deel: People > Directory, Payroll > Payroll cycles / Expenses & adjustments, Finance > Billing, Analytics (overview, dashboards, reports) | G R D | Home · Payroll (Run payroll, Payroll cycles, Contractors) · People › Directory · Finance › Billing · Approvals · Analytics › Reports · Taxes & compliance · Org settings |
+| Home | Gusto **Tasks** widget (top 3, "View all tasks") + **Recent activity** ("View all updates"); Deel **All tasks** card; Rippling to-do list + app tiles | G D R | Tasks (top 3 + View all) · Recent activity · upcoming payroll tile |
+| Top bar | Bell → Notifications Center **Tasks / Activity**; help icon; name menu → Settings; Deel gear → Organization settings | G D | Bell (Tasks/Activity), help, gear → Org settings |
 
-## 2. Pay runs
-| Capability | Benchmark | Source | Ours |
+## 2. Run payroll
+| Step | Leaders | Src | Ours |
 |---|---|---|---|
-| Run wizard | Hours & Earnings → Time off / Benefits / Deductions → Review and Submit | G | 3 steps, same order |
-| Grid | Spreadsheet view, search/sort/filter, **bulk edit**, per-row Actions | G | Editable grid with filter + bulk set |
-| Review | Three summaries: what gets taxed & debited / what employees take home / what company pays | G | Same three blocks |
-| Variance | Gross Pay Variance per employee vs previous run, drill into items; ADP AI anomaly detection | R, A, G (Rippling) | Variance column + flagged rows |
-| Alerts | Pre-submit alerts that never change pay | G | Alert list on review |
-| Statuses | Unprocessed → Submitted → Pending → Paid (edit only Unprocessed, cancel only Submitted); Deel "Awaiting approval"; Remote Finalized | G, D, R | Draft → Awaiting approval → Submitted → Paid |
-| Calendar | Remote milestones (input cutoff → review → approval → pay day); Deel: Start, Submission, Publication, Approval | R, D | Payroll calendar list with milestones |
-| Speeds | Next-day, 2-day, 4-day; Same-day + Instant (eligible) | G | Speed selector on review |
-| Run types | Regular, Bonus (supplemental rate), Correction, Dismissal, past check date, contractor | G | Off-cycle menu with those types |
-| AutoPilot | Runs 1 day before deadline, 24 h to change/cancel | G | AutoPilot toggle per schedule |
-| Cancel/reverse | Cancel unprocessed; reverse processed | G | Cancel on submitted run |
+| Entry | Pay → payroll tile with **Payroll deadline** + **Payday** → **Run payroll**; **Skip payroll**; Rippling type drop-down Off-cycle / Termination / Correction | G R | Same tile + Skip + type menu |
+| Grid | Spreadsheet: **Columns** button, Regular hours / Overtime hours / Double overtime, one-time earnings (bonus, commission, correction, custom), reimbursements, personal note; Rippling tabs Earnings / Deductions / Settings and "this payroll only vs all payrolls" | G R | Spreadsheet with Columns toggle, those columns, Earnings / Deductions tabs |
+| Groups | Rippling separates Salaried → Hourly → Contractors ("Next: Contractors"); PCMag flags as extra friction | R | Single grid with Salaried / Hourly filter (beat it) |
+| Review | **Review summary**: **Flagged pay changes or trends** with **Edit / Dismiss**; **What will get taxed and debited / What your employees worked and take home / What your company will pay**; withdrawal amount. Rippling Preview compares to **either of last two runs** + Cash Requirements link | G R | Exactly these, plus compare-to selector |
+| Submit | **Submit payroll** or **Request approval** (locks payroll) | G | Same |
+| Confirmation | **See the full summary · Export payroll details · Download cash requirement report · Cancel this payroll** | G | Same |
+| Speeds/cutoff | 4-day / 2-day / next-day / same-day; 4 pm PT run-by; cancel before debit | G | Same |
+| Automation | Gusto **Payroll on AutoPilot**; Deel **Automatic payroll submission / approval** with **variance threshold %** | G D | AutoPilot + variance guardrail |
 
-## 3. Approvals & roles
-| Capability | Benchmark | Source | Ours |
+## 3. Payroll cycles & calendar
+Deel statuses **Awaiting approval → Awaiting funding → Processing funding → Done** (+ Rejected); Gusto Unprocessed → Submitted → Paid; Rippling lists Paid / Archived / Failed; calendar milestones Start Date, Timesheet Cut Off, Payroll Approval (D); **View activity log** from pay history (G). **Ours:** cycles table with those statuses, calendar, history tabs Paid / Failed, activity log.
+
+## 4. Approvals
+| | Leaders | Src | Ours |
 |---|---|---|---|
-| Rules | Trigger on Amount and/or Country/entity; sequential approvers; Approve / Request changes + comment; auto approve | R | Rule builder + approval chain |
-| Approver actions | Submit / Edit / Decline | G | Approve / Request changes |
-| Stuck approvers | Warn when approver inactive/OOO | R | Warning chip |
-| Roles | All access admin, Custom admin, People manager, Outside collaborator (Gusto); Org Admin, Group Admin, Integrations Admin, IT Developer Admin, custom (Deel); access levels by entity/country (Remote) | G, D, R | Role table with those types + scope |
+| App | Rippling **Tools > Approvals**: pending, **Approval policies** tab, past requests; **Adjust priority** drag order | R | Tabs Pending · Approval policies · History, Adjust priority |
+| Policy builder | Deel **Create a policy**: 1 Policy information (group, name, flow type Payroll submission / Payroll package approval) · 2 Approvers (Levels; By role / specific user; Substitute; same level parallel, levels sequential) · 3 Notification | D | Same 3-step wizard |
+| Conditions | Rippling attribute + operator + value, AND/OR; Remote amount/country | R Rm | Condition rows |
+| Review actions | Gusto **Submit payroll / Edit payroll / Decline request**; Deel **Approve Payroll / Report issues** | G D | Approve · Report issues · Decline |
 
-## 4. People
-| Capability | Benchmark | Source | Ours |
-|---|---|---|---|
-| Worker types | Employees, contractors (US + international), EOR | G, D | Employee / Contractor tabs, international flag |
-| Payout | Split across multiple accounts | G | Split shown on profile |
-| Withdrawal menu (worker) | Card, bank, instant card, Wise, PayPal, Payoneer, Revolut, Coinbase, stablecoin; speed + fee shown | D | Their view: method list with speed + fee |
-| Crypto | Payee chooses asset/network; FX locked before confirm; gas sponsored (Deel) | C | Payee picks; gas sponsored |
+## 5. Contractors / Billing (Deel pattern)
+Finance › Billing › **Invoices** tab → checkboxes → **Pay selected** → **Pay your team** (Bill to entity, credits, Total due) → **Select payment method** (provider fee per method) → **Confirm payment** → "Payment confirmed" with **Track payment / Share receipt / Download CSV / PDF** (D). Gusto international shows **exchange rate, fee, estimated delivery** before submit; crypto wallet payouts in **USDC** (G). Fees: card $0.30+2.9%, ACH $5, SEPA $5 (D). **Ours:** exactly this flow; USDC funding at $0.
 
-## 5. Reports
-Gusto standard: Reports by department, Workforce costing, Job costing, Labor cost allocation, Time off, Time-tracking hours, **Cash requirements**, Workers' comp audit, Pre-tax benefit accounts, Compensation change history, Pay history (G). Remote: Payroll Cost, Variance, General Ledger, Gross-to-Net, Payroll Run (R). Deel categories: Finance, Benefits, People, Payroll, Contracts, Productivity, Time Off (D). Export PDF/CSV/XLSX, saved custom reports (G). **Ours:** catalog of these with categories + custom builder entry.
+## 6. People
+Deel **Directory** ("All People view", Edit worker details, bulk edit); Rippling profile **Personal information / Documents / Payroll (Paystubs, Withholding, Settings)**; Gusto **Work** tab + **Additional › Documents, Notes** (G R D). **Ours:** Directory + profile tabs Personal · Work & pay · Payroll · Documents.
 
-## 6. Taxes & compliance
-Gusto: forms & taxes filed for you, workers' comp, end of year, compliance hub, state registrations, tax notices, agency payments, tax credits (G). **Ours:** same sections, filings table. Needs a tax partner to be real (see `docs/plans/payroll-engine.md` §7).
+## 7. Reports / Analytics
+Gusto list: Payroll journal, Payroll summary, Cash requirements, General ledger, Agency payments, Contractor payments, Year-to-date, Time off, Workers, Payroll data export, Custom report… (G). Rippling **New Report → recipes → Start Building Report** (R). Deel Analytics overview with favorites; Report Builder by data model; access you / team / org (D). **Ours:** catalog + builder modal (data model → columns → filters → access).
 
-## 7. Enterprise settings
-SAML SSO, SCIM, signed webhooks, API, custom roles (R, D); GL sync QBO/Xero/NetSuite by department/location (G Rippling); multi-entity (R, D). **Ours:** Settings tabs: Entities, Roles, Pay schedules, Integrations, Security (SSO/SCIM), API & webhooks.
+## 8. Settings
+Deel Org settings: Entities (Payroll tab: Payroll Policies, Payroll Automations), Security › Roles and permissions (**Create role**, template), Audit logs (D). Gusto roles Primary owner, Full access, Limited, Custom, People Manager (G). Rippling Scope × Access × Actions via Supergroups (R). **Ours:** Entities · Roles & permissions · Payment methods · Integrations · Security · Audit logs.
 
-## Where we beat them (sourced complaints)
-- Support on complex issues is the #1 complaint for Gusto and Deel (G, D).
-- Withdrawal fees high (Deel 0.75–2.5%, Coinbase 1.5%) (D) — our internal + stablecoin rails are free.
-- Analytics/exports weak (D).
-- Rise payees pay gas and KYC stalls withdrawals (C) — we sponsor gas.
+## Where the leaders are weak (sourced)
+Rippling: salaried / hourly / contractors run separately (R). Gusto: approvals don't cover contractor payrolls (G). Deel: provider fees on card funding 2.9–3.9% (D); worker fees up to 2.5% (D). Rise: payee pays gas (C). Support quality is the top complaint for Gusto and Deel.
 
-## Still unverified (don't build to these as "parity")
-Gusto in-app left-nav exact labels; Rippling nav/home/profile; Deel home widgets and contractor approve→pay screen; audit-log UIs at all vendors.
+## Still unverified
+Full Gusto left-menu order; Deel home widgets besides All tasks; current Rippling labels (PCMag may lag); EOR approval specifics; mobile screens.
