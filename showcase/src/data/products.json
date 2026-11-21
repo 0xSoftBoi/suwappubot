@@ -1517,7 +1517,7 @@
         },
         {
           "command": "/twap",
-          "does": "Perps only: /twap <MARKET> <long|short> <size> <minutes>."
+          "does": "Perps only. Bare /twap shows running TWAPs. /twap <MARKET> <long|short> <size> <minutes> submits a live order at once, with no confirmation step."
         },
         {
           "command": "/spot",
@@ -1571,9 +1571,9 @@
         }
       ],
       "example": {
-        "title": "A perps TWAP entry",
+        "title": "Check positions, then a TWAP entry",
         "lang": "telegram",
-        "code": "/twap ETH long 5 30\n(bot shows the order: market, side, size, 30 minutes)\n[Confirm]\n\n/perps\n(bot lists your positions, re-synced from HyperLiquid)"
+        "code": "/perps\n(bot lists your positions, re-synced from HyperLiquid)\n\n/twap\n(bot shows your running TWAP orders; nothing is placed)\n\n# Live order. There is no confirmation step: sending this submits it.\n/twap <MARKET> <long|short> <size> <minutes>\n(bot replies: TWAP started)"
       },
       "pricing": "Which plan is required for perps is not stated here; check the pricing page. Swap fees follow tiers: Free 1.0%, Pro 0.5%, Premium 0.3%, Enterprise 0.1%. HyperLiquid charges its own exchange fees.",
       "limits": [

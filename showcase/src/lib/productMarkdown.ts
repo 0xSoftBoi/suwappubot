@@ -27,5 +27,18 @@ export function productMarkdown(p: Product): string {
   out.push('## FAQ', '');
   for (const f of p.faq) out.push(`### ${f.q}`, '', f.a, '');
   out.push('## Related', '', ...p.related.map((r) => `- ${SITE_ORIGIN}/products/${r}`), '');
-  return out.join('\n').trimEnd() + '\n';
+  return escapeAngles(out.join('\n').trimEnd()) + '\n';
+}
+
+/** Escape literal "<" in prose so Markdown readers do not parse placeholders like <size> as HTML. Fenced blocks and inline code are left alone. */
+export function escapeAngles(md: string): string {
+  let fenced = false;
+  return md
+    .split('\n')
+    .map((line) => {
+      if (line.startsWith('```')) { fenced = !fenced; return line; }
+      if (fenced) return line;
+      return line.split('`').map((seg, i) => (i % 2 ? seg : seg.replace(/</g, '\\<'))).join('`');
+    })
+    .join('\n');
 }

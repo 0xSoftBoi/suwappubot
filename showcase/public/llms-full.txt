@@ -717,7 +717,7 @@ It is high-risk by nature. Most new tokens fail, and some are scams. The tool li
 
 ## Commands
 
-- /snipe: Open the sniping menu, or /snipe <contract> to target a token.
+- /snipe: Open the sniping menu, or /snipe \<contract> to target a token.
 - Auto-Snipe (menu button): Set automatic sniping rules.
 - New Launches (menu button): Browse newly detected launches.
 - Watchlist (menu button): Tokens you are watching.
@@ -817,29 +817,32 @@ It is for traders who already understand margin and liquidation. Leverage multip
 - Position sync. Positions are re-synced from HyperLiquid before they are listed.
 - Liquidation detection. A monitor detects closures and marks them liquidated.
 - HyperLiquid hub. /hl gives access to /spot, /stake, /unstake, /vault and /hlmove.
-- Perps TWAP. /twap <MARKET> <long|short> <size> <minutes> slices a perps order over time.
+- Perps TWAP. /twap \<MARKET> \<long|short> \<size> \<minutes> slices a perps order over time.
 - Terminal perps workspace. Markets board, positions table, open orders, smart-money panel, whale and funding views.
 
 ## Commands
 
 - /perps: Open or close perpetual positions.
 - /hl: HyperLiquid hub.
-- /twap: Perps only: /twap <MARKET> <long|short> <size> <minutes>.
+- /twap: Perps only. Bare /twap shows running TWAPs. /twap \<MARKET> \<long|short> \<size> \<minutes> submits a live order at once, with no confirmation step.
 - /spot: HyperLiquid spot.
 - /stake: HyperLiquid staking.
 - /vault: HyperLiquid vaults.
 - Panel: Perps: Terminal markets board, positions, open orders.
 
 
-### A perps TWAP entry
+### Check positions, then a TWAP entry
 
 ```text
-/twap ETH long 5 30
-(bot shows the order: market, side, size, 30 minutes)
-[Confirm]
-
 /perps
 (bot lists your positions, re-synced from HyperLiquid)
+
+/twap
+(bot shows your running TWAP orders; nothing is placed)
+
+# Live order. There is no confirmation step: sending this submits it.
+/twap <MARKET> <long|short> <size> <minutes>
+(bot replies: TWAP started)
 ```
 
 ## The hard facts
@@ -849,7 +852,7 @@ It is for traders who already understand margin and liquidation. Leverage multip
 - Leverage cap: Per market, from HyperLiquid; fallback 20x
 - Minimum leverage: 1x
 - Margin formula: size x entry / leverage
-- TWAP syntax: /twap <MARKET> <long|short> <size> <minutes>
+- TWAP syntax: /twap \<MARKET> \<long|short> \<size> \<minutes>
 - Liquidation: Detected on sync; position marked liquidated
 - Plan required: Not stated here
 
@@ -1286,7 +1289,7 @@ curl -s -X POST https://api.suwappu.bot/mcp \
 - Endpoint: POST https://api.suwappu.bot/mcp (JSON-RPC over HTTP)
 - Server name: suwappu
 - Tool count: 23, in the tool registry
-- Auth: Authorization: Bearer <key>; discovery works without one
+- Auth: Authorization: Bearer \<key>; discovery works without one
 - Protocol versions: 2024-11-05, 2025-03-26, 2025-06-18 plus a current version negotiated via _meta
 - Stdio bridge: @suwappu/mcp-server, repo version 0.6.0
 - Quote lifetime: 60 seconds

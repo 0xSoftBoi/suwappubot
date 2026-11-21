@@ -95,7 +95,7 @@ const productIndex = [
   `One page per product with how it works, commands or endpoints, hard facts, limits and FAQ. Each is also clean Markdown at <url>.md. Catalogue: ${SITE}/products`,
   ...products.map((p) => `- [${p.name}](${SITE}/products/${p.slug}.md): ${p.headline}${p.status && p.status !== 'live' ? ` (${p.status})` : ''}`),
 ].join('\n');
-const productFull = products.map((p) => [
+const productFull = escapeAngles(products.map((p) => [
   `\n---\n\n# ${p.name}: ${p.headline}`, `\n> ${p.lead}\n`, `Source: ${SITE}/products/${p.slug} (last updated ${PRODUCTS_UPDATED})${p.status && p.status !== 'live' ? ` · status: ${p.status}` : ''}\n`,
   `## What it is\n\n${p.whatItIs.join('\n\n')}\n`,
   `## How it works\n\n${p.howItWorks.map((s, i) => `${i + 1}. ${s.title}. ${s.detail}`).join('\n')}\n`,
@@ -108,7 +108,7 @@ const productFull = products.map((p) => [
   `## Pricing\n\n${p.pricing}\n`,
   `## What it does not do\n\n${p.limits.map((l) => `- ${l}`).join('\n')}\n`,
   `## FAQ\n\n${p.faq.map((f) => `### ${f.q}\n\n${f.a}\n`).join('\n')}`,
-].join('\n')).join('\n');
+].join('\n')).join('\n'));
 
 // ---- llms.txt (curated index) ----
 const main = docs.sections.filter((s) => !OPTIONAL_IDS.has(s.id));
@@ -156,3 +156,16 @@ writeFileSync(join(scriptDir, '../public/llms-full.txt'), llmsFull);
 
 const pages = docs.sections.reduce((n, s) => n + s.pages.length, 0);
 console.log(`Wrote public/llms.txt (${(llms.length / 1024).toFixed(1)}kb, ${pages} links) and public/llms-full.txt (${(llmsFull.length / 1024).toFixed(1)}kb).`);
+
+/** Escape literal "<" in prose so Markdown readers do not parse placeholders like <size> as HTML. Fenced blocks and inline code are left alone. */
+function escapeAngles(md) {
+  let fenced = false;
+  return md
+    .split('\n')
+    .map((line) => {
+      if (line.startsWith('```')) { fenced = !fenced; return line; }
+      if (fenced) return line;
+      return line.split('`').map((seg, i) => (i % 2 ? seg : seg.replace(/</g, '\\<'))).join('`');
+    })
+    .join('\n');
+}
