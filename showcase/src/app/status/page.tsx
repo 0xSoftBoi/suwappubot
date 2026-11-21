@@ -47,10 +47,10 @@ export default function StatusPage() {
     <div className="summer-page docs-shell institutional-page v3-tone-light cv3-page">
       <SummerNav />
       <main id="main-content">
-        <div className="cv3-hero cv3-hero--solo">
+        <div className="cv3-hero">
           <Backdrop kind="mesh" />
           <Backdrop kind="grid" />
-          <div className="v3-wrap">
+          <div className="v3-wrap cv3-hero__grid cv3-hero__grid--top">
             <header>
               <p className="v3-kicker">System status</p>
               <h1>Suwappu Status</h1>
@@ -64,7 +64,7 @@ export default function StatusPage() {
         </div>
 
         <V3Section tone="light" className="cv3-sec cv3-pad-bottom" labelledBy="status-surfaces">
-          <SectionHead title="Surfaces" id="status-surfaces" />
+          <SectionHead kicker="Surfaces" title="What is and is not probed" id="status-surfaces" />
           <Reveal stagger className="cv3-num-grid cv3-num-grid--5">
             {SURFACES.map((s) => {
               const external = s.href.startsWith('http');

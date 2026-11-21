@@ -3,7 +3,7 @@ import stats from '@/data/stats.generated.json';
 import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import { TELEGRAM_URL } from '@/lib/links';
-import { Reveal, V3Section, SectionHead, Backdrop, TierLadder, ChainRing } from '@/components/v3';
+import { Reveal, V3Section, SectionHead, Backdrop } from '@/components/v3';
 import '../content-v3.css';
 import styles from './careers.module.css';
 
@@ -45,7 +45,15 @@ export default function CareersPage() {
                 HyperLiquid perps, gasless on Tempo, one API. Small, senior team. High leverage.
               </p>
             </header>
-            <Reveal className="cv3-art" delay={120}><ChainRing /></Reveal>
+            <Reveal className="cv3-art" delay={120}>
+              <div className="cv3-stack" aria-hidden="true">
+                {['Python', 'TypeScript', 'Solidity'].map((l, i) => (
+                  <div className="cv3-stack__plate" key={l} style={{ '--i': i } as React.CSSProperties}>
+                    <i>{String(i + 1).padStart(2, '0')}</i><span>{l}</span>
+                  </div>
+                ))}
+              </div>
+            </Reveal>
           </div>
         </div>
 
@@ -95,8 +103,14 @@ export default function CareersPage() {
             <article className="cv3-num">
               <span className="cv3-num__tag">How we hire</span>
               <p>A short, human process: an intro conversation, a paid work trial on a real problem, and a fast decision. We reply quickly and won&apos;t leave you guessing.</p>
-              <div className="cv3-ladder"><TierLadder steps={['Intro conversation', 'Paid work trial', 'Fast decision']} /></div>
             </article>
+          </Reveal>
+          <Reveal className="cv3-steps">
+            <ol aria-label="How we hire">
+              {['Intro conversation', 'Paid work trial', 'Fast decision'].map((l, i, a) => (
+                <li key={l} className={i === a.length - 1 ? 'is-last' : ''}><i>{String(i + 1).padStart(2, '0')}</i>{l}</li>
+              ))}
+            </ol>
           </Reveal>
         </V3Section>
       </main>

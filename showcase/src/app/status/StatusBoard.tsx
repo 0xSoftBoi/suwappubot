@@ -46,15 +46,20 @@ export default function StatusBoard() {
 
   const state = error ? 'unknown' : loading && !data ? 'unknown' : data?.allUp ? 'up' : 'down';
   const hasData = !!data && !error;
+  const total = hasData ? data.services.length : 0;
+  const up = hasData ? data.services.filter((sv) => sv.ok).length : 0;
+  const frac = total ? up / total : 0;
 
   return (
     <div className={`cv3-gauge-wrap is-${state}`}>
       <div className="cv3-gauge" role="status" aria-live="polite">
         <svg viewBox="0 0 120 120" className="cv3-gauge__ring" aria-hidden="true" focusable="false">
           <circle cx="60" cy="60" r="52" className="cv3-gauge__track" />
-          <circle cx="60" cy="60" r="52" className="cv3-gauge__arc" pathLength={100} />
-          <circle cx="60" cy="60" r="38" className="cv3-gauge__inner" />
-          <circle cx="60" cy="60" r="5" className="cv3-gauge__dot" />
+          <circle cx="60" cy="60" r="52" className="cv3-gauge__arc" pathLength={100}
+            style={hasData ? { strokeDasharray: `${Math.max(frac * 100, 2)} 100` } : undefined} />
+          <circle cx="60" cy="60" r="40" className="cv3-gauge__inner" />
+          <text x="60" y="64" textAnchor="middle" className="cv3-gauge__n">{hasData ? `${up}/${total}` : '—'}</text>
+          <text x="60" y="82" textAnchor="middle" className="cv3-gauge__l">ORIGINS UP</text>
         </svg>
         <div className="cv3-gauge__text">
           <strong>{banner.text}</strong>

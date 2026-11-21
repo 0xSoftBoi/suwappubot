@@ -216,8 +216,8 @@ export default function GovernmentPage() {
               </a>
             </div>
           </header>
-          <Reveal className="cv3-art" delay={120} style={{ maxWidth: 480 }}>
-            <AuthorityFlow lanes={[['Commit', 'Lattice', 'Materialize']]} />
+          <Reveal className="cv3-art cv3-art--lg" delay={120}>
+            <AuthorityFlow lanes={[['Commit', 'Lattice', 'Materialize']]} caption="~1.3 KB sealed key · ML-KEM-768" />
           </Reveal>
         </div>
       </div>
@@ -253,8 +253,8 @@ export default function GovernmentPage() {
         </section>
 
         <section aria-label="Protocol detail">
-          {sections.map((s) => (
-            <article className={styles.detail} id={`section-${s.num}`} key={s.num}>
+          {sections.map((s, idx) => (
+            <article className={`${styles.detail}${idx % 2 ? ` ${styles.flip}` : ''}`} id={`section-${s.num}`} key={s.num}>
               <div className={styles.detailHead}>
                 <div>
                   <p className={styles.detailKicker}>
@@ -270,9 +270,9 @@ export default function GovernmentPage() {
                     </p>
                   </div>
                 </div>
-                <div className={`sw-card-dark ${styles.figure}`}>
-                  <div className="summer-code" aria-label={s.figLabel}>
-                    <div className="summer-code__bar">
+                <div className={styles.figure}>
+                  <div className={styles.codePane} role="group" aria-label={s.figLabel}>
+                    <div className={styles.codeBar}>
                       <span />
                       <span />
                       <span />
@@ -289,7 +289,7 @@ export default function GovernmentPage() {
           ))}
         </section>
 
-        <section className="institutional-darkband" aria-labelledby="government-title">
+        <section className="institutional-darkband cv3-band" aria-labelledby="government-title">
           <div className="institutional-darkband__head">
             <h2 id="government-title">Built for government environments.</h2>
             <p>

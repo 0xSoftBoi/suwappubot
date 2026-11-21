@@ -53,7 +53,10 @@ export default function AboutPage() {
                 {' '}{stats.platformChains} chains, from a bot, a terminal, or a single API call.
               </p>
             </header>
-            <Reveal className="cv3-art" delay={120}><ChainRing /></Reveal>
+            <Reveal className="cv3-art" delay={120}><ChainRing>
+              <span className="cv3-ring-n">{stats.platformChains}</span>
+              <span className="cv3-ring-l">Chains</span>
+            </ChainRing></Reveal>
           </div>
         </div>
 

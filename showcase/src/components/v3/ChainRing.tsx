@@ -7,11 +7,11 @@ import type { ReactNode } from 'react';
  * supported chains. `children` renders in the hole (e.g. a CountUp).
  */
 const SEGS = [
-  { name: 'Ethereum', v: 20, c: 'var(--v3-cool)' },
-  { name: 'Base', v: 20, c: 'var(--v3-accent)' },
-  { name: 'Solana', v: 20, c: 'var(--v3-good)' },
-  { name: 'Arbitrum', v: 20, c: 'color-mix(in srgb, var(--v3-cool) 55%, var(--v3-ink))' },
-  { name: 'HyperLiquid', v: 20, c: 'color-mix(in srgb, var(--v3-accent) 55%, var(--v3-ink))' },
+  { name: 'Ethereum', v: 20, c: 'color-mix(in srgb, var(--v3-ink) 78%, transparent)' },
+  { name: 'Base', v: 20, c: 'color-mix(in srgb, var(--v3-ink) 62%, transparent)' },
+  { name: 'Solana', v: 20, c: 'color-mix(in srgb, var(--v3-ink) 78%, transparent)' },
+  { name: 'Arbitrum', v: 20, c: 'color-mix(in srgb, var(--v3-ink) 62%, transparent)' },
+  { name: 'HyperLiquid', v: 20, c: 'var(--v3-accent)' },
 ];
 
 export default function ChainRing({ children }: { children?: ReactNode }) {
