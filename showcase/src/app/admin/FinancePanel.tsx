@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { API_BASE_URL } from '@/lib/links';
 import { adminRequestInit } from './adminRequest';
+import { SectionError } from './SectionState';
 
 interface LegacyScenario {
   name: 'survival' | 'base' | 'growth';
@@ -317,7 +318,7 @@ export default function FinancePanel({ apiKey }: { apiKey: string }) {
         </button>
       </div>
 
-      {error && <div className="adm-error">Finance view unavailable: {error}</div>}
+      {error && <SectionError what="the finance view" onRetry={() => void load()} detail={error} />}
       {!data && loading && <div className="adm-loading">Loading founder operating system…</div>}
 
       {data && (

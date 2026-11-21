@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { API_BASE_URL, AUTH_BASE_URL } from '@/lib/links';
 import FinancePanel from './FinancePanel';
-import GrowthSection, { type GrowthReport } from './GrowthSection';
+import GrowthSection, { type GrowthReport, KpiTile, KpiGrid } from './GrowthSection';
+import { SectionError, SectionSkeleton } from './SectionState';
 import { CountUp } from '@/components/v3';
 import DailyChart from '@/components/charts/DailyChart';
 import { SESSION_AUTH, adminRequestInit } from './adminRequest';
@@ -287,95 +288,36 @@ function StatCards({ stats, timeseries }: { stats: AdminStats; timeseries: Admin
     return totalSwaps > 0 ? totalUSD / totalSwaps : null;
   })();
 
+  const signed = (n: number) => `${n >= 0 ? '+' : '\u2212'}${fmtNum(Math.abs(n))}`;
   return (
-    <div className="adm-stats">
-      {/* Row 1 */}
-      <div className="adm-stat">
-        <div className="adm-stat__label">Total agents</div>
-        <div className="adm-stat__value"><CountUp value={stats.agents_total} duration={1100} /></div>
-        <DeltaBadge value={stats.agents_24h} />
-      </div>
-
-      <div className="adm-stat">
-        <div className="adm-stat__label">Total swaps</div>
-        <div className="adm-stat__value"><CountUp value={stats.swaps_total} duration={1100} /></div>
-        <DeltaBadge value={stats.swaps_24h} />
-        {stats.swaps_volume_usd_24h !== undefined && (
-          <div className="adm-stat__sub">{fmtUSD(stats.swaps_volume_usd_24h)} vol today</div>
-        )}
-      </div>
-
-      <div className="adm-stat">
-        <div className="adm-stat__label">Active webhooks</div>
-        <div className="adm-stat__value"><CountUp value={stats.webhooks_active} duration={1100} /></div>
-        <span className="adm-stat__delta adm-stat__delta--flat">
-          {stats.webhooks_deliveries_24h} deliveries today
-        </span>
-        {stats.webhooks_failure_rate_24h !== undefined && (
-          <div className="adm-stat__sub" style={{ color: stats.webhooks_failure_rate_24h > 5 ? 'var(--adm-red)' : 'var(--adm-faint)' }}>
-            {stats.webhooks_failure_rate_24h.toFixed(1)}% failure rate
-          </div>
-        )}
-      </div>
-
-      <div className="adm-stat">
-        <div className="adm-stat__label">Revenue this month</div>
-        {stats.revenue_this_month !== undefined ? (
-          <>
-            <div className="adm-stat__value">{fmtUSD(stats.revenue_this_month)}</div>
-            <span className="adm-stat__delta adm-stat__delta--flat">MRR</span>
-          </>
-        ) : (
-          <>
-            <div className="adm-stat__value" style={{ fontSize: '1.05rem', paddingTop: 4, color: 'var(--adm-faint)' }}>
-              See billing
-            </div>
-            <div className="adm-billing-placeholder">
-              <a href="https://dashboard.stripe.com" target="_blank" rel="noopener noreferrer">
-                Open Stripe ↗
-              </a>
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* Row 2 */}
-      <div className="adm-stat">
-        <div className="adm-stat__label">Enterprise orgs</div>
-        <div className="adm-stat__value"><CountUp value={stats.enterprise_orgs ?? 0} duration={1100} /></div>
-        {stats.active_enterprise_orgs !== undefined && (
-          <span className="adm-stat__delta adm-stat__delta--up">
-            ↑ {stats.active_enterprise_orgs} active 30d
-          </span>
-        )}
-      </div>
-
-      <div className="adm-stat">
-        <div className="adm-stat__label">API calls today</div>
-        <div className="adm-stat__value"><CountUp value={stats.api_calls_today ?? 0} duration={1100} /></div>
-        <span className="adm-stat__delta adm-stat__delta--flat">across all orgs</span>
-      </div>
-
-      <div className="adm-stat">
-        <div className="adm-stat__label">Avg swap size</div>
-        <div className="adm-stat__value">
-          {avgSwapUSD !== null ? fmtUSD(avgSwapUSD) : '-'}
-        </div>
-        <span className="adm-stat__delta adm-stat__delta--flat">30-day avg USD</span>
-      </div>
-
-      {/* Subscription breakdown: donut card */}
-      <div className="adm-stat adm-stat--donut">
-        <div className="adm-stat__label">Subscriptions</div>
+    <KpiGrid>
+      <KpiTile label="Total agents" value={fmtNum(stats.agents_total)} count={stats.agents_total}
+        hint={`${signed(stats.agents_24h)} in the last 24 hours`} />
+      <KpiTile label="Total swaps" value={fmtNum(stats.swaps_total)} count={stats.swaps_total}
+        hint={`${signed(stats.swaps_24h)} in the last 24 hours${stats.swaps_volume_usd_24h !== undefined ? ` \u00b7 ${fmtUSD(stats.swaps_volume_usd_24h)} volume today` : ''}`} />
+      <KpiTile label="Active webhooks" value={fmtNum(stats.webhooks_active)} count={stats.webhooks_active}
+        hint={`${fmtNum(stats.webhooks_deliveries_24h)} deliveries today${stats.webhooks_failure_rate_24h !== undefined ? ` \u00b7 ${stats.webhooks_failure_rate_24h.toFixed(1)}% failed` : ''}`} />
+      {stats.revenue_this_month !== undefined ? (
+        <KpiTile label="Subscription value (MRR)" value={fmtUSD(stats.revenue_this_month)}
+          hint="Monthly recurring value of paid plans. This is not the same as Money in above, which is cash actually collected." />
+      ) : (
+        <KpiTile label="Subscription value (MRR)" value="See billing"
+          hint={<>Not reported by the API. <a href="https://dashboard.stripe.com" target="_blank" rel="noopener noreferrer">Open Stripe &#8599;</a></>} />
+      )}
+      <KpiTile label="Enterprise organisations" value={fmtNum(stats.enterprise_orgs ?? 0)} count={stats.enterprise_orgs ?? 0}
+        hint={stats.active_enterprise_orgs !== undefined ? `${fmtNum(stats.active_enterprise_orgs)} active in the last 30 days` : 'Organisations on an enterprise plan'} />
+      <KpiTile label="API calls today" value={fmtNum(stats.api_calls_today ?? 0)} count={stats.api_calls_today ?? 0}
+        hint="Across all organisations" />
+      <KpiTile label="Average swap size" value={avgSwapUSD !== null ? fmtUSD(avgSwapUSD) : '\u2014'}
+        hint="30-day average, in USD" />
+      <KpiTile label="Subscriptions" value="" panel>
         {stats.subscription_breakdown ? (
           <DonutChart breakdown={stats.subscription_breakdown} />
         ) : (
-          <div style={{ color: 'var(--adm-faint)', fontSize: '0.8rem', marginTop: 8 }}>
-            No breakdown data
-          </div>
+          <p style={{ margin: '8px 0 0', color: 'var(--adm-muted)', fontSize: '0.8rem' }}>No breakdown yet.</p>
         )}
-      </div>
-    </div>
+      </KpiTile>
+    </KpiGrid>
   );
 }
 
@@ -406,13 +348,16 @@ function AgentsTable({ apiKey }: { apiKey: string }) {
   const [filter, setFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const [expanded, setExpanded] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     setLoading(true);
+    setError('');
     adminFetch<AgentRow[]>('/admin/agents', apiKey)
       .then(setRows)
-      .catch((e) => setError(e.message))
+      .catch((e) => setError(e.message || 'error'))
       .finally(() => setLoading(false));
   }, [apiKey]);
+
+  useEffect(() => { load(); }, [load]);
 
   const filtered    = filter === 'all' ? rows : rows.filter((r) => r.status === filter);
   const totalPages  = Math.ceil(filtered.length / PAGE_SIZE);
@@ -423,7 +368,7 @@ function AgentsTable({ apiKey }: { apiKey: string }) {
     <div className="adm-section" id="agents">
       <div className="adm-section__head">
         <h2 className="adm-section__title">Agents</h2>
-        <span className="adm-section__meta">{filtered.length} total</span>
+        <span className="adm-section__meta">{error ? '—' : `${filtered.length} total`}</span>
       </div>
 
       <div className="adm-filters">
@@ -434,11 +379,11 @@ function AgentsTable({ apiKey }: { apiKey: string }) {
         ))}
       </div>
 
-      {error && <div className="adm-error">Failed to load agents: {error}</div>}
-
       <div className="adm-table-wrap">
         {loading ? (
-          <div className="adm-loading">Loading agents…</div>
+          <SectionSkeleton what="agents" />
+        ) : error ? (
+          <SectionError what="agents" onRetry={load} detail={error} />
         ) : slice.length === 0 ? (
           <div className="adm-empty">No agents found.</div>
         ) : (
@@ -535,13 +480,16 @@ function SwapsTable({ apiKey }: { apiKey: string }) {
   const [filter, setFilter]     = useState<'all' | 'success' | 'failed' | 'pending'>('all');
   const [dateRange, setDateRange] = useState<SwapDateRange>('all');
 
-  useEffect(() => {
+  const load = useCallback(() => {
     setLoading(true);
+    setError('');
     adminFetch<SwapRow[]>('/admin/swaps', apiKey)
       .then(setRows)
-      .catch((e) => setError(e.message))
+      .catch((e) => setError(e.message || 'error'))
       .finally(() => setLoading(false));
   }, [apiKey]);
+
+  useEffect(() => { load(); }, [load]);
 
   const byDate   = filterByRange(rows, dateRange);
   const filtered = filter === 'all' ? byDate : byDate.filter((r) => r.status === filter);
@@ -558,7 +506,7 @@ function SwapsTable({ apiKey }: { apiKey: string }) {
       <div className="adm-section__head">
         <h2 className="adm-section__title">Swaps</h2>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <span className="adm-section__meta">{filtered.length} shown</span>
+          <span className="adm-section__meta">{error ? '—' : `${filtered.length} shown`}</span>
           <button
             className="adm-export-btn"
             onClick={() => exportSwapsCSV(filtered)}
@@ -586,11 +534,11 @@ function SwapsTable({ apiKey }: { apiKey: string }) {
         ))}
       </div>
 
-      {error && <div className="adm-error">Failed to load swaps: {error}</div>}
-
       <div className="adm-table-wrap">
         {loading ? (
-          <div className="adm-loading">Loading swaps…</div>
+          <SectionSkeleton what="swaps" />
+        ) : error ? (
+          <SectionError what="swaps" onRetry={load} detail={error} />
         ) : slice.length === 0 ? (
           <div className="adm-empty">No swaps found.</div>
         ) : (
@@ -644,13 +592,16 @@ function WebhooksTable({ apiKey }: { apiKey: string }) {
   const [error, setError]     = useState('');
   const [page, setPage]       = useState(0);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     setLoading(true);
+    setError('');
     adminFetch<WebhookRow[]>('/admin/webhooks', apiKey)
       .then(setRows)
-      .catch((e) => setError(e.message))
+      .catch((e) => setError(e.message || 'error'))
       .finally(() => setLoading(false));
   }, [apiKey]);
+
+  useEffect(() => { load(); }, [load]);
 
   const totalPages = Math.ceil(rows.length / PAGE_SIZE);
   const slice      = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
@@ -659,14 +610,14 @@ function WebhooksTable({ apiKey }: { apiKey: string }) {
     <div className="adm-section" id="webhooks">
       <div className="adm-section__head">
         <h2 className="adm-section__title">Webhooks</h2>
-        <span className="adm-section__meta">{rows.length} events</span>
+        <span className="adm-section__meta">{error ? '—' : `${rows.length} events`}</span>
       </div>
-
-      {error && <div className="adm-error">Failed to load webhooks: {error}</div>}
 
       <div className="adm-table-wrap">
         {loading ? (
-          <div className="adm-loading">Loading webhooks…</div>
+          <SectionSkeleton what="webhooks" />
+        ) : error ? (
+          <SectionError what="webhooks" onRetry={load} detail={error} />
         ) : slice.length === 0 ? (
           <div className="adm-empty">No webhook events found.</div>
         ) : (
@@ -747,7 +698,7 @@ function AuthGate({ onAuth, notice }: { onAuth: (key: string) => void; notice?: 
   return (
     <div className="adm-auth">
       <div className="adm-auth__card">
-        <div className="adm-auth__logo">S</div>
+        <img className="adm-auth__logo" src="/logo.svg" alt="" width={44} height={44} aria-hidden="true" />
         <h1 className="adm-auth__title">Suwappu admin</h1>
         <p className="adm-auth__sub">See your visitors, sign-ups, sales leads and revenue.</p>
 
@@ -794,19 +745,27 @@ type Section = 'growth' | 'overview' | 'finance' | 'activity' | 'agents' | 'swap
 function Dashboard({ apiKey, email, onSignOut }: { apiKey: string; email: string | null; onSignOut: () => void }) {
   const [stats, setStats]           = useState<AdminStats | null>(null);
   const [statsError, setStatsError] = useState('');
+  const [statsLoading, setStatsLoading] = useState(true);
   const [timeseries, setTimeseries] = useState<AdminTimeseries | null>(null);
   const [activeSection, setActiveSection] = useState<Section>('growth');
 
-  useEffect(() => {
+  const loadStats = useCallback(() => {
+    setStatsError('');
+    setStatsLoading(true);
     adminFetch<AdminStats>('/admin/stats', apiKey)
       .then(setStats)
-      .catch((e) => setStatsError(e.message));
+      .catch((e) => setStatsError(e.message || 'error'))
+      .finally(() => setStatsLoading(false));
+  }, [apiKey]);
+
+  useEffect(() => {
+    loadStats();
 
     // Graceful: timeseries endpoint may not exist yet
     adminFetch<AdminTimeseries>('/admin/stats/timeseries?days=30', apiKey)
       .then(setTimeseries)
       .catch(() => { /* silent: charts just stay empty */ });
-  }, [apiKey]);
+  }, [apiKey, loadStats]);
 
   const keyPreview = apiKey === SESSION_AUTH
     ? (email ?? 'Signed in with Google')
@@ -834,7 +793,7 @@ function Dashboard({ apiKey, email, onSignOut }: { apiKey: string; email: string
       {/* Sidebar */}
       <aside className="adm-sidebar">
         <a href="/" className="adm-sidebar__brand">
-          <span className="adm-sidebar__brand-dot">S</span>
+          <img className="adm-sidebar__brand-dot" src="/logo.svg" alt="" width={28} height={28} aria-hidden="true" />
           Suwappu Admin
         </a>
 
@@ -881,11 +840,16 @@ function Dashboard({ apiKey, email, onSignOut }: { apiKey: string; email: string
 
         {/* Overview: KPI cards */}
         <div id="overview" style={{ scrollMarginTop: 24 }}>
-          {statsError && <div className="adm-error">Stats unavailable: {statsError}</div>}
-          {stats ? (
+          <div className="adm-section__head">
+            <h2 className="adm-section__title">Product</h2>
+            <span className="adm-section__meta">Totals across the whole platform</span>
+          </div>
+          {statsError && !stats ? (
+            <SectionError what="the product numbers" onRetry={loadStats} detail={statsError} />
+          ) : stats ? (
             <StatCards stats={stats} timeseries={timeseries} />
-          ) : !statsError && (
-            <div className="adm-loading">Loading overview…</div>
+          ) : (
+            <SectionSkeleton what="the product numbers" rows={3} />
           )}
         </div>
 

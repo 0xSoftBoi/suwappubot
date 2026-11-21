@@ -103,6 +103,21 @@ function Change({ now, before, days }: { now: number; before: number; days: numb
   );
 }
 
+export function KpiGrid({ children }: { children: React.ReactNode }) {
+  return <div className={styles.tiles}>{children}</div>;
+}
+
+export function KpiTile(props: { label: string; value: string; hint?: React.ReactNode; count?: number; panel?: boolean; children?: React.ReactNode }) {
+  const { label, value, hint, count, panel, children } = props;
+  return (
+    <div className={styles.tile}>
+      <p className={styles.tileLabel}>{label}</p>
+      {panel ? children : <p className={styles.tileValue}>{count !== undefined ? <CountUp value={count} duration={1100} /> : value}</p>}
+      {hint && <p className={styles.tileHint}>{hint}</p>}
+    </div>
+  );
+}
+
 function Tile({ label, value, hint, now, before, days, count, spark }: {
   label: string; value: string; hint: string; now?: number; before?: number; days: number;
   /** Whole-number tiles count up on first view; others show the formatted value. */
