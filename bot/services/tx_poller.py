@@ -130,16 +130,40 @@ class TransactionPoller:
                                 SwapStatus.UNKNOWN.value,
                             ]
                         ),
-                        # CONFIRMING only has a real cross-chain status check
-                        # for the 0x Cross-Chain provider (destination fill
-                        # tracking via get_cross_chain_status). Any other
-                        # provider in CONFIRMING would fall through to the
-                        # plain EVM origin-receipt check below and get
-                        # falsely marked COMPLETED the moment the origin leg
-                        # mines, before the bridge has actually settled.
+                        # A CONFIRMING row is only safe to re-poll when
+                        # _check_tx_status_dict will route it to a provider
+                        # status check that can actually see destination
+                        # settlement. Any other provider in CONFIRMING would
+                        # fall through to the plain EVM origin-receipt check
+                        # below and get falsely marked COMPLETED the moment
+                        # the origin leg mines, before the bridge has
+                        # actually settled. So this mirrors that routing
+                        # exactly — widen it only together with it.
+                        #
+                        # 0x Cross-Chain: destination fill tracking via
+                        # get_cross_chain_status.
+                        #
+                        # Li.Fi cross-chain: get_status, which is what put
+                        # the row in CONFIRMING in the first place. Without
+                        # this leg a Li.Fi bridge row was terminal-by-
+                        # omission: CONFIRMING on the first pass, then never
+                        # selected again, so no realized output, no
+                        # completion and no failure notice ever landed.
+                        # Scoped to from_chain != to_chain to match the
+                        # routing predicate: a Li.Fi *same-chain* row goes
+                        # to the generic EVM branch instead, where a mined
+                        # origin receipt is genuine completion (there is no
+                        # bridge leg to settle), and the poller itself never
+                        # writes CONFIRMING on that path.
                         and_(
                             SwapTransaction.status == SwapStatus.CONFIRMING.value,
-                            SwapTransaction.route_provider == "0x_crosschain",
+                            or_(
+                                SwapTransaction.route_provider == "0x_crosschain",
+                                and_(
+                                    SwapTransaction.route_provider == "lifi",
+                                    SwapTransaction.from_chain != SwapTransaction.to_chain,
+                                ),
+                            ),
                         ),
                     ),
                     SwapTransaction.created_at >= cutoff,
