@@ -782,12 +782,25 @@ class X402Service:
         )
         if not result.success:
             return False, result.error or "Settlement failed", result.payer, None
-        payer = result.payer
-        try:
-            payer = Web3.to_checksum_address(payer) if payer else None
-        except Exception:
-            pass
-        return True, f"x402 v{result.x402_version} exact settled", payer, result.tx_hash
+
+        # Don't take the facilitator's word for it: a misconfigured or hostile
+        # facilitator could return success with any tx hash. Confirm the
+        # settlement tx on-chain (EIP-3009 emits a normal Transfer to pay_to) and
+        # use the payer the CHAIN reports, not the facilitator's.
+        ok, msg, chain_payer = await self._verify_transaction_on_chain(
+            tx_hash=result.tx_hash,
+            chain=short,
+            expected_recipient=expected_recipient,
+            expected_amount=float(expected_amount),
+            token_address=token_address,
+        )
+        if not ok:
+            logger.error(
+                f"[x402] facilitator reported settlement {result.tx_hash} on {short} "
+                f"but on-chain check failed: {msg}"
+            )
+            return False, f"Settlement not confirmed on-chain: {msg}", result.payer, None
+        return True, f"x402 v{result.x402_version} exact settled", chain_payer, result.tx_hash
 
     def _user_bound_evm_wallets(self, user_id: int) -> List[str]:
         """Lowercased EVM wallet addresses bound to ``user_id`` (sender-spoof set)."""
@@ -861,9 +874,12 @@ class X402Service:
         if not tx_hash and payment_payload is None:
             return False, "Provide a transaction hash or a signed x402 payment"
         with get_session() as session:
-            payment = (
-                session.query(X402Payment).filter(X402Payment.payment_id == payment_id).first()
-            )
+            query = session.query(X402Payment).filter(X402Payment.payment_id == payment_id)
+            if payment_payload is not None:
+                # Signed-payload path settles (moves funds) inside this txn: lock
+                # the order row so two concurrent submits can't both settle.
+                query = query.with_for_update()
+            payment = query.first()
 
             if not payment:
                 return False, "Payment not found"

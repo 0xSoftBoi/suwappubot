@@ -11,12 +11,12 @@ from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from bot.config.settings import settings
 from bot.services.wallet import WalletService
 from bot.services.x402_service import x402_service
-from bot.services.x402_protocol import normalize_network, to_caip2
+from bot.services.x402_protocol import normalize_network, payload_payer, to_caip2
 from bot.models.user import Wallet
 from database.db import get_session
 
@@ -178,6 +178,11 @@ class VerifyPaymentRequest(BaseModel):
     expected_amount: str
     expected_token: str = "pathUSD"
     expected_recipient: str
+    # REQUIRED with payment_payload: the EVM wallets bound to the authenticated
+    # principal. The signer is checked against these BEFORE settlement, because
+    # settling moves funds — an intercepted payload submitted under another
+    # account must be refused while that is still free.
+    expected_payers: Optional[List[str]] = None
 
 
 class VerifyPaymentResponse(BaseModel):
@@ -210,13 +215,30 @@ async def verify_x402_payment(
     """
     _verify_internal_key(x_internal_key)
 
-    chain = normalize_network(request.chain)
-    if not chain:
-        return VerifyPaymentResponse(verified=False, error=f"Unsupported chain: {request.chain}")
-    network = to_caip2(chain)
-
     has_tx = bool(request.tx_hash and request.tx_hash.strip())
     has_payload = request.payment_payload not in (None, "", {})
+
+    if has_tx:
+        # SECURITY (replay): api-ts consumes (chain, tx_hash) under the chain
+        # string it SENT. If this path accepted CAIP-2 aliases, one tx could be
+        # redeemed once as "base" and again as "eip155:8453". Until every api-ts
+        # consumer keys on the canonical `chain` returned below, the tx_hash path
+        # accepts only the short names it always accepted.
+        chain = (request.chain or "").strip().lower()
+        if chain not in x402_service.payment_tokens:
+            return VerifyPaymentResponse(
+                verified=False,
+                error=f"Unsupported chain: {request.chain} (tx_hash path takes short names)",
+            )
+    else:
+        # Payload path: the ledger key is the fresh settlement tx, and the
+        # EIP-3009 nonce can only settle once, so CAIP-2 ids are safe here.
+        chain = normalize_network(request.chain)
+        if not chain:
+            return VerifyPaymentResponse(
+                verified=False, error=f"Unsupported chain: {request.chain}"
+            )
+    network = to_caip2(chain)
     if has_tx == has_payload:
         return VerifyPaymentResponse(
             verified=False,
@@ -252,6 +274,16 @@ async def verify_x402_payment(
 
     try:
         if has_payload:
+            signer = payload_payer(request.payment_payload)
+            bound = [w.lower() for w in (request.expected_payers or []) if isinstance(w, str)]
+            if not signer or signer.lower() not in bound:
+                return VerifyPaymentResponse(
+                    verified=False,
+                    error="Payment signer is not a wallet bound to this account",
+                    sender=signer,
+                    chain=chain,
+                    network=network,
+                )
             success, message, sender, tx_hash = await x402_service.settle_signed_payment(
                 request.payment_payload,
                 chain=chain,

@@ -35,6 +35,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from dataclasses import dataclass
 from decimal import ROUND_CEILING, Decimal, InvalidOperation
 from typing import Any, Optional, Union
@@ -46,6 +47,7 @@ logger = logging.getLogger(__name__)
 EXACT_SCHEME = "exact"
 BATCH_SETTLEMENT_SCHEME = "batch-settlement"
 EVM_NAMESPACE = "eip155"
+_CANONICAL_CAIP2 = re.compile(r"eip155:([1-9][0-9]{0,18})")
 
 # ---------------------------------------------------------------------------
 # Network ids: CAIP-2 <-> internal short names
@@ -93,13 +95,14 @@ def normalize_network(value: Optional[str]) -> Optional[str]:
     by_name, by_id = _chain_id_index()
 
     if ":" in raw:
-        namespace, _, reference = raw.partition(":")
-        if namespace.lower() != EVM_NAMESPACE:
+        # STRICT canonical form only: exactly "eip155:<chainId>" with no sign,
+        # whitespace, underscores or leading zeros. int() alone accepted
+        # "eip155:08453", "eip155:+8453", "EIP155:8_453"… — each a distinct
+        # replay-ledger key downstream for the SAME chain (double redeem).
+        m = _CANONICAL_CAIP2.fullmatch(raw)
+        if not m:
             return None
-        try:
-            return by_id.get(int(reference))
-        except ValueError:
-            return None
+        return by_id.get(int(m.group(1)))
 
     lowered = raw.lower()
     if lowered in by_name:
@@ -348,7 +351,8 @@ class X402ResourceServerService:
 
     def __init__(self) -> None:
         self._server = None
-        self._lock = asyncio.Lock()
+        # Created on first use, not at import, so it binds to the serving loop.
+        self._lock: Optional[asyncio.Lock] = None
 
     def enabled(self) -> bool:
         return bool(getattr(settings, "x402_facilitator_enabled", False))
@@ -356,6 +360,8 @@ class X402ResourceServerService:
     async def _get_server(self):
         if self._server is not None:
             return self._server
+        if self._lock is None:
+            self._lock = asyncio.Lock()
         async with self._lock:
             if self._server is not None:
                 return self._server
@@ -423,7 +429,15 @@ class X402ResourceServerService:
         try:
             settled = await server.settle_payment(payload, requirements)
         except Exception as e:
-            logger.error(f"[x402] settle raised: {e}")
+            # The facilitator may have BROADCAST before failing (read timeout,
+            # 5xx after submit). Log the authorization so ops can reconcile via
+            # the token's authorizationState(signer, nonce).
+            auth = (payload.payload or {}).get("authorization") or {}
+            logger.error(
+                f"[x402] settle raised (funds may have moved — reconcile): {e} "
+                f"signer={auth.get('from')} nonce={auth.get('nonce')} "
+                f"network={payload_network(payload)} asset={expected.asset}"
+            )
             return SettlementResult(
                 False,
                 error=f"Settlement failed: {e}",

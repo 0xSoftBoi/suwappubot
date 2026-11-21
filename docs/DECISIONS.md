@@ -278,3 +278,11 @@ ADRs 0001–0005.
   are sender-bound **before** settlement (settling moves funds). `batch-settlement`
   vouchers are refused here; api-ts's channel manager owns them. Facilitator is
   off by default (`X402_FACILITATOR_ENABLED`).
+- **Review fixes (money-path-reviewer BLOCK)**: `normalize_network` accepts only
+  canonical `eip155:<id>` (`int()` let `eip155:08453`/`+8453`/`8_453` alias one
+  chain into many ledger keys). The internal tx_hash path still takes **short
+  names only** until api-ts consumes under the returned canonical `chain`. Settled
+  payloads are re-confirmed on-chain (facilitator's word isn't enough). The
+  internal payload path requires `expected_payers` and binds the signer before
+  settling. Open: api-ts's 15s verify timeout is below the facilitator's 90s
+  settle timeout — raise it before api-ts starts sending payloads.
