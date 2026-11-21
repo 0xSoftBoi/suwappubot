@@ -86,7 +86,7 @@ const tiers: Tier[] = [
     price: 'Custom',
     cadence: '',
     fee: '0.1%',
-    blurb: '0.1% account trading swap fee, org accounts and members, and 10,000 Agent API requests/min.',
+    blurb: '0.1% account trading swap fee, org accounts with roles, and 10,000 Agent API requests/min.',
     cta: 'Talk to sales',
     href: ENTERPRISE_CONTACT_PATH,
     highlight: false,
@@ -94,12 +94,12 @@ const tiers: Tier[] = [
     features: [
       'Everything in Premium',
       '0.1% account trading swap fee (vs 1% industry standard)',
-      'Multi-user org accounts with members',
-      'Org API keys',
+      'Org accounts with roles (Owner, Admin, Member, Viewer), 10 seats by default',
+      'Org API keys with scoped permissions',
       'Agent key: 10,000 API requests/min',
       `${stats.platformChains}-chain execution (competitors offer 1-2)`,
-      'KMS envelope encryption: institutional-grade custody',
-      'Dedicated support (terms scoped with the team)',
+      'Wallet keys are envelope-encrypted with KMS by default',
+      'Support and service terms are scoped with the team',
       'Usage dashboard: API calls, rate-limit monitoring',
       'Custom RPC / dedicated node: contact for pricing',
       'White-label available: contact for pricing',
@@ -153,6 +153,7 @@ const comparison: { category: string; rows: { label: string; values: string[] }[
       { label: `Cross-chain routing (${stats.routerCount} providers)`, values: ['✓', '✓', '✓', '✓'] },
       { label: 'Limit orders, DCA, trailing stops & sniping (Telegram bot)', values: ['-', '✓', '✓', '✓'] },
       { label: 'Copy trading', values: ['-', '✓', '✓', '✓'] },
+      { label: 'Price alerts (Telegram bot)', values: ['✓', '✓', '✓', '✓'] },
     ],
   },
   {
@@ -173,8 +174,8 @@ const comparison: { category: string; rows: { label: string; values: string[] }[
   {
     category: 'Team & Org (Enterprise only)',
     rows: [
-      { label: 'Multi-user org accounts', values: ['-', '-', '-', '✓'] },
-      { label: 'Org API keys', values: ['-', '-', '-', '✓'] },
+      { label: 'Org accounts with roles (Owner, Admin, Member, Viewer)', values: ['-', '-', '-', '✓'] },
+      { label: 'Org API keys (scopes supported)', values: ['-', '-', '-', '✓'] },
       { label: 'Usage dashboard & rate-limit monitoring', values: ['-', '-', '-', '✓'] },
       { label: 'Custom RPC / dedicated node', values: ['-', '-', '-', 'Contact'] },
       { label: 'White-label', values: ['-', '-', '-', 'Contact'] },
@@ -201,7 +202,7 @@ const comparison: { category: string; rows: { label: string; values: string[] }[
 const faqs = [
   {
     q: 'How does the swap fee work?',
-    a: 'For account trading in the consumer product, the plan fee runs from 1.0% on Free down to 0.1% on Enterprise. The Agent API uses a separate route/configuration fee model; its current EVM/Solana defaults are not derived from the account plan. Developer integrations should read the live quote instead of applying this account fee ladder.',
+    a: 'For account trading in the consumer product, the plan fee runs from 1.0% on Free down to 0.1% on Enterprise. The bot and Terminal schedule is 1.0% Free, 0.5% Pro, 0.3% Premium and 0.1% Enterprise. The Agent API fee is separate and does not change with subscription tier: 0.8% on EVM routes and 0.3% on Solana routes. Read the live quote for the exact amount on a given route.',
   },
   {
     q: 'Can I cancel anytime?',
@@ -221,7 +222,7 @@ const faqs = [
   },
   {
     q: 'What does the Enterprise tier include that competitors do not?',
-    a: 'Suwappu Enterprise adds multi-user org accounts, org API keys, org spend policies and a per-org usage dashboard. BullX, Photon, Banana Gun, Maestro, Trojan, and Axiom have no enterprise tier at all. On top of that, Enterprise users get 0.1% swap fees (versus the 1% industry standard), multi-chain execution, and KMS envelope encryption for institutional-grade custody.',
+    a: 'Suwappu Enterprise adds org accounts with roles (Owner, Admin, Member, Viewer), scoped org API keys, org spend policies and a per-org usage dashboard. BullX, Photon, Banana Gun, Maestro, Trojan, and Axiom have no enterprise tier at all. On top of that, Enterprise users get 0.1% swap fees (versus the 1% industry standard), multi-chain execution, and wallet keys that are envelope-encrypted with KMS by default.',
   },
   {
     q: 'How do referrals work?',
@@ -389,7 +390,7 @@ export default function PricingPage() {
               </h2>
               <p className={styles.enterpriseBody}>
                 BullX, Photon, Banana Gun, Maestro, Trojan, and Axiom ship no enterprise tier at
-                all: no org accounts and no org API keys. Enterprise is built for trading
+                all: no org accounts with roles and no scoped API keys. Enterprise is built for trading
                 desks, agent fleets, and institutions that need them.
               </p>
               <div className={styles.enterpriseStats}>

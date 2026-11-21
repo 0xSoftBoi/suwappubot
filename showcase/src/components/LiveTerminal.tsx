@@ -237,7 +237,7 @@ export default function LiveTerminal({ className = '' }: { className?: string })
         <span>route <b>best of 9</b></span>
         <span>gas <b>~$0.12</b></span>
         <span>chains <b>{stats.platformChains}</b></span>
-        <span>mev <b>shielded</b></span>
+        <span>mev <b>aware</b></span>
       </div>
     </div>
   );

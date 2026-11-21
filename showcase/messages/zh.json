@@ -190,8 +190,8 @@
       "authorizeBody": "自托管流程返回未签名交易，由你签名。托管 REST 执行可在服务端控制下签名并广播。",
       "screenshotAlt": "Suwappu Terminal 展示 ETH/USDC 图表、订单簿和兑换票据。",
       "screenshotCaption": "Suwappu Terminal · 产品截图 · 2026 年 7 月 31 日",
-      "mevTitle": "自研 MEV 搜索器",
-      "mevBody": "基于 Rust 的搜索器在执行前对待处理路由进行三明治攻击检测，完全自研而非外包。",
+      "mevTitle": "MEV 感知路由",
+      "mevBody": "在交易对符合条件时，机器人优先选择抗 MEV 的路由，例如 CoW 批量拍卖（EVM）和 Jito（Solana）。此项不适用于 Agent API。",
       "benchTitle": "执行器基准测试",
       "benchBody": "每条执行路径都会基于实测延迟和滑点进行基准测试，而非模拟数据。"
     },
@@ -222,7 +222,7 @@
       "selfCustodyTitle": "自托管",
       "selfCustodyBody": "未签名交易流程将签名与广播留给调用方，服务端从不持有该密钥。",
       "managedTitle": "托管签名",
-      "managedBody": "托管执行通过 KMS 信封加密（kms_aesgcm_v2）、Turnkey TEE 签名或 MPC 签名器完成签名，具体取决于所用的钱包路径。",
+      "managedBody": "托管执行通过 KMS 信封加密（kms_aesgcm_v2）、由 Turnkey 托管密钥（每个钱包可选）或 MPC 签名器完成签名，具体取决于所用的钱包路径。",
       "policiesTitle": "服务端策略",
       "policiesBody": "2FA、消费限额、熔断机制和社交恢复均在服务端边界强制执行；授权监控会自动撤销被标记的授权。",
       "boundaryTitle": "当前保障边界",
@@ -339,7 +339,7 @@
     "referral_body": "推荐活跃交易者并赚取其手续费的 30%：在每条链上自动支付。在机器人中使用 /ref 获取链接。",
     "referral_cta": "获取您的推荐链接",
     "enterprise_heading": "需要定制方案？",
-    "enterprise_body": "为交易台和智能体集群提供专用基础设施、基于交易量的定价和 SLA。",
+    "enterprise_body": "为交易台和智能体集群提供专用基础设施、基于交易量的定价。支持与服务条款由团队另行商定。",
     "enterprise_cta": "联系我们"
   },
   "languageSwitcher": {

@@ -1762,7 +1762,6 @@
       "limits": [
         "Limit orders and DCA need the Pro tier or above.",
         "A trigger price is not a guaranteed fill; slippage and gas apply.",
-        "The pricing page marks Limit orders and DCA as available on Free; the bot code gates them at Pro. Trust the bot.",
         "Pro is a prepaid 30-day window, not auto-renewing by default."
       ],
       "faq": [
@@ -2759,7 +2758,7 @@
         },
         {
           "title": "Get an org",
-          "detail": "Org accounts, members and org API keys exist."
+          "detail": "Org accounts with roles (Owner, Admin, Member, Viewer) and scoped org API keys exist."
         },
         {
           "title": "Quote and simulate",
@@ -2811,9 +2810,9 @@
       ],
       "limits": [
         "No SLA, SOC 2 or audit report is claimed here.",
-        "Org member roles are not described here pending confirmation.",
+        "Org roles are Owner, Admin, Member and Viewer; seats default to 10 per org.",
         "Lending and perps are read or quote only on the Agent API.",
-        "The Agent API fee is route-specific; confirm in a live quote."
+        "The Agent API fee is 0.8% on EVM routes and 0.3% on Solana routes, independent of subscription tier; confirm in a live quote."
       ],
       "faq": [
         {
@@ -2917,7 +2916,7 @@
       "limits": [
         "Quotes are indicative; execution can differ within slippage.",
         "21 venues are chain-gated; not every venue serves every route.",
-        "MEV protection is route-specific and is not claimed universally.",
+        "MEV-resistant routes (CoW, Jito) are preferred only where the pair is eligible, and not on the Agent API.",
         "No best-price or cheapest guarantee."
       ],
       "faq": [

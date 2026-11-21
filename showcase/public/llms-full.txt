@@ -903,7 +903,6 @@ You do not want to watch a price or buy by hand every week.
 
 - Limit orders and DCA need the Pro tier or above.
 - A trigger price is not a guaranteed fill; slippage and gas apply.
-- The pricing page marks Limit orders and DCA as available on Free; the bot code gates them at Pro. Trust the bot.
 - Pro is a prepaid 30-day window, not auto-renewing by default.
 
 ## FAQ
@@ -1434,7 +1433,7 @@ Treasury moves need predictable pricing, a record, and a way to stop. Consumer s
 ## How to do it
 
 1. Talk to the team. Describe chains, size and approval needs.
-2. Get an org. Org accounts, members and org API keys exist.
+2. Get an org. Org accounts with roles (Owner, Admin, Member, Viewer) and scoped org API keys exist.
 3. Quote and simulate. Same-size quotes across routes, then simulate.
 4. Gate and log. Policies, approvals and audit apply to org-key execution.
 5. Monitor. Usage per org is available.
@@ -1449,9 +1448,9 @@ curl -s "https://api.suwappu.bot/v1/agent/portfolio?wallet_address=0xYourManaged
 ## What this does not do
 
 - No SLA, SOC 2 or audit report is claimed here.
-- Org member roles are not described here pending confirmation.
+- Org roles are Owner, Admin, Member and Viewer; seats default to 10 per org.
 - Lending and perps are read or quote only on the Agent API.
-- The Agent API fee is route-specific; confirm in a live quote.
+- The Agent API fee is 0.8% on EVM routes and 0.3% on Solana routes, independent of subscription tier; confirm in a live quote.
 
 ## FAQ
 
@@ -1505,7 +1504,7 @@ curl -s -X POST https://api.suwappu.bot/v1/agent/quote \
 
 - Quotes are indicative; execution can differ within slippage.
 - 21 venues are chain-gated; not every venue serves every route.
-- MEV protection is route-specific and is not claimed universally.
+- MEV-resistant routes (CoW, Jito) are preferred only where the pair is eligible, and not on the Agent API.
 - No best-price or cheapest guarantee.
 
 ## FAQ

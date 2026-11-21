@@ -33,7 +33,7 @@ const criteria = [
     title: 'Inspect the route before you authorize it.',
     body:
       `${stats.routerCount} routing venues are integrated across the platform, with availability gated by chain and asset. ` +
-      'Quotes expose the selected route; Suwappu does not imply that every venue competes for every order.',
+      'Each quote is compared across multiple routing providers and the best-scoring route is selected; it prefers MEV-resistant routes such as CoW batch auctions (EVM) and Jito (Solana) where the pair is eligible. Not every venue competes for every order.',
   },
   {
     label: 'Authority',

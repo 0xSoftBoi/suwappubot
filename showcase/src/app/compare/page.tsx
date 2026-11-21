@@ -99,7 +99,7 @@ const GROUPS: {
     category: 'Custody & safety',
     rows: [
       {
-        label: 'KMS-grade envelope key custody',
+        label: 'KMS envelope encryption for wallet keys (default)',
         cells: { suwappu: 'yes', bots: 'partial', terminals: 'partial', infra: 'no' },
       },
       {

@@ -324,7 +324,7 @@ curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \\
             ))}
           </div>
           <p className="agents-caption agent-payments__note">
-            Full credit costs, rate limits, and agent-surface fee notes are on the{' '}
+            Agent API swap fee: 0.8% on EVM routes and 0.3% on Solana routes, regardless of subscription tier. Full credit costs and rate limits are on the{' '}
             <a href="/pricing#agent-api">Agent API pricing</a> section.
           </p>
         </section></Reveal>

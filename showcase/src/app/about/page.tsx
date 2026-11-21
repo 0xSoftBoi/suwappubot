@@ -22,7 +22,7 @@ const metrics = [
 ];
 
 const principles = [
-  { title: 'Best quote, not the first', body: `We race every routing provider that supports your route: ${stats.routerCount} integrated in total, from 0x and 1inch to Jupiter on Solana and SunSwap on TRON. You get the best execution available, not whichever route answered first.` },
+  { title: 'Best quote, not the first', body: `We race every routing provider that supports your route: ${stats.routerCount} integrated in total, from 0x and 1inch to Jupiter on Solana and SunSwap on TRON. Each quote is compared across multiple routing providers and the best-scoring route is selected, not whichever answered first.` },
   { title: 'Your keys, your call', body: 'Bring your own keys for full self-custody, or use a managed wallet with KMS-backed encryption. Either way, you set the guardrails.' },
   { title: 'Built for agents and humans', body: 'The same execution surface powers a Telegram bot, a trading terminal, an SDK, a REST API, and an MCP server. Pick the interface that fits.' },
   { title: 'Honest about status', body: 'We publish what is real and what is on the roadmap: no certifications we have not earned, no traction we cannot back up.' },

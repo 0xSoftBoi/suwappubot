@@ -190,8 +190,8 @@
       "authorizeBody": "Self-custody returns an unsigned transaction for you to sign. Managed REST execution can sign and broadcast under server-side controls.",
       "screenshotAlt": "Suwappu Terminal showing an ETH/USDC chart, order book, and swap ticket.",
       "screenshotCaption": "Suwappu Terminal · product capture · 31 Jul 2026",
-      "mevTitle": "In-house MEV searcher",
-      "mevBody": "A Rust-based searcher screens pending routes for sandwich risk before execution, in-house rather than outsourced.",
+      "mevTitle": "MEV-aware routing",
+      "mevBody": "The bot prefers MEV-resistant routes such as CoW batch auctions (EVM) and Jito (Solana) where the pair is eligible. This does not apply to the Agent API.",
       "benchTitle": "Executor benchmarking",
       "benchBody": "Every execution path is benchmarked against measured latency and slippage, not simulated numbers."
     },
@@ -212,7 +212,7 @@
       "curveBody": "The terminal's Curve venue lists every pool on every chain Curve deploys to, straight from the Curve Prices API, sortable by TVL, 24h volume, or base APR, searchable, and one click from the swap desk. Built on our fork of flet-curve.",
       "screenshotAlt": "Suwappu perps desk showing HyperLiquid markets, market data, and an order ticket.",
       "screenshotCaption": "HyperLiquid perps inside Suwappu · product capture · 31 Jul 2026",
-      "lead": "Smart route priority orders venues, including Tempo's enshrined DEX for zero-fee stable swaps and CoW's MEV-protected batch auctions, before CCTP and Across settle a bridge leg. A failover RPC manager keeps every one of the 45 chains routable if a provider degrades."
+      "lead": "Smart route priority orders venues, including Tempo's enshrined DEX for zero-fee stable swaps and CoW's MEV-resistant batch auctions, before CCTP and Across settle a bridge leg. A failover RPC manager keeps every one of the 45 chains routable if a provider degrades."
     },
     "security": {
       "eyebrow": "Security model",
@@ -222,7 +222,7 @@
       "selfCustodyTitle": "Self-custody",
       "selfCustodyBody": "Unsigned transaction flows keep signing and broadcasting with the caller, nothing server-side ever holds that key.",
       "managedTitle": "Managed signing",
-      "managedBody": "Managed execution signs through KMS envelope encryption (kms_aesgcm_v2), Turnkey TEE signing, or an MPC signer, depending on the wallet path.",
+      "managedBody": "Managed execution signs through KMS envelope encryption (kms_aesgcm_v2), Turnkey-held keys (opt-in per wallet), or an MPC signer, depending on the wallet path.",
       "policiesTitle": "Server-side policies",
       "policiesBody": "2FA, spending limits, circuit breakers, and social recovery are enforced at the server boundary; approval monitoring auto-revokes what it flags.",
       "boundaryTitle": "Current assurance boundary",
@@ -339,7 +339,7 @@
     "referral_body": "Refer active traders and earn 30% of their fees, on every chain, paid automatically. Grab your link with /ref inside the bot.",
     "referral_cta": "Get your referral link",
     "enterprise_heading": "Need a custom plan?",
-    "enterprise_body": "Dedicated infrastructure, volume-based pricing, and SLA for trading desks and agent fleets.",
+    "enterprise_body": "Dedicated infrastructure and volume-based pricing for trading desks and agent fleets. Support and service terms are scoped with the team.",
     "enterprise_cta": "Talk to us"
   },
   "languageSwitcher": {
