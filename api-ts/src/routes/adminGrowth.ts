@@ -124,6 +124,7 @@ adminGrowthRoutes.get('/growth', async (c) => {
 				firstEvent,
 				moneyDaily,
 				moneyPrevious,
+				swapsBySource,
 			] = yield* Effect.all(
 				[
 					run(
@@ -264,6 +265,15 @@ adminGrowthRoutes.get('/growth', async (c) => {
 								where created_at >= ${prev}::timestamp and created_at < ${start}::timestamp)
 							+ (select coalesce(sum(fee_amount_usd), 0) from fee_transactions where collected = true
 								and created_at >= ${prev}::timestamp and created_at < ${start}::timestamp) as usd`,
+					),
+					// Recorded swaps per launch/micro-product ref (written by python-api
+					// /webapp/swap/record as name='swap_recorded', utm_source=<ref>).
+					optional(
+						'swaps by source',
+						sql`select utm_source as source, count(*) as n
+							from web_events
+							where name = 'swap_recorded' and created_at >= ${start}::timestamp
+							group by 1 order by 2 desc limit 50`,
 					),
 				],
 				{ concurrency: 4 },
@@ -479,6 +489,10 @@ adminGrowthRoutes.get('/growth', async (c) => {
 					source: String(r.source),
 					visitors: num(r.visitors),
 					conversions: num(r.conversions),
+				})),
+				swapsBySource: (swapsBySource ?? []).map((r) => ({
+					source: String(r.source),
+					swaps: num(r.n),
 				})),
 				topEvents: (topEvents ?? []).map((r) => ({
 					name: String(r.name),

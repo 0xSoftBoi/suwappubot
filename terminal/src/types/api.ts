@@ -140,6 +140,8 @@ export interface SwapBuildResult {
 export interface SwapRecordRequest {
   quoteId: string
   txHash: string
+  /** Launch/micro-product attribution label (e.g. "mcp", "producthunt"). */
+  ref?: string
 }
 
 export interface SwapRecordResult {

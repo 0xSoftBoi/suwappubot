@@ -6,6 +6,7 @@ import { pairFromToken } from '../lib/quoteTokens'
 import { usePair } from '../contexts/PairContext'
 import { useTrading } from '../contexts/TradingContext'
 import { SwapPanel } from '../components/trade/SwapPanel'
+import { captureRef } from '../lib/attribution'
 import { TerminalSkeletonText } from '../components/foundation'
 import type { SwapToken } from '../types/api'
 
@@ -37,6 +38,8 @@ export function AlertSwap() {
   const side = searchParams.get('side')
   const amount = searchParams.get('amount')
   const ref = searchParams.get('ref')
+  // Deep links can land on a mounted app (client-side nav), so capture here too.
+  useEffect(() => { captureRef(window.location.search) }, [])
 
   // Resolve the symbol into a real SwapToken (address + decimals) the same way
   // the token selector does. Only runs when both token + chain are present —
