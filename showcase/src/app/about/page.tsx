@@ -45,13 +45,17 @@ export default function AboutPage() {
           <Backdrop kind="grid" />
           <div className="v3-wrap cv3-hero__grid">
             <header>
-              <p className="v3-kicker">About Suwappu</p>
               <h1>Cross-chain execution for <em>agents</em> and humans.</h1>
               <p className="cv3-lead">
-                Liquidity is fragmented across dozens of chains and venues. Suwappu makes it
-                feel like one: swaps routed across venues, HyperLiquid perps, and sponsored-gas trades across
-                {' '}{stats.platformChains} chains, from a bot, a terminal, or a single API call.
+                Liquidity is fragmented across dozens of chains and venues. Suwappu makes it feel
+                like one: {stats.platformChains} chains, from a bot, a terminal or a single API call.
               </p>
+              <div className="summer-actions">
+            <a className="summer-button summer-button--primary" href="/products">See the products</a>
+            <a className="summer-button summer-button--secondary" href="/careers">Careers</a>
+          </div>
+
+
             </header>
             <Reveal className="cv3-art" delay={120}><ChainRing>
               <span className="cv3-ring-n">{stats.platformChains}</span>

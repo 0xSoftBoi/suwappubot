@@ -251,10 +251,6 @@ export default function AgentsPage() {
             </Reveal>
           </div>
         </div>
-        <Reveal className="sv3-stage sv3-stage--dark pv3-authority">
-          <AuthorityFlow lanes={[['Agent', 'Mandate', 'Chain'], ['Agent', 'x402', 'Service']]} caption="How an agent pays and acts" />
-        </Reveal>
-
         {/* ── a2. AGENT STACK ── */}
         <Reveal><section className="agents-caps" aria-labelledby="agents-stack">
           <p className="summer-kicker">Agent stack</p>
@@ -269,6 +265,9 @@ export default function AgentsPage() {
               </li>
             ))}
           </ul>
+          <div className="sv3-stage sv3-stage--dark pv3-authority">
+            <AuthorityFlow lanes={[['Agent', 'Mandate', 'Chain'], ['Agent', 'x402', 'Service']]} caption="How an agent pays and acts" />
+          </div>
         </section></Reveal>
 
         {/* ── a3. WHEN TO USE WHAT ── */}

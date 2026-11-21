@@ -220,14 +220,17 @@ export default function ComparePage() {
       <SummerNav />
       <main id="main-content">
       <div className="summer-shell mkt-page">
-        <div className="sv3-heroband"><Backdrop kind="grid" /><header className="mkt-hero mkt-hero--center">
+        <div className="sv3-heroband"><Backdrop kind="grid" /><header className="mkt-hero">
           <h1>One product where the others pick a lane.</h1>
           <p className="mkt-hero__lead">
-            Telegram bots, trading terminals, and cross-chain infrastructure each do one part well.
-            Suwappu is the only one that unifies cross-chain spot, HyperLiquid perps, and gasless
-            swaps: in a bot, a terminal, and an SDK.
+            Bots, terminals and infrastructure each do one part well. Suwappu unifies cross-chain
+            spot, HyperLiquid perps and gasless swaps.
           </p>
-        </header></div>
+          <div className="summer-actions">
+            <a className="summer-button summer-button--primary" href="/contact">Talk to the team</a>
+            <a className="summer-button summer-button--secondary" href="/pricing">See pricing</a>
+          </div>
+</header></div>
 
         <Reveal as="section" className={`compare ${styles.matrix}`}>
           <h2 id="compare-matrix" className="compare__title">

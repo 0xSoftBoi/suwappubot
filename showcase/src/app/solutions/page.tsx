@@ -129,14 +129,17 @@ export default function SolutionsPage() {
       <SummerNav />
       <main id="main-content">
       <div className="summer-shell mkt-page">
-        <div className="sv3-heroband"><Backdrop kind="grid" /><header className="mkt-hero mkt-hero--center">
-          <p className="summer-kicker">Solutions</p>
-          <h1>Quote, swap, and settle on {stats.agentApiChains} chains from one API key.</h1>
+        <div className="sv3-heroband"><Backdrop kind="grid" /><header className="mkt-hero">
+          <h1>Quote, swap and settle from one API key.</h1>
           <p className="mkt-hero__lead">
-            Trading, portfolio management, pay-per-call commerce, or a wallet your app never has
-            to secure itself: the same REST API, MCP server, and A2A protocol cover all four.
+            Trading, portfolio, pay-per-call or wallets: one REST API, MCP server and A2A protocol
+            across {stats.agentApiChains} chains.
           </p>
-        </header></div>
+          <div className="summer-actions">
+            <a className="summer-button summer-button--primary" href="/start">Get an API key</a>
+            <a className="summer-button summer-button--secondary" href="/docs/quick-start/overview">Read the quick start</a>
+          </div>
+</header></div>
 
         <div className={styles.rows}>
           {/* Lead row gets the terminal treatment: the trading loop is the
