@@ -22,7 +22,8 @@ export function CopyBtn({ text, label = 'Copy', slug, what }: { text: string; la
 }
 
 export function Json({ data, label = 'Raw JSON', open = false }: { data: unknown; label?: string; open?: boolean }) {
-  const text = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+  const full = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+  const text = full.length > 120000 ? `${full.slice(0, 120000)}\n… truncated (${full.length} characters in total)` : full;
   return (
     <Accordion defaultValue={open ? ['j'] : []} multiple className="lv-acc">
       <AccordionItem value="j" className="lv-acc__item">

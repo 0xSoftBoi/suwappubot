@@ -11,6 +11,7 @@ import TrackedLink from '@/components/solve/TrackedLink';
 import CopyCode from '@/components/solve/CopyCode';
 import SolveFaq from '@/components/solve/SolveFaq';
 import CopyChip from '@/components/products/CopyChip';
+import EndpointRows from '@/components/products/EndpointRows';
 import TryLoader from '@/components/products/TryLoader';
 import { TRY } from '@/components/products/tryConfig';
 import '../../sales-v3.css';
@@ -143,7 +144,7 @@ export default async function ProductPage({ params }: { params: Promise<Params> 
                 <h2 id="try-h">{tryCfg.title}</h2>
                 <p>{tryCfg.blurb}</p>
               </div>
-              <TryLoader slug={p.slug} widgets={tryCfg.widgets} />
+              <TryLoader slug={p.slug} widgets={tryCfg.widgets} commands={p.commands} />
             </div>
           </section>
         )}
@@ -205,15 +206,7 @@ export default async function ProductPage({ params }: { params: Promise<Params> 
                 <div className="pd-scroll" tabIndex={0} role="region" aria-label="Endpoint reference">
                   <table className="pd-table pd-table--api">
                     <thead><tr><th scope="col">Method</th><th scope="col">Path</th><th scope="col">What it does</th></tr></thead>
-                    <tbody>
-                      {p.endpoints.map((e) => (
-                        <tr key={`${e.method} ${e.path}`}>
-                          <td><span className={`pd-method pd-method--${e.method.toLowerCase()}`}>{e.method}</span></td>
-                          <td className="pd-path"><code>{e.path}</code><CopyChip text={e.path} slug={p.slug} lang="path" /></td>
-                          <td>{e.does}</td>
-                        </tr>
-                      ))}
-                    </tbody>
+                    <EndpointRows slug={p.slug} endpoints={p.endpoints} />
                   </table>
                 </div>
               ) : (

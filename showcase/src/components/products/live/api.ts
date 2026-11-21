@@ -40,7 +40,11 @@ export async function callApi(opts: {
     });
     const text = await res.text();
     let data: unknown = null;
-    try { data = text ? JSON.parse(text) : null; } catch { data = text.slice(0, 2000); }
+    try { data = text ? JSON.parse(text) : null; } catch {
+      // MCP may answer as an event stream: take the last `data:` frame.
+      const frame = text.split('\n').filter((l) => l.startsWith('data:')).pop();
+      try { data = frame ? JSON.parse(frame.slice(5)) : text.slice(0, 2000); } catch { data = text.slice(0, 2000); }
+    }
     if (opts.key && opts.refresh !== false && opts.path !== '/v1/agent/billing') void refreshBalance();
     return {
       ok: res.ok, status: res.status, ms: Math.round(performance.now() - t0), data,

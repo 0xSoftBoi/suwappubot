@@ -26,6 +26,8 @@ export const RUNNABLE = [
   'GET /v1/agent/predict/markets',
   'GET /v1/agent/predict/positions',
   'GET /v1/agent/lend/markets',
+  'GET /v1/autopilot',
+  'GET /enterprise/orgs/me',
   'POST /v1/agent/register',
   'POST /v1/agent/quote',
   'POST /v1/agent/swap/simulate',
@@ -49,3 +51,11 @@ export const CREDIT_COST: Record<string, number> = {
 export const routeId = (method: string, path: string) => `${method.toUpperCase()} ${path.split('?')[0]}`;
 export const isRunnable = (method: string, path: string) => (RUNNABLE as readonly string[]).includes(routeId(method, path));
 export const hasPathParam = (path: string) => /:[A-Za-z]|\{/.test(path);
+
+/** Reads that work without a key; everything else prompts for one before running. */
+export const KEYLESS = new Set(['GET /v1/agent/chains', 'GET /v1/agent/openapi', 'GET /v1/autopilot']);
+/** Default body for the two POST routes the endpoint table can run without a form. */
+export const DEFAULT_BODY: Record<string, unknown> = {
+  'POST /v1/agent/quote': { from_token: 'USDC', to_token: 'ETH', amount: '10', chain: 'base' },
+  'POST /v1/agent/swap/simulate': { from_token: 'USDC', to_token: 'ETH', amount: '10', chain: 'base' },
+};
