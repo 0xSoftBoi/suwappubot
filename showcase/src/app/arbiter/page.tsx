@@ -128,7 +128,7 @@ export default function ArbiterPage() {
         </section>
 
         <Reveal className="sv3-stage sv3-stage--dark pv3-authority">
-          <AuthorityFlow lanes={[['Buyer funds', 'Pinned program', 'Worker paid'], ['Locked escrow', 'Check on GitHub', 'Released']]} />
+          <AuthorityFlow lanes={[['Buyer funds', 'Pinned program', 'Worker paid'], ['Locked escrow', 'Check on GitHub', 'Released']]} caption="Funds move only after the pinned program checks the work" />
         </Reveal>
 
         <Reveal><section className={styles.trail} aria-labelledby="trail-h">

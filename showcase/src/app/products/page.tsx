@@ -131,7 +131,7 @@ export default function ProductsPage() {
                 item={item}
                 i={i}
                 className={i === 0 || i === 3 ? 'pv3-span-2' : ''}
-                visual={<Sparkline kind={(['line', 'bars', 'bars', 'ticks'] as const)[i]} seed={i * 2 + 3} />}
+                visual={i === 1 ? <MiniViz kind="pages" /> : i === 2 ? <MiniViz kind="services" /> : <Sparkline kind={i === 0 ? 'line' : 'ticks'} seed={i * 2 + 3} />}
               />
             ))}
           </Reveal>

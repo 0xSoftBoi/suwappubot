@@ -4,7 +4,7 @@ import SummerFooter from '@/components/SummerFooter';
 import AgentDesk from './AgentDesk';
 import stats from '@/data/stats.generated.json';
 import { PROOF_STATS } from './proof-data';
-import { Reveal, Backdrop, AuthorityFlow } from '@/components/v3';
+import { Reveal, Backdrop } from '@/components/v3';
 import styles from './agent-desk.module.css';
 import '../sales-v3.css';
 import '../product-v3.css';
@@ -226,7 +226,7 @@ export default function AgentTerminalPage() {
         <div className="pv3-heroband">
           <Backdrop kind="mesh" />
           <Backdrop kind="grid" />
-          <div className="pv3-hero__grid">
+          <div className="pv3-hero__grid pv3-hero__grid--one">
         <header className="mkt-hero pv3-herotext">
           <p className="summer-kicker">WebMCP Agent Desk</p>
           <h1>Give your agent a mandate, not your keys.</h1>
@@ -243,9 +243,6 @@ export default function AgentTerminalPage() {
             </a>
           </div>
         </header>
-            <Reveal className="sv3-stage sv3-stage--dark pv3-hero__art" delay={120}>
-              <AuthorityFlow lanes={[['Your keys', 'Mandate', 'Agent'], ['Agent', 'WebMCP tools', 'Desk']]} />
-            </Reveal>
           </div>
         </div>
 

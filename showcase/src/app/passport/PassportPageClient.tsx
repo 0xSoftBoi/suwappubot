@@ -70,7 +70,7 @@ export default function PassportPageClient() {
           <Reveal className={`v3-tone-dark pv3-panel ${styles.concept}`} delay={150}>
             <div className="pv3-panel__bar"><i /><i /><i /><span>Human proof, then a hook check on every trade</span></div>
             <div className="pv3-stagebox">
-              <AuthorityFlow lanes={[['Human proof', 'Hook check', 'Trade allowed'], ['No proof', 'Hook check', 'Trade blocked']]} />
+              <AuthorityFlow lanes={[['Human proof', 'Hook check', 'Trade allowed'], ['No proof', 'Hook check', 'Trade blocked']]} caption="How the hook decides, concept only" />
             </div>
           </Reveal>
 

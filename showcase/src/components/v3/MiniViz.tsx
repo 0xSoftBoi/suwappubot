@@ -10,7 +10,7 @@ import Live from './Live';
 export type MiniKind =
   | 'route' | 'bridge' | 'book' | 'curve' | 'peg' | 'swap'
   | 'perps' | 'copy' | 'automate' | 'predict' | 'agent' | 'compete'
-  | 'tee' | 'custody' | 'cipher' | 'gate' | 'simulate' | 'review' | 'window' | 'http402' | 'meter' | 'calendar' | 'ladder';
+  | 'tee' | 'custody' | 'cipher' | 'gate' | 'simulate' | 'review' | 'window' | 'http402' | 'meter' | 'calendar' | 'ladder' | 'services' | 'pages';
 
 const A = 'var(--v3-accent)';
 const D = (s: number) => ({ '--v3-d': `${s}s` }) as React.CSSProperties;
@@ -164,6 +164,21 @@ function Art({ kind }: { kind: MiniKind }) {
     case 'ladder':
       return (<>
         {[0, 1, 2, 3].map((i) => <rect key={i} x={10 + i * 26} y={46 - i * 11} width="20" height={10 + i * 11} rx="2.5" fill={i === 3 ? A : 'none'} stroke={i === 3 ? A : 'currentColor'} className="v3-pop" style={D(i * 0.12)} />)}
+      </>);
+    case 'services':
+      // service nodes joined by one line; hollow dots = "no reading drawn", never a history
+      return (<>
+        <path d="M14,32H106" opacity="0.4" strokeDasharray="2 4" />
+        {[14, 37, 60, 83, 106].map((x, i) => <g key={x} className="v3-pop" style={D(i * 0.12)}><circle cx={x} cy="32" r="8" fill="var(--v3-surface-hi)" opacity="0.9" /><circle cx={x} cy="32" r="2.6" opacity="0.7" /></g>)}
+      </>);
+    case 'pages':
+      // stacked sheets with rule lines: written material, not a chart
+      return (<>
+        <rect x="30" y="8" width="60" height="46" rx="4" opacity="0.3" />
+        <rect x="24" y="12" width="60" height="46" rx="4" opacity="0.55" fill="var(--v3-surface-hi)" />
+        <rect x="18" y="16" width="60" height="44" rx="4" fill="var(--v3-surface-hi)" />
+        {[26, 33, 40].map((y, i) => <path key={y} d={`M26,${y}H${i === 2 ? 48 : 70}`} pathLength={100} className="v3-draw" style={D(i * 0.2)} />)}
+        <path d="M26,48H40" stroke={A} />
       </>);
   }
 }

@@ -7,7 +7,8 @@ import type { CSSProperties } from 'react';
  * tone-aware via --v3-* vars, labels are caller-supplied nouns only, no numbers.
  *
  *   <AuthorityFlow lanes={[['Your keys','Unsigned tx','Chain'], ['Managed','Policy','Chain']]} />
- *     horizontal lanes of nodes joined by a travelling pulse; middle node is the accent "gate".
+ *     HTML lanes: nodes size to their labels, arrowed links with a travelling pulse, middle node is the
+ *     accent "gate"; lanes stack vertically in narrow containers (<420px). Optional `caption`.
  *   <EvidenceStack items={['Status','Changelog',…]} />
  *     stacked document bars that draw in, each with a verified tick.
  *   <TierLadder steps={['Self-serve','Enterprise']} />
@@ -16,39 +17,23 @@ import type { CSSProperties } from 'react';
 const D = (s: number) => ({ '--v3-d': `${s}s` }) as CSSProperties;
 const MONO = { fontFamily: 'var(--v3-font-mono)', letterSpacing: '0.06em' } as const;
 
-export function AuthorityFlow({ lanes }: { lanes: string[][] }) {
-  const laneH = 78;
-  const H = lanes.length * laneH + 20;
+export function AuthorityFlow({ lanes, caption }: { lanes: string[][]; caption?: string }) {
   return (
-    <Live className="v3-schem">
-      <svg viewBox={`0 0 420 ${H}`} role="presentation" focusable="false" fill="none">
-        {lanes.map((lane, li) => {
-          const y = 10 + li * laneH + laneH / 2 - 10;
-          const w = 104, gap = (420 - lane.length * w) / (lane.length - 1);
-          return (
-            <g key={li}>
-              {lane.map((label, i) => {
-                const x = i * (w + gap);
-                const gate = i === 1;
-                return (
-                  <g key={i}>
-                    {i > 0 && (
-                      <>
-                        <path d={`M${x - gap},${y + 22}H${x - 12}`} stroke="var(--v3-line-strong)" strokeWidth="1.4" pathLength={100} className="v3-draw" style={D(0.2 + li * 0.2 + i * 0.3)} />
-                        <path d={`M${x - gap},${y + 22}H${x - 11}`} pathLength={100} className="v3-pulse" style={{ ...D(li), strokeWidth: 2.5 }} />
-                        <path d={`M${x - 14},${y + 14}L${x - 2},${y + 22}L${x - 14},${y + 30}Z`} fill="var(--v3-accent)" stroke="var(--v3-accent)" strokeWidth="1.2" strokeLinejoin="round" className="v3-pop" style={D(0.5 + li * 0.2 + i * 0.3)} />
-                      </>
-                    )}
-                    <rect x={x} y={y} width={w} height="44" rx="10" fill="var(--v3-surface-hi)" stroke={gate ? 'var(--v3-accent)' : 'var(--v3-line-strong)'} strokeWidth={gate ? 1.6 : 1} className="v3-pop" style={D(i * 0.25 + li * 0.15)} />
-                    <text x={x + w / 2} y={y + 26} textAnchor="middle" fontSize="11" fill={gate ? 'var(--v3-accent)' : 'var(--v3-ink)'} style={MONO}>{label.toUpperCase()}</text>
-                  </g>
-                );
-              })}
-            </g>
-          );
-        })}
-      </svg>
-    </Live>
+    <div className="v3-af">
+      <Live className="v3-af__gfx">
+        {lanes.map((lane, li) => (
+          <div className="v3-af__lane" key={li}>
+            {lane.map((label, i) => (
+              <div className="v3-af__seg" key={i}>
+                {i > 0 && <span className="v3-af__link" style={D(li * 0.7 + i * 0.4)} />}
+                <span className={`v3-af__node${i === 1 && lane.length > 2 ? ' v3-af__node--gate' : ''}`} style={D(i * 0.2 + li * 0.1)}>{label}</span>
+              </div>
+            ))}
+          </div>
+        ))}
+      </Live>
+      {caption && <p className="v3-af__cap">{caption}</p>}
+    </div>
   );
 }
 

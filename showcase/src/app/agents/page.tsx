@@ -154,7 +154,7 @@ export default function AgentsPage() {
           </div>
         </div>
         <Reveal className="sv3-stage sv3-stage--dark pv3-authority">
-          <AuthorityFlow lanes={[['Agent', 'Mandate', 'Chain'], ['Agent', 'x402', 'Service']]} />
+          <AuthorityFlow lanes={[['Agent', 'Mandate', 'Chain'], ['Agent', 'x402', 'Service']]} caption="How an agent pays and acts" />
         </Reveal>
 
         {/* ── b. CAPABILITIES ── */}

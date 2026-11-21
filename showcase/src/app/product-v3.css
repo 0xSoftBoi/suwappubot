@@ -65,3 +65,6 @@
 .pv3-reserve .mkt-page { position: relative; isolation: isolate; }
 .pv3-reserve .mkt-page > .v3-bd { inset: -40px -10vw 0; }
 .pv3-heroband, .pv3-reserve .mkt-page { overflow-x: clip; }
+
+@media (min-width: 960px) { .pv3-hero__grid--one { grid-template-columns: minmax(0, 1fr); } }
+.pv3-authority .v3-af { max-width: 560px; }
