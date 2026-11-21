@@ -23,6 +23,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: '/government', priority: 0.7, freq: 'monthly' },
     { path: '/architecture', priority: 0.8, freq: 'monthly' },
     { path: '/security', priority: 0.8, freq: 'monthly' },
+    { path: '/brand', priority: 0.4, freq: 'yearly' },
     { path: '/solutions', priority: 0.8, freq: 'monthly' },
     { path: '/compare', priority: 0.8, freq: 'monthly' },
     { path: '/changelog', priority: 0.7, freq: 'weekly' },

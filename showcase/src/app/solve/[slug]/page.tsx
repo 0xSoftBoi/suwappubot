@@ -41,7 +41,7 @@ const ld = (o: unknown) => JSON.stringify(o).replace(/</g, '\\u003c');
 
 function Art({ audience }: { audience: string }) {
   if (audience === 'developer') return <ToolOrbit count={stats.mcpToolCount}><span className="sv3-hub">MCP</span></ToolOrbit>;
-  if (audience === 'desk') return <BoundaryRings quiet labels={['Agent', 'Policy', 'Approval', 'Chain']} />;
+  if (audience === 'desk') return <BoundaryRings quiet labels={['Agent', 'Policy']} />;
   return <RouteMap />;
 }
 

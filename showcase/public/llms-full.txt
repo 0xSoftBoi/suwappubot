@@ -43,8 +43,8 @@ You want the agent to act, but you do not want a prompt-injected loop draining a
 ## How to do it
 
 1. Register the agent. POST /v1/agent/register with a name. Save the suwappu_sk_ key; it is shown once.
-2. Quote. POST /v1/agent/quote returns quote_id, amount_out_min and route. A quote is valid for 60 seconds.
-3. Simulate. POST /v1/agent/swap/simulate with the quote_id and wallet_address. Execute only if would_execute is true.
+2. Quote. POST /v1/agent/quote with the wallet_address that will sign. It returns quote_id, amount_out_min and route. A quote is valid for 60 seconds and is bound to that wallet.
+3. Simulate. POST /v1/agent/swap/simulate with the quote_id and the same wallet_address. Execute only if would_execute is true.
 4. Choose authority. POST /v1/agent/swap returns an unsigned transaction you sign. POST /v1/agent/swap/execute signs from the agent's managed wallet.
 5. Track it. GET /v1/agent/swap/status/:id, or set a callback_url for signed webhooks.
 
@@ -54,9 +54,9 @@ You want the agent to act, but you do not want a prompt-injected loop draining a
 # 1. quote
 curl -s -X POST https://api.suwappu.bot/v1/agent/quote \
   -H "Authorization: Bearer $SUWAPPU_API_KEY" -H "Content-Type: application/json" \
-  -d '{"from_token":"ETH","to_token":"USDC","amount":"0.1","chain":"base"}'
+  -d '{"from_token":"ETH","to_token":"USDC","amount":"0.1","chain":"base","wallet_address":"0xYourWallet"}'
 
-# 2. dry run the returned quote_id
+# 2. dry run the returned quote_id with the same wallet
 curl -s -X POST https://api.suwappu.bot/v1/agent/swap/simulate \
   -H "Authorization: Bearer $SUWAPPU_API_KEY" -H "Content-Type: application/json" \
   -d '{"quote_id":"QUOTE_ID_FROM_STEP_1","wallet_address":"0xYourWallet"}'

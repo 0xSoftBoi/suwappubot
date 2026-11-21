@@ -44,6 +44,10 @@ const INSTRUCTIONS = `## Instructions for LLM Agents
 - Agent-surface swap fees are route/configuration-specific rather than subscription-tier discounts. Inspect the live quote; do not hardcode an EVM/Solana fee into strategy economics.
 - Every docs page is available as clean Markdown by appending \`.md\` to its URL (or sending \`Accept: text/markdown\`).`;
 
+const SKILLS = `## Agent skills
+
+- [suwappu-swaps](${SITE}/.well-known/skills/suwappu-swaps/SKILL.md): load this skill for the safe call order (get_quote, simulate_swap, execute_swap), units, limits and key registration. It grants no wallet access. Index: ${SITE}/.well-known/skills/index.json`;
+
 const ARBITER = `## Suwappu Arbiter (Proof of Done)
 
 - Page: https://suwappu.bot/arbiter — machine-readable evidence: https://suwappu.bot/arbiter.json
@@ -97,6 +101,8 @@ const llms = [
   PREAMBLE,
   '',
   INSTRUCTIONS,
+  '',
+  SKILLS,
   '',
   ARBITER,
   '',

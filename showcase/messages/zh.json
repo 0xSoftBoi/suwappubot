@@ -26,8 +26,6 @@
       "grpMarkets": "市场",
       "grpBuild": "构建",
       "grpReference": "参考",
-      "grpWhy": "核心优势",
-      "grpMore": "更多",
       "terminalTitle": "终端",
       "terminalDesc": "完整的网页交易台",
       "botTitle": "Telegram 机器人",
@@ -76,7 +74,6 @@
       "autopilotDesc": "实时观看自主代理交易，并验证它的每个决策",
       "signalsTitle": "Signal Intelligence",
       "signalsDesc": "可解释的链上信号及其证据",
-      "grpTrust": "代理信任",
       "passportTitle": "Agent Passport",
       "passportDesc": "证明代理背后有真人负责",
       "arbiterTitle": "Arbiter",
@@ -85,7 +82,6 @@
       "label": "主导航",
       "open": "打开菜单",
       "close": "关闭菜单",
-      "mobileTitle": "菜单",
       "startTitle": "获取 API 密钥",
       "startDesc": "一次调用，无需表单",
       "solveTitle": "已解决的问题",
@@ -113,7 +109,8 @@
       "careersDesc": "开放职位",
       "contactTitle": "联系",
       "contactDesc": "联系团队",
-      "language": "语言"
+      "language": "语言",
+      "mobileTitle": "菜单"
     }
   },
   "hero": {

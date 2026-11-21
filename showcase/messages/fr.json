@@ -26,8 +26,6 @@
       "grpMarkets": "Marchés",
       "grpBuild": "Construire",
       "grpReference": "Référence",
-      "grpWhy": "Les arguments",
-      "grpMore": "Plus",
       "terminalTitle": "Terminal",
       "terminalDesc": "Le poste de trading complet",
       "botTitle": "Bot Telegram",
@@ -76,7 +74,6 @@
       "autopilotDesc": "Observez l'agent autonome trader et vérifiez ses décisions",
       "signalsTitle": "Signal Intelligence",
       "signalsDesc": "Des signaux on-chain explicables, preuves à l’appui",
-      "grpTrust": "Confiance des agents",
       "passportTitle": "Agent Passport",
       "passportDesc": "La preuve qu'un humain répond de l'agent",
       "arbiterTitle": "Arbiter",
@@ -85,7 +82,6 @@
       "label": "Principal",
       "open": "Ouvrir le menu",
       "close": "Fermer le menu",
-      "mobileTitle": "Menu",
       "startTitle": "Obtenir une clé API",
       "startDesc": "Un appel, aucun formulaire",
       "solveTitle": "Problèmes résolus",
@@ -113,7 +109,8 @@
       "careersDesc": "Postes ouverts",
       "contactTitle": "Contact",
       "contactDesc": "Parler à l'équipe",
-      "language": "Langue"
+      "language": "Langue",
+      "mobileTitle": "Menu"
     }
   },
   "hero": {

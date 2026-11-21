@@ -119,6 +119,106 @@ const FAQS = [
   },
 ];
 
+// ── Agent Stack: one entry per component, each with its own start link ──
+const STACK: { name: string; what: string; limit: string; href: string; cta: string }[] = [
+  {
+    name: 'Agent API',
+    what: 'REST: quote, simulate, then execute, with one bearer key.',
+    limit: 'Managed execution is explicit; MCP and A2A do not sign for you.',
+    href: '/docs/quick-start/first-swap',
+    cta: 'First swap',
+  },
+  {
+    name: 'MCP server',
+    what: `${stats.mcpToolCount} tools at https://api.suwappu.bot/mcp for Claude, Cursor and any MCP host.`,
+    limit: 'execute_swap returns an unsigned transaction; it never signs or broadcasts.',
+    href: '/docs/quick-start/mcp-clients',
+    cta: 'Connect a client',
+  },
+  {
+    name: 'A2A',
+    what: 'Agent-to-agent messages for quotes, prices and discovery.',
+    limit: 'Quote, price and discovery only. No execution.',
+    href: '/docs/protocols/a2a',
+    cta: 'A2A protocol',
+  },
+  {
+    name: 'Pay per call (credits, HTTP 402)',
+    what: 'Metered calls draw prepaid credits instead of a subscription; the API answers HTTP 402 when they run out.',
+    limit: 'You still need an API key. 1 credit is about $0.001. Paying on-chain per request with an x402 header is in the code but off by default.',
+    href: '/solve/x402-pay-per-call-api',
+    cta: 'Pay per call',
+  },
+  {
+    name: 'TypeScript SDK',
+    what: '@suwappu/sdk: typed client for the Agent API.',
+    limit: 'Wraps the REST surface; no capability the API lacks.',
+    href: '/docs/quick-start/sdk-examples',
+    cta: 'SDK examples',
+  },
+  {
+    name: 'Python SDK',
+    what: 'suwappu on PyPI: the same calls for Python agents.',
+    limit: 'Wraps the REST surface; no capability the API lacks.',
+    href: '/solve/typescript-python-sdk-dex-swaps',
+    cta: 'Install and call',
+  },
+  {
+    name: 'Spend policies',
+    what: 'Per-transaction, daily and session caps, approvals and a kill switch.',
+    limit: 'Org-wide caps, approvals and kill switches are set with the team. An agent can add its own per-transaction limit or address allowlist on its managed wallet (POST /v1/agent/wallet/policy).',
+    href: '/solve/spending-limits-ai-agent-wallet',
+    cta: 'Spending limits',
+  },
+  {
+    name: 'Simulation',
+    what: 'POST /v1/agent/swap/simulate dry-runs a quote before anything moves.',
+    limit: 'No signing and no broadcast; it costs the same as a quote.',
+    href: '/solve/simulate-swap-before-signing',
+    cta: 'Simulate first',
+  },
+  {
+    name: 'Approvals and audit log',
+    what: 'Route large or unusual trades to a human, and keep a verifiable record.',
+    limit: 'Approval thresholds follow the org policy the team sets.',
+    href: '/solve/approval-workflow-onchain-trades',
+    cta: 'Approval workflow',
+  },
+  {
+    name: 'Agent Desk (WebMCP)',
+    what: 'In-browser tools so a browser agent can act inside a mandate.',
+    limit: 'Browser-side WebMCP tools, not a server-to-server API.',
+    href: '/agent-terminal',
+    cta: 'Open Agent Desk',
+  },
+  {
+    name: 'Agent skill',
+    what: 'A SKILL.md an agent can load: call order, units and limits.',
+    limit: 'Grants no wallet access and moves no funds on its own.',
+    href: '/.well-known/skills/suwappu-swaps/SKILL.md',
+    cta: 'Read the skill',
+  },
+];
+
+// ── When to use what ────────────────────────────────────────────────
+const WHEN: { doing: string; use: string; why: string; href: string; cta: string }[] = [
+  { doing: 'Give an LLM tools', use: 'MCP', why: `${stats.mcpToolCount} discoverable tools; the host lists them at runtime.`, href: '/docs/quick-start/mcp-clients', cta: 'MCP clients' },
+  { doing: 'Call from your backend', use: 'REST or SDK', why: 'Full surface, including managed execution and webhooks.', href: '/docs/quick-start/first-swap', cta: 'First swap' },
+  { doing: 'Pay per call, no subscription', use: 'Prepaid credits', why: 'Top up credits on a key; metered calls draw them down and return HTTP 402 when empty.', href: '/solve/x402-pay-per-call-api', cta: 'x402 guide' },
+  { doing: 'Discover or price from another agent', use: 'A2A', why: 'Quotes and discovery between agents; it never executes.', href: '/docs/protocols/a2a', cta: 'A2A protocol' },
+  { doing: 'Let a browser agent act with a mandate', use: 'Agent Desk', why: 'WebMCP tools in the page, bounded by the mandate.', href: '/agent-terminal', cta: 'Agent Desk' },
+  { doing: 'Cap an agent fleet', use: 'Spend policies', why: 'Per-tx, daily and session caps with approvals and a kill switch.', href: '/solve/spending-limits-ai-agent-wallet', cta: 'Spending limits' },
+];
+
+// ── Rate limits: api-ts/src/middleware/rateLimit.ts TIER_LIMITS (per minute, per agent key) ──
+const RATE_TIERS: [string, string][] = [
+  ['Free (new keys)', '30'],
+  ['Agent', '100'],
+  ['Pro', '500'],
+  ['Premium', '2,000'],
+  ['Enterprise', '10,000'],
+];
+
 export default function AgentsPage() {
   return (
     <div className="summer-page docs-shell institutional-page v3-tone-light">
@@ -133,16 +233,14 @@ export default function AgentsPage() {
         <header className="mkt-hero agents-hero pv3-herotext">
           <h1>Onchain execution for AI agents.</h1>
           <p className="mkt-hero__lead">
-            Quote, swap, and manage a portfolio across {stats.agentApiChains} chains from a REST API, an MCP
-            server, or the A2A protocol: self-serve registration, no signup required, and
-            pay only for the calls you make.
+            One key. REST, MCP, A2A and SDKs across {stats.agentApiChains} chains.
           </p>
           <div className="summer-actions summer-cta__actions">
             <a className="summer-button summer-button--primary" href="/start">
               Get an API key
             </a>
-            <a className="summer-button summer-button--secondary" href="/docs/protocols/mcp">
-              Connect MCP
+            <a className="summer-button summer-button--secondary" href="/docs/quick-start/overview">
+              Read the quick start
             </a>
           </div>
         </header>
@@ -156,6 +254,88 @@ export default function AgentsPage() {
         <Reveal className="sv3-stage sv3-stage--dark pv3-authority">
           <AuthorityFlow lanes={[['Agent', 'Mandate', 'Chain'], ['Agent', 'x402', 'Service']]} caption="How an agent pays and acts" />
         </Reveal>
+
+        {/* ── a2. AGENT STACK ── */}
+        <Reveal><section className="agents-caps" aria-labelledby="agents-stack">
+          <p className="summer-kicker">Agent stack</p>
+          <h2 id="agents-stack" className="mkt-h2">Every component, with its own way in.</h2>
+          <ul className={styles.stackGrid}>
+            {STACK.map((c) => (
+              <li className={styles.stackItem} key={c.name}>
+                <h3>{c.name}</h3>
+                <p>{c.what}</p>
+                <p className={styles.stackLimit}><span>Limit</span> {c.limit}</p>
+                <a className={styles.stackLink} href={c.href}>{c.cta} <span aria-hidden="true">→</span></a>
+              </li>
+            ))}
+          </ul>
+        </section></Reveal>
+
+        {/* ── a3. WHEN TO USE WHAT ── */}
+        <Reveal><section className="compare" aria-labelledby="agents-when">
+          <h2 id="agents-when" className="compare__title">When to use what</h2>
+          <div className="compare__scroll" role="region" aria-label="When to use what" tabIndex={0}>
+            <table className="compare-table">
+              <caption className="sr-only">Which Suwappu surface to use for each job, and where to start.</caption>
+              <thead>
+                <tr>
+                  <th scope="col" className="compare-table__rowhead">You are</th>
+                  <th scope="col">Use</th>
+                  <th scope="col">Why</th>
+                  <th scope="col">Starts at</th>
+                </tr>
+              </thead>
+              <tbody>
+                {WHEN.map((r) => (
+                  <tr key={r.doing}>
+                    <th scope="row" className="compare-table__rowhead">{r.doing}</th>
+                    <td><strong>{r.use}</strong></td>
+                    <td className={styles.whenWhy}>{r.why}</td>
+                    <td><a href={r.href}>{r.cta}</a></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section></Reveal>
+
+        {/* ── a4. RATE LIMITS + FEES ── */}
+        <Reveal><section className="agents-caps" aria-labelledby="agents-limits">
+          <h2 id="agents-limits" className="mkt-h2">Limits and fees, stated plainly.</h2>
+          <div className={styles.limitsGrid}>
+            <div className={styles.limitsBlock}>
+              <h3>Rate limits per key, per minute</h3>
+              <dl className={styles.limitsList}>
+                {RATE_TIERS.map(([t, n]) => (
+                  <div key={t}><dt>{t}</dt><dd>{n}</dd></div>
+                ))}
+              </dl>
+              <p>
+                A newly registered key starts on the free tier (30 requests a minute) until a
+                paid window raises it. Registration, GET /v1/agent/chains and the OpenAPI spec
+                need no key; everything else needs one. Over the limit you get HTTP 429 with a
+                Retry-After header.
+              </p>
+            </div>
+            <div className={styles.limitsBlock}>
+              <h3>Fees and credits</h3>
+              <dl className={styles.limitsList}>
+                <div><dt>Base swap fee, EVM routes</dt><dd>0.8%</dd></div>
+                <div><dt>Base swap fee, Solana routes</dt><dd>0.3%</dd></div>
+                <div><dt>World ID verified agents</dt><dd>20% off</dd></div>
+                <div><dt>Starter credits on registration</dt><dd>100</dd></div>
+              </dl>
+              <p>
+                These are base rates and do not depend on subscription tier; the fee on a live
+                quote is the one that applies. A quote or dry run costs 1 credit and a swap 5,
+                so 100 starter credits cover about 100 quotes or 14 full quote, dry-run and swap
+                flows. The grant is limited to three per IP address a day; registration still
+                succeeds without it.
+                See <a href="/pricing#agent-api">Agent API pricing</a>.
+              </p>
+            </div>
+          </div>
+        </section></Reveal>
 
         {/* ── b. CAPABILITIES ── */}
         <Reveal><section className={`agents-caps ${styles.capsPrimary}`} aria-label="Capabilities">
