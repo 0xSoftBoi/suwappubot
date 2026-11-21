@@ -332,26 +332,6 @@ async function proxyToPython(
 	})
 }
 
-export function createTerminalWebappProxyRoutes(config: PythonProxyConfig) {
-	const routes = new Hono()
-	const fetchImpl = config.fetchImpl ?? fetch
-
-	routes.all('/webapp/*', async (c, next) => {
-		if (c.req.raw.headers.has('X-Telegram-Init-Data')) {
-			await next()
-			return
-		}
-		if (!isTerminalWebappProxyAllowed(c.req.method, c.req.path)) {
-			await next()
-			return
-		}
-		const rejected = rejectUntrustedMutation(c)
-		if (rejected) return rejected
-		return proxyToPython(c, config, fetchImpl, terminalWebappTarget(c.req.path, c.req.method))
-	})
-	return routes
-}
-
 export function createPythonProxyRoutes(config: PythonProxyConfig) {
 	const routes = new Hono()
 	const fetchImpl = config.fetchImpl ?? fetch

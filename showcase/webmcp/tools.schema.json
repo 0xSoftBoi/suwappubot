@@ -348,7 +348,7 @@
     },
     {
       "name": "compile_mandate_to_policy",
-      "description": "Compile the negotiated mandate into Suwappu wallet spending-policy payloads: the request bodies POST /v1/agent/wallet/policy accepts to create real Turnkey policies that gate managed execution. This turns the envelope from something this page honours into something a server enforces. Each payload and the notes are stamped with the mandate version compiled; a later amendment increments the version and does not retroactively edit an already-compiled bundle. Returns the payloads plus honest notes about what did and did not survive compilation. Pass download:true to hand the human the file.",
+      "description": "Compile the negotiated mandate into the spend policy Suwappu's API enforces: the request body POST /v1/agent/policies accepts. Once installed, the API evaluates it on every swap execute by the agent, before a transaction is built: per-trade cap, rolling daily cap, slippage ceiling and chain allow-list bind there, not only on this page. Returns the body, the current enforcement state (none, enforced, or stale after an amendment), notes on what the server does with each rule, and the rules that stay desk-only (price impact, buy-token list). The human installs it from the mandate panel with the agent's API key; you can also POST the body yourself with the agent's bearer token. Pass download:true to hand the human the file.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -365,7 +365,7 @@
     },
     {
       "name": "read_mandate",
-      "description": "Read the human's standing mandate: its version number, per-trade and daily USD caps, allowed chains, allowed tokens to buy, ceilings on price impact and slippage, and how much of today's budget is already spoken for. The version starts at 1 and increments only when an approved amend_mandate rewrites the envelope. Call it when the human asks what they have authorised, or when you are about to argue for changing a rule. You do NOT need it before quoting: preview_swap, compare_routes and check_mandate each attach the mandate verdict to their own result.",
+      "description": "Read the human's standing mandate: its version number, per-trade and daily USD caps, allowed chains, allowed tokens to buy, ceilings on price impact and slippage, how much of today's budget is already spoken for, and whether this version is installed server-side as a spend policy (enforcement.status: none, enforced, or stale when the desk has moved past the installed version). The version starts at 1 and increments only when an approved amend_mandate rewrites the envelope. Call it when the human asks what they have authorised, or when you are about to argue for changing a rule. You do NOT need it before quoting: preview_swap, compare_routes and check_mandate each attach the mandate verdict to their own result.",
       "inputSchema": {
         "type": "object",
         "properties": {},
@@ -421,7 +421,7 @@
     },
     {
       "name": "propose_plan",
-      "description": "Propose a SEQUENCE of steps as one reviewable unit: for example bridge, then buy, then set an alert. The human approves the plan once instead of clicking through every leg. Steps can CHAIN: a swap step whose amount is \"@prev\" sells the full estimated output of the previous swap step, with fromToken and fromChain defaulting to where that leg lands; the shape of a real multi-hop relay, where later legs trade what earlier legs deliver rather than new money. Each step is priced and checked against the mandate individually; the combined notional counts new money once, not each re-trade of it. Prefer this over several propose_swap calls whenever the steps only make sense together.",
+      "description": "Propose a SEQUENCE of steps as one reviewable unit: for example a cross-chain swap, then an alert on what it bought. The human approves the plan once instead of clicking through every step. Each step is priced and checked against the mandate individually, and the card shows the combined notional. A cross-chain trade is ONE swap step, not a bridge step plus a buy step: the route is already a single multi-hop quote, priced together and signed as one handoff. Prefer this over several propose_swap calls whenever the steps only make sense together.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -445,7 +445,7 @@
                 },
                 "fromChain": {
                   "type": "string",
-                  "description": "swap: source chain key. For a chained step (\"@prev\") it defaults to the chain the previous swap step lands on."
+                  "description": "swap: source chain key."
                 },
                 "toChain": {
                   "type": "string",
@@ -453,7 +453,7 @@
                 },
                 "fromToken": {
                   "type": "string",
-                  "description": "swap: token sold. For a chained step (\"@prev\") it defaults to the previous swap step's output token, and must match it if given."
+                  "description": "swap: token sold."
                 },
                 "toToken": {
                   "type": "string",
@@ -461,7 +461,7 @@
                 },
                 "amount": {
                   "type": "string",
-                  "description": "swap: amount of fromToken, or \"@prev\" to sell the full estimated output of the previous swap step (a chained multi-hop leg)."
+                  "description": "swap: amount of fromToken."
                 },
                 "slippagePercent": {
                   "type": "number",

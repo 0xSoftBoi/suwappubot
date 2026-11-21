@@ -65,6 +65,7 @@
     "brace-expansion": "^5.0.13",
     "source-map-js": "^1.2.4",
     "viem": "$viem",
-    "browserslist": "^4.28.7"
+    "browserslist": "^4.28.7",
+    "zod": "^4.6.6"
   }
 }

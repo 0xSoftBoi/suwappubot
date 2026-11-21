@@ -1,15 +1,15 @@
 import crypto from 'crypto'
 import { randomBytes, createHash } from 'node:crypto'
-import { and, desc, eq, gte, isNull, or, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, isNull, or, sql } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
 import { Hono, type Context } from 'hono'
 import { z } from 'zod'
 import openApiSpec from '../../openapi-agent.json'
-import { isStarknet } from '../config/chains'
+import { CHAIN_ID_TO_KEY, isStarknet } from '../config/chains'
 import { EnvService } from '../config/EnvService'
 import type { Agent } from '../db'
 import type { DbClient } from '../db/client'
-import { agents, agentCredits, agentCreditTopups, agentSubscriptions, auditLogs, organizations, policyKillSwitches, recurringSubscriptions, requireDb, swapTransactions, webhookEvents } from '../db'
+import { agents, agentCredits, agentCreditTopups, agentSubscriptions, auditLogs, organizations, policies, policyKillSwitches, recurringSubscriptions, requireDb, swapTransactions, webhookEvents } from '../db'
 import { agentLinkCodes } from '../db/schema/agentLinkCodes'
 import { type EconomicTerms, evmQuoteUsdValue, termsFromEvmQuote, termsFromSolanaQuote } from '../lib/approvalTerms'
 import { PURCHASABLE_TIERS, SUBSCRIPTION_PERIOD_DAYS, TIER_PRICES_USD } from '../config/constants'
@@ -46,6 +46,7 @@ import { fetchTokenPrices, SUPPORTED_PRICE_SYMBOLS } from '../lib/prices'
 import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
 import { verifyAuditChain, writeAuditLog } from '../services/audit'
 import type { PolicyIntent } from '../services'
+import { canonicalChain } from '../services/PolicyService'
 // HACKATHON (Tokyo 2026): trust-layer gates (Intercepta + ENSv2), merged into
 // the institutional verdict below. Flag-gated, default off; see
 // src/hackathon/gates.ts.
@@ -72,6 +73,7 @@ import {
 import { assertUrlSafeForFetch, safeFetch } from './ssrfGuard'
 import {
 	CreatePolicySchema,
+	CreateSpendPolicySchema,
 	CreateWalletSchema,
 	ExecuteCommandSchema,
 	ExecuteSwapSchema,
@@ -607,6 +609,8 @@ agentRoutes.use('/keys/*', agentFlexAuth())
 agentRoutes.use('/wallet/policy', agentFlexAuth())
 agentRoutes.use('/wallet/policy/*', agentFlexAuth())
 agentRoutes.use('/wallet/policies', agentFlexAuth())
+agentRoutes.use('/policies', agentFlexAuth())
+agentRoutes.use('/policies/*', agentFlexAuth())
 agentRoutes.use('/billing', agentFlexAuth())
 agentRoutes.use('/billing/*', agentFlexAuth())
 agentRoutes.use('/reactivate', agentBearerAuthAllowInactive())
@@ -659,6 +663,8 @@ agentRoutes.use('/keys/*', rateLimit())
 agentRoutes.use('/wallet/policy', rateLimit())
 agentRoutes.use('/wallet/policy/*', rateLimit())
 agentRoutes.use('/wallet/policies', rateLimit())
+agentRoutes.use('/policies', rateLimit())
+agentRoutes.use('/policies/*', rateLimit())
 agentRoutes.use('/billing', rateLimit())
 agentRoutes.use('/billing/*', rateLimit())
 agentRoutes.use('/reactivate', rateLimit())
@@ -1364,6 +1370,7 @@ export async function enforcePolicyGateForFreshQuote(
 			// TODO: Solana quote carries no USD value; USD-based caps are
 			// skipped until we price the input mint. Chain/token rules apply.
 			valueUsd: 0,
+			slippageBps: Number.isFinite(jq.slippageBps) ? jq.slippageBps : null,
 		}
 	} else {
 		const evmQuote = quote as SwapQuote
@@ -1394,6 +1401,11 @@ export async function enforcePolicyGateForFreshQuote(
 			toToken: evmQuote.toToken?.address ?? null,
 			valueUsd,
 			gasUsd: parseFloat(evmQuote.estimatedGasUsd ?? '0') || 0,
+			// Quote slippage is a fraction (0.01 = 1%); policies hold bps. Without
+			// this a max_slippage_bps rule was a configured control that never ran.
+			slippageBps: Number.isFinite(evmQuote.slippage)
+				? Math.round(evmQuote.slippage * 10_000)
+				: null,
 			// The router/contract this trade would actually call. Without it an
 			// operator's allowedContracts allowlist can never match — a configured
 			// control that silently enforces nothing.
@@ -3665,7 +3677,15 @@ agentRoutes.post('/wallet/policy', async (c) => {
 			const turnkeyService = yield* TurnkeyService
 
 			if (type === 'spending_limit') {
-				const condition = `eth.value <= ${params.maxAmountWei}`
+				// A DENY policy fires when its condition is TRUE, so the cap denies
+				// values ABOVE the limit. (The previous `eth.value <= max` would have
+				// denied every in-cap transaction, and `eth.value` is not a Turnkey
+				// field: the documented one is `eth.tx.value`, in wei.)
+				// ENFORCEMENT TRUTH: Suwappu's API key is the root user of each agent
+				// sub-org (quorum 1), and Turnkey's root quorum bypasses policies, so
+				// this does not bind our own signer today. The binding gate is
+				// PolicyService via POST /v1/agent/policies below.
+				const condition = `eth.tx.value > ${params.maxAmountWei}`
 				const policyId = yield* turnkeyService.createPolicy(
 					subOrgId,
 					`${AGENT_POLICY_PREFIX}spending-limit-${params.timeWindowSeconds}s`,
@@ -3753,6 +3773,239 @@ agentRoutes.delete('/wallet/policy/:policyId', async (c) => {
 	}
 
 	return c.json({ success: true, deleted: true })
+})
+
+// ===========================================
+// SPEND POLICIES (server-enforced)
+// ===========================================
+//
+// These are the `policies` rows PolicyService evaluates on every swap execute
+// by this agent (enforcePolicyGateForFreshQuote), before the transaction is
+// built. Unlike the Turnkey wallet policies above they bind regardless of who
+// signs. Scope: org-less rows on the calling agent only. Org-scoped policies an
+// organization set on this agent are listed read-only and cannot be changed
+// with the agent token. Anyone holding this agent's bearer token can change
+// the agent's own rows, so a human who wants rules the agent cannot lift keeps
+// the token out of the agent's reach, or uses an organization key.
+
+const SPEND_POLICY_ENFORCEMENT =
+	'Evaluated server-side on every POST /v1/agent/swap and /v1/agent/swap/execute made with this agent token, before the transaction is built. ' +
+	'Hard enforcement for managed wallets and Suwappu-issued credentials; advisory for a self-signing wallet that can bypass this API. ' +
+	'USD caps bind on EVM quotes only: Solana quotes are not priced in USD yet, so chain and token rules are what bind there. ' +
+	"Requests made with an organization key are governed by that organization's policies instead of these. " +
+	'Any holder of this agent token can change agent-scoped policies; organization-scoped policies cannot be changed here.'
+
+/** Chain keys a policy may name; numeric EVM ids are accepted and stored as keys. */
+const KNOWN_CHAIN_KEYS = new Set<string>([...Object.values(CHAIN_ID_TO_KEY), 'solana', 'tron', 'starknet'])
+/** Rows per agent. Every execute loads them all, and more than this is a mistake, not a mandate. */
+const MAX_AGENT_POLICIES = 20
+
+type SpendPolicyRow = typeof policies.$inferSelect
+
+function spendPolicyView(p: SpendPolicyRow, agentId: string) {
+	return {
+		id: p.id,
+		name: p.name,
+		scope: p.organizationId ? 'organization' : 'agent',
+		agent_id: p.agentId ?? agentId,
+		enabled: p.enabled,
+		priority: p.priority,
+		max_tx_usd: p.maxTxUsd,
+		max_slippage_bps: p.maxSlippageBps,
+		max_gas_usd: p.maxGasUsd,
+		daily_cap_usd: p.dailyCapUsd,
+		session_cap_usd: p.sessionCapUsd,
+		max_tx_per_hour: p.maxTxPerHour,
+		allowed_chains: p.allowedChains,
+		blocked_chains: p.blockedChains,
+		allowed_tokens: p.allowedTokens,
+		blocked_tokens: p.blockedTokens,
+		allowed_contracts: p.allowedContracts,
+		destination_allowlist: p.destinationAllowlist,
+		approval_mode: p.approvalMode,
+		require_approval_above_usd: p.requireApprovalAboveUsd,
+		expires_at: p.expiresAt ? p.expiresAt.toISOString() : null,
+		created_at: p.createdAt.toISOString(),
+		updated_at: p.updatedAt.toISOString(),
+	}
+}
+
+// GET /v1/agent/policies - The spend policies that gate this agent's execution
+agentRoutes.get('/policies', async (c) => {
+	const agent = c.get('agent')
+	const agentId = agent ? agentIdentifierOf(agent) : null
+	if (!agent || !agentId) {
+		return agentError(c, 403, 'UNAUTHORIZED', 'Spend policies are scoped to an agent', {
+			hint: 'Authenticate with the agent bearer token (suwappu_sk_...)',
+		})
+	}
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			return yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select()
+						.from(policies)
+						.where(eq(policies.agentId, agentId))
+						.orderBy(policies.priority, desc(policies.createdAt)),
+				catch: (e) => new Error(`Database error: ${e}`),
+			})
+		})
+	)
+	if (Either.isLeft(result)) {
+		return agentError(c, 500, 'INTERNAL', result.left.message)
+	}
+	return c.json({
+		success: true,
+		policies: result.right.map((p) => spendPolicyView(p, agentId)),
+		enforcement: SPEND_POLICY_ENFORCEMENT,
+	})
+})
+
+// POST /v1/agent/policies - Install a spend policy on this agent
+agentRoutes.post('/policies', async (c) => {
+	const agent = c.get('agent')
+	const agentId = agent ? agentIdentifierOf(agent) : null
+	if (!agent || !agentId) {
+		return agentError(c, 403, 'UNAUTHORIZED', 'Spend policies are scoped to an agent', {
+			hint: 'Authenticate with the agent bearer token (suwappu_sk_...)',
+		})
+	}
+	const body = await c.req.json().catch(() => null)
+	const parsed = CreateSpendPolicySchema.safeParse(body)
+	if (!parsed.success) {
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid request', { details: formatZodErrors(parsed.error) })
+	}
+	const p = parsed.data
+	const lc = (xs: string[] | undefined) =>
+		xs && xs.length > 0 ? Array.from(new Set(xs.map((s) => s.toLowerCase()))) : null
+	// Chains are stored as canonical keys ("base"), which is also what the gate
+	// compares on after mapping the quote's numeric id. An unknown name would be
+	// a rule that silently blocks everything, so refuse it.
+	const chains = (xs: string[] | undefined) =>
+		xs && xs.length > 0 ? Array.from(new Set(xs.map((v) => canonicalChain(v) as string))) : null
+	const unknownChains = [...(p.allowed_chains ?? []), ...(p.blocked_chains ?? [])]
+		.map((v) => canonicalChain(v) as string)
+		.filter((v) => !KNOWN_CHAIN_KEYS.has(v))
+	if (unknownChains.length > 0) {
+		return agentError(c, 400, 'CHAIN_UNSUPPORTED', 'Unknown chain in allowed_chains/blocked_chains', {
+			details: { unknown: Array.from(new Set(unknownChains)) },
+			hint: 'Use chain keys such as base, arbitrum, ethereum, solana, or a numeric EVM chain id',
+		})
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			return yield* Effect.tryPromise({
+				try: () =>
+					db.transaction(async (tx) => {
+						const existing = await tx
+							.select({ id: policies.id })
+							.from(policies)
+							.where(and(isNull(policies.organizationId), eq(policies.agentId, agentId)))
+						const retiring = new Set(p.replaces ?? [])
+						const remaining = existing.filter((row) => !retiring.has(row.id)).length
+						if (remaining >= MAX_AGENT_POLICIES) {
+							throw new Error(
+								`POLICY_LIMIT:this agent already has ${remaining} spend policies (max ${MAX_AGENT_POLICIES}); retire one with DELETE /v1/agent/policies/:id or pass it in replaces`,
+							)
+						}
+						if (p.replaces && p.replaces.length > 0) {
+							// Only this agent's own org-less rows can be retired here.
+							await tx
+								.delete(policies)
+								.where(
+									and(
+										isNull(policies.organizationId),
+										eq(policies.agentId, agentId),
+										inArray(policies.id, p.replaces),
+									),
+								)
+						}
+						const [row] = await tx
+							.insert(policies)
+							.values({
+								organizationId: null,
+								agentId,
+								name: p.name,
+								enabled: true,
+								priority: p.priority ?? 100,
+								maxTxUsd: p.max_tx_usd ?? null,
+								maxSlippageBps: p.max_slippage_bps ?? null,
+								maxGasUsd: p.max_gas_usd ?? null,
+								dailyCapUsd: p.daily_cap_usd ?? null,
+								sessionCapUsd: p.session_cap_usd ?? null,
+								maxTxPerHour: p.max_tx_per_hour ?? null,
+								allowedChains: chains(p.allowed_chains),
+								blockedChains: chains(p.blocked_chains),
+								allowedTokens: lc(p.allowed_tokens),
+								blockedTokens: lc(p.blocked_tokens),
+								allowedContracts: lc(p.allowed_contracts),
+								destinationAllowlist: lc(p.destination_allowlist),
+								approvalMode: p.approval_mode ?? 'above_limit',
+								requireApprovalAboveUsd: p.require_approval_above_usd ?? null,
+								expiresAt: p.expires_at ? new Date(p.expires_at) : null,
+							})
+							.returning()
+						return row
+					}),
+				catch: (e) => new Error(`Database error: ${e}`),
+			})
+		})
+	)
+	if (Either.isLeft(result)) {
+		const msg = result.left.message
+		const limit = msg.indexOf('POLICY_LIMIT:')
+		if (limit !== -1) {
+			return agentError(c, 409, 'VALIDATION_ERROR', msg.slice(limit + 'POLICY_LIMIT:'.length))
+		}
+		return agentError(c, 500, 'INTERNAL', msg)
+	}
+	return c.json(
+		{ success: true, policy: spendPolicyView(result.right, agentId), enforcement: SPEND_POLICY_ENFORCEMENT },
+		201,
+	)
+})
+
+// DELETE /v1/agent/policies/:id - Retire one of this agent's own spend policies
+agentRoutes.delete('/policies/:id', async (c) => {
+	const agent = c.get('agent')
+	const agentId = agent ? agentIdentifierOf(agent) : null
+	if (!agent || !agentId) {
+		return agentError(c, 403, 'UNAUTHORIZED', 'Spend policies are scoped to an agent', {
+			hint: 'Authenticate with the agent bearer token (suwappu_sk_...)',
+		})
+	}
+	const id = c.req.param('id')
+	if (!/^[0-9a-f-]{36}$/i.test(id)) {
+		return agentError(c, 400, 'VALIDATION_ERROR', 'Policy id must be a UUID')
+	}
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			return yield* Effect.tryPromise({
+				try: () =>
+					db
+						.delete(policies)
+						.where(
+							and(isNull(policies.organizationId), eq(policies.agentId, agentId), eq(policies.id, id)),
+						)
+						.returning({ id: policies.id }),
+				catch: (e) => new Error(`Database error: ${e}`),
+			})
+		})
+	)
+	if (Either.isLeft(result)) {
+		return agentError(c, 500, 'INTERNAL', result.left.message)
+	}
+	if (result.right.length === 0) {
+		return agentError(c, 404, 'NOT_FOUND', 'No agent-scoped policy with that id', {
+			hint: 'Organization-scoped policies cannot be removed with the agent token',
+		})
+	}
+	return c.json({ success: true, deleted: true, id })
 })
 
 // ===========================================

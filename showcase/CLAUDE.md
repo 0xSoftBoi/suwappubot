@@ -42,9 +42,18 @@ Every page MUST use, unless it already deliberately doesn't:
 
 ## Legacy — do NOT use on new pages
 
-- `/classic` and `/hero-a` … `/hero-e` are removed and permanently redirect to
-  `/` (next.config.mjs). `src/app/hero-d/hero-d.css` stays: the live home
-  imports it.
+- **`@/components/Navigation`** (+ `NavDrawer`, `NavMenuData`) — the old light
+  nav ("Sign in / Talk to sales / Open Bot"). ~20 older interior pages still
+  import it (about, pricing, research, contact, legal, docs layout, …). Do not
+  copy imports from those pages; migration to SummerNav is tracked separately —
+  don't grow the legacy set.
+- The archived previous home page (`classic/`) and the hero experiments
+  (`hero-a` … `hero-e`) were deleted in Sept 2026; they live in git history
+  only. The live home's hero styles are `src/app/hero.css`. Do not resurrect
+  a dead route as "reference": an unlinked page is still a public URL that
+  ships, builds, and drifts.
+- `/classic` and `/hero-a` … `/hero-e` also permanently redirect to `/`
+  (next.config.mjs), so old links land on the live home.
 
 ## Known traps
 

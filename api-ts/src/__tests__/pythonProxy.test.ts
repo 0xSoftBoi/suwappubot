@@ -3,7 +3,6 @@ import { Hono } from 'hono'
 import {
 	createPythonProxyRoutes,
 	createTerminalSwapProxyRoutes,
-	createTerminalWebappProxyRoutes,
 	isPythonProxyAllowed,
 	isTerminalWebappProxyAllowed,
 } from '../routes/pythonProxy'
@@ -189,7 +188,7 @@ describe('Python Terminal compatibility gateway', () => {
 
 	it('rewrites stale read aliases onto session-backed Python reads', async () => {
 		const seen: string[] = []
-		const app = new Hono().route('/', createTerminalWebappProxyRoutes({
+		const app = new Hono().route('/', createTerminalSwapProxyRoutes({
 			baseUrl: PYTHON_URL,
 			fetchImpl: async (input) => {
 				seen.push(new URL(String(input)).pathname)

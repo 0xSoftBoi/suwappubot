@@ -3,9 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TELEGRAM_URL, TERMINAL_URL } from '@/lib/links';
 import {
+  deleteSpendPolicy,
   findTokens,
   getPrices,
+  installSpendPolicy,
   listChains,
+  previewHops,
   previewSwap,
   type ChainInfo,
   type RouteOrder,
@@ -13,9 +16,10 @@ import {
 } from './deskApi';
 import {
   applyAmendment,
-  compileToWalletPolicies,
+  compileToSpendPolicy,
   DEFAULT_MANDATE,
   describeMandate,
+  type EnforcementSummary,
   diffAmendment,
   evaluateMandate,
   RULE_META,
@@ -66,12 +70,8 @@ const agentWritten = (text: string): AgentWrittenText => ({
 });
 import styles from './agent-desk.module.css';
 import DeskFlow from './DeskFlow';
-import { fmtAmount, fmtDuration, fmtUsd, hopChainLabel, num } from './format';
-import RouteDossier, {
-  CompactFlow,
-  specFromPlanLegs,
-  specFromPreview,
-} from './RouteDossier';
+import { fmtAmount, fmtDuration, fmtUsd, hopChainLabel, hopVerb, num } from './format';
+import RouteDossier, { CompactFlow, specFromPreview } from './RouteDossier';
 
 // ── Model ───────────────────────────────────────────────────────────
 
@@ -103,9 +103,6 @@ interface PlanStep {
   swap?: SwapBody;
   alert?: AlertBody;
   verdict: MandateVerdict | null;
-  /** True when this leg sells the previous swap leg's estimated output
-      (`amount: "@prev"`) — a chained relay, not new money entering the plan. */
-  chainedFromPrevious?: boolean;
 }
 
 interface Override {
@@ -155,6 +152,21 @@ const PROPOSAL_TTL_MS = 10 * 60 * 1000;
 const MAX_WAIT_SECONDS = 120;
 const MANDATE_KEY = 'suwappu.desk.mandate.v1';
 const SESSION_KEY = 'suwappu.desk.session.v1';
+/** The server-side copy of the mandate: which policy row, compiled from which version. */
+const ENFORCEMENT_KEY = 'suwappu.desk.enforcement.v1';
+/**
+ * The agent's API bearer token, if the human connected one to enforce the
+ * mandate. Session storage only: it dies with the tab, never reaches
+ * localStorage, the receipt, the activity log, or any tool result.
+ */
+const AGENT_KEY_KEY = 'suwappu.desk.agentKey.v1';
+
+interface Enforcement {
+  policyId: string;
+  name: string;
+  mandateVersion: number;
+  appliedAt: number;
+}
 const STABLES = new Set(['USDC', 'USDT', 'DAI', 'USDS', 'FRAX', 'USDE']);
 
 const DEFAULT_TICKET: Ticket = {
@@ -174,9 +186,8 @@ const nextId = (prefix: string) => {
 };
 
 
-/** How many legs the routed quote really is. 1 when the API predates hops. */
-const hopCountOf = (p: SwapPreview | null | undefined): number =>
-  p ? (p.hopCount ?? p.hops?.length ?? 1) : 0;
+/** How many legs the routed quote really is. */
+const hopCountOf = (p: SwapPreview): number => previewHops(p).length;
 
 /**
  * One compact line per route leg, for tool results and the receipt. Most
@@ -184,11 +195,9 @@ const hopCountOf = (p: SwapPreview | null | undefined): number =>
  * another swap — and an agent sizing or explaining a trade needs each leg,
  * not a flattened tool-name string.
  */
-function hopLines(p: SwapPreview | null | undefined): string[] {
-  if (!p) return [];
-  if (!Array.isArray(p.hops) || p.hops.length === 0) return [p.route];
-  return p.hops.map((h) => {
-    const verb = h.type === 'cross' ? 'relay' : h.type === 'swap' ? 'swap' : h.type;
+function hopLines(p: SwapPreview): string[] {
+  return previewHops(p).map((h) => {
+    const verb = hopVerb(h.type);
     const where =
       h.fromChain && h.toChain && h.fromChain !== h.toChain
         ? ` (${hopChainLabel(h.fromChain, h.toChain)})`
@@ -223,25 +232,6 @@ const isBlocked = (p: Proposal) =>
   Boolean(p.verdict && !p.verdict.withinMandate && p.override?.granted !== true);
 
 /**
- * Groups a plan's swap legs into relays: each non-chained leg starts a
- * sequence, each chained leg extends the current one. Only multi-leg
- * sequences are returned; a lone leg has no chain to draw. Derived on
- * render (never stored) so rehydrated sessions can't drift.
- */
-function chainedPlanSequences(steps: PlanStep[]): PlanStep[][] {
-  const sequences: PlanStep[][] = [];
-  for (const s of steps) {
-    if (!s.swap) continue;
-    if (s.chainedFromPrevious && sequences.length > 0) {
-      sequences[sequences.length - 1].push(s);
-    } else {
-      sequences.push([s]);
-    }
-  }
-  return sequences.filter((seq) => seq.length > 1);
-}
-
-/**
  * evaluateMandate() pushes violations in priority order (caps, then chain,
  * then token, then impact, then slippage), so the first entry is already the
  * most severe rule broken — that one leads the card; every violation still
@@ -255,21 +245,49 @@ const primaryBreach = (verdict: MandateVerdict | null) => {
 /**
  * The signing handoff. Nothing here signs — these are the surfaces that own
  * the user's keys, pre-filled with the approved trade.
+ *
+ * Terminal has two forms: the swap panel (same chain, any pair) and the bridge
+ * (same stable, across chains). A cross-chain swap into a different token has
+ * no Terminal form today, so for that leg the bot's `/s` command is the
+ * pre-filled path and `terminalUrl` is null, rather than a link to a form the
+ * human would have to fill in again from memory.
  */
+const BRIDGE_TOKENS = new Set(['USDC', 'USDT']);
+
 function buildHandoff(swap: SwapBody) {
-  const side = STABLES.has(swap.toToken.toUpperCase()) ? 'sell' : 'buy';
-  const terminalUrl = `${TERMINAL_URL}/alert-swap?${new URLSearchParams({
-    token: swap.fromToken,
-    chain: swap.fromChain,
-    side,
-    amount: swap.amount,
-    ref: 'webmcp-desk',
-  })}`;
+  const from = swap.fromToken.toUpperCase();
+  const to = swap.toToken.toUpperCase();
+  const ref = 'webmcp-desk';
+  let terminalUrl: string | null = null;
+  let terminalNote: string | null = null;
+  if (swap.fromChain === swap.toChain) {
+    // `amount` is in the from-token on both sides; alert-swap places the pair
+    // so that `from` is what the human pays.
+    const side = STABLES.has(to) ? 'sell' : 'buy';
+    terminalUrl = `${TERMINAL_URL}/alert-swap?${new URLSearchParams({
+      from: swap.fromToken,
+      to: swap.toToken,
+      chain: swap.fromChain,
+      side,
+      amount: swap.amount,
+      ref,
+    })}`;
+  } else if (from === to && BRIDGE_TOKENS.has(from)) {
+    terminalUrl = `${TERMINAL_URL}/bridge?${new URLSearchParams({
+      from: swap.fromChain,
+      to: swap.toChain,
+      token: from,
+      amount: swap.amount,
+      ref,
+    })}`;
+  } else {
+    terminalNote = `Terminal has no form for a ${swap.fromChain} → ${swap.toChain} swap into a different token; the bot command carries the whole trade.`;
+  }
   const telegramCommand =
     swap.fromChain === swap.toChain
       ? `/s ${swap.amount} ${swap.fromToken} ${swap.toToken}`
       : `/s ${swap.amount} ${swap.fromToken} ${swap.fromChain} ${swap.toToken} ${swap.toChain}`;
-  return { terminalUrl, telegramCommand, telegramUrl: TELEGRAM_URL };
+  return { terminalUrl, terminalNote, telegramCommand, telegramUrl: TELEGRAM_URL };
 }
 
 // ── Component ───────────────────────────────────────────────────────
@@ -298,6 +316,14 @@ export default function AgentDesk() {
   const [copied, setCopied] = useState<string | null>(null);
   const [mandateOpen, setMandateOpen] = useState(false);
   const [lastTool, setLastTool] = useState<string | null>(null);
+  const [enforcement, setEnforcement] = useState<Enforcement | null>(null);
+  const [agentKey, setAgentKey] = useState('');
+  const [enforceBusy, setEnforceBusy] = useState(false);
+  const [enforceError, setEnforceError] = useState<string | null>(null);
+  const enforcementRef = useRef<Enforcement | null>(null);
+  useEffect(() => {
+    enforcementRef.current = enforcement;
+  }, [enforcement]);
 
   const ticketRef = useRef(ticket);
   const mandateRef = useRef(mandate);
@@ -431,6 +457,126 @@ export default function AgentDesk() {
       /* private mode, blocked storage — the default mandate is fine */
     }
   }, []);
+
+  // The server-side copy of the mandate persists with the mandate; the agent
+  // key only for the tab's lifetime.
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(ENFORCEMENT_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<Enforcement>;
+        if (typeof parsed.policyId === 'string' && Number.isInteger(parsed.mandateVersion)) {
+          const next: Enforcement = {
+            policyId: parsed.policyId,
+            name: typeof parsed.name === 'string' ? parsed.name : 'Agent Desk mandate',
+            mandateVersion: parsed.mandateVersion as number,
+            appliedAt: typeof parsed.appliedAt === 'number' ? parsed.appliedAt : Date.now(),
+          };
+          enforcementRef.current = next;
+          setEnforcement(next);
+        }
+      }
+      const key = window.sessionStorage.getItem(AGENT_KEY_KEY);
+      if (key) setAgentKey(key);
+    } catch {
+      /* private mode, blocked storage */
+    }
+  }, []);
+
+  const commitEnforcement = useCallback((next: Enforcement | null) => {
+    enforcementRef.current = next;
+    setEnforcement(next);
+    try {
+      if (next) window.localStorage.setItem(ENFORCEMENT_KEY, JSON.stringify(next));
+      else window.localStorage.removeItem(ENFORCEMENT_KEY);
+    } catch {
+      /* not fatal */
+    }
+  }, []);
+
+  const rememberKey = useCallback((key: string) => {
+    setAgentKey(key);
+    try {
+      if (key) window.sessionStorage.setItem(AGENT_KEY_KEY, key);
+      else window.sessionStorage.removeItem(AGENT_KEY_KEY);
+    } catch {
+      /* not fatal */
+    }
+  }, []);
+
+  /** What read_mandate, the receipt and the desk itself say about the server-side copy. */
+  const enforcementSummary = useCallback((): EnforcementSummary => {
+    const e = enforcementRef.current;
+    if (!e) return { status: 'none', policyId: null, enforcedVersion: null, since: null };
+    return {
+      status: e.mandateVersion === mandateRef.current.version ? 'enforced' : 'stale',
+      policyId: e.policyId,
+      enforcedVersion: e.mandateVersion,
+      since: new Date(e.appliedAt).toISOString(),
+    };
+  }, []);
+
+  /**
+   * Install the current mandate as a spend policy on the agent, retiring the
+   * previously installed version in the same request. MONEY-PATH: this is the
+   * one call on the desk that changes server state, and it can only tighten
+   * what the agent may do; nothing here signs or moves funds.
+   */
+  const applyMandate = useCallback(async () => {
+    const key = agentKey.trim();
+    if (!key) {
+      setEnforceError('Paste the agent\'s API key first.');
+      return;
+    }
+    const mandateNow = mandateRef.current;
+    const previous = enforcementRef.current;
+    const { body } = compileToSpendPolicy(mandateNow, previous ? [previous.policyId] : []);
+    setEnforceBusy(true);
+    setEnforceError(null);
+    try {
+      const { policy } = await installSpendPolicy(key, body);
+      commitEnforcement({
+        policyId: policy.id,
+        name: policy.name,
+        mandateVersion: mandateNow.version,
+        appliedAt: Date.now(),
+      });
+      log(
+        'human',
+        'Mandate enforced server-side',
+        `v${mandateNow.version} installed as spend policy ${policy.id}${previous ? ` (replaced v${previous.mandateVersion})` : ''}: max ${fmtUsd(mandateNow.perTradeUsdCap)}/trade, ${fmtUsd(mandateNow.dailyUsdCap)}/day, slippage ≤ ${mandateNow.maxSlippagePercent}%${mandateNow.allowedChains.length ? `, chains ${mandateNow.allowedChains.join('/')}` : ''}`,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setEnforceError(msg);
+      log('human', 'Enforcement failed', msg, true);
+    } finally {
+      setEnforceBusy(false);
+    }
+  }, [agentKey, commitEnforcement, log]);
+
+  const revokeEnforcement = useCallback(async () => {
+    const key = agentKey.trim();
+    const current = enforcementRef.current;
+    if (!current) return;
+    if (!key) {
+      setEnforceError('Paste the agent\'s API key to remove the installed policy.');
+      return;
+    }
+    setEnforceBusy(true);
+    setEnforceError(null);
+    try {
+      await deleteSpendPolicy(key, current.policyId);
+      commitEnforcement(null);
+      log('human', 'Enforcement removed', `spend policy ${current.policyId} (mandate v${current.mandateVersion}) retired`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setEnforceError(msg);
+      log('human', 'Removing enforcement failed', msg, true);
+    } finally {
+      setEnforceBusy(false);
+    }
+  }, [agentKey, commitEnforcement, log]);
 
   /** USD approved today. Drives the daily-cap headroom the agent reads. */
   const spentToday = useCallback((list: Proposal[] = proposalsRef.current): number => {
@@ -667,7 +813,7 @@ export default function AgentDesk() {
       surface: 'Suwappu Agent Desk (WebMCP)',
       custody:
         'This desk never signs. Every entry below is a proposal and a human decision, not an onchain action.',
-      mandate: describeMandate(mandateRef.current, spentToday(list)),
+      mandate: describeMandate(mandateRef.current, spentToday(list), enforcementSummary()),
       proposals: list.map((p) => ({
         id: p.id,
         kind: p.kind,
@@ -715,7 +861,7 @@ export default function AgentDesk() {
       surface: 'Suwappu Agent Desk (WebMCP)',
       custody:
         'This desk never signs. Every entry below is a proposal and a human decision, not an onchain action.',
-      mandate: describeMandate(mandateRef.current, spentToday(list)),
+      mandate: describeMandate(mandateRef.current, spentToday(list), enforcementSummary()),
       proposals: list.map((p) => ({
         id: p.id,
         kind: p.kind,
@@ -752,9 +898,8 @@ export default function AgentDesk() {
                   step: i + 1,
                   kind: s.kind,
                   note: s.note ? agentWritten(s.note) : null,
-                  chainedFromPrevious: s.chainedFromPrevious ?? false,
                   summary: s.swap
-                    ? `${s.chainedFromPrevious ? '↳ ' : ''}${s.swap.amount} ${s.swap.fromToken} (${s.swap.fromChain}) → ${s.swap.toToken} (${s.swap.toChain})`
+                    ? `${s.swap.amount} ${s.swap.fromToken} (${s.swap.fromChain}) → ${s.swap.toToken} (${s.swap.toChain})`
                     : s.alert
                       ? `${s.alert.symbol} ${s.alert.direction} ${fmtUsd(s.alert.targetPrice)}`
                       : null,
@@ -884,9 +1029,8 @@ export default function AgentDesk() {
                 step: i + 1,
                 kind: s.kind,
                 note: s.note,
-                chainedFromPrevious: s.chainedFromPrevious ?? false,
                 summary: s.swap
-                  ? `${s.chainedFromPrevious ? '↳ ' : ''}${s.swap.amount} ${s.swap.fromToken} (${s.swap.fromChain}) → ${s.swap.toToken} (${s.swap.toChain})`
+                  ? `${s.swap.amount} ${s.swap.fromToken} (${s.swap.fromChain}) → ${s.swap.toToken} (${s.swap.toChain})`
                   : s.alert
                     ? `${s.alert.symbol} ${s.alert.direction} ${fmtUsd(s.alert.targetPrice)}`
                     : null,
@@ -1015,7 +1159,7 @@ export default function AgentDesk() {
         const p = previewRef.current;
         return {
           ticket: t,
-          mandate: describeMandate(mandateRef.current, spentToday()),
+          mandate: describeMandate(mandateRef.current, spentToday(), enforcementSummary()),
           latestQuote: p
             ? {
                 out: `${fmtAmount(p.toAmount)} ${p.toToken.symbol}`,
@@ -1043,7 +1187,7 @@ export default function AgentDesk() {
       },
 
       readMandate() {
-        return describeMandate(mandateRef.current, spentToday());
+        return describeMandate(mandateRef.current, spentToday(), enforcementSummary());
       },
 
       navigateDesk({ section }) {
@@ -1135,46 +1279,26 @@ export default function AgentDesk() {
 
       async compileMandateToPolicy({ download }) {
         const mandateNow = mandateRef.current;
-        let ethUsd = 0;
-        try {
-          const prices = await getPrices(['ETH']);
-          ethUsd = prices.eth ?? 0;
-        } catch {
-          ethUsd = 0;
-        }
-
-        // A whitelist policy needs contract addresses, so resolve the symbols
-        // the human allowed into real addresses on their allowed chains.
-        const addresses: string[] = [];
-        const unresolved: string[] = [];
-        for (const symbol of mandateNow.allowedBuyTokens.slice(0, 8)) {
-          const chain = mandateNow.allowedChains[0] ?? 'base';
-          try {
-            const rows = await findTokens(symbol, chain);
-            const hit = rows.find((t) => t.symbol.toUpperCase() === symbol.toUpperCase());
-            if (hit?.address && /^0x[a-fA-F0-9]{40}$/.test(hit.address)) addresses.push(hit.address);
-            else unresolved.push(symbol);
-          } catch {
-            unresolved.push(symbol);
-          }
-        }
-
-        const { policies, notes } = compileToWalletPolicies(mandateNow, ethUsd, addresses);
-        if (unresolved.length > 0) {
-          notes.push(`Could not resolve an address for: ${unresolved.join(', ')}.`);
-        }
-
+        const current = enforcementRef.current;
+        const { body, notes, deskOnly } = compileToSpendPolicy(
+          mandateNow,
+          current ? [current.policyId] : [],
+        );
         const bundle = {
           generatedAt: new Date().toISOString(),
           source: 'Suwappu Agent Desk (WebMCP): negotiated mandate',
-          endpoint: 'POST /v1/agent/wallet/policy',
-          authentication:
-            'Requires a Suwappu agent API key. This page never holds one, by design.',
-          mandate: describeMandate(mandateNow, spentToday()),
-          policies,
+          endpoint: 'POST /v1/agent/policies',
+          body,
           notes,
+          deskOnly,
+          enforcement: enforcementSummary(),
+          howToApply:
+            'The human applies it from the mandate panel (Enforce) with the agent\'s API key, which stays in their tab. ' +
+            'Or send this body yourself: POST /v1/agent/policies with Authorization: Bearer <agent token>. ' +
+            'Either way the API evaluates it on every execute by the agent from the next call on.',
+          mandate: describeMandate(mandateNow, spentToday(), enforcementSummary()),
         };
-        if (download) downloadJson(bundle, 'suwappu-wallet-policy');
+        if (download) downloadJson(bundle, 'suwappu-spend-policy');
         return bundle;
       },
 
@@ -1260,39 +1384,16 @@ export default function AgentDesk() {
         if (args.steps.length > 5) throw new Error('a plan is capped at 5 steps');
 
         const steps: PlanStep[] = [];
-        // The last priced swap leg, so `amount: "@prev"` can chain: leg N
-        // sells what leg N-1 is estimated to deliver. This is what makes a
-        // plan a real multi-hop relay instead of N unrelated tickets.
-        let prevSwap: SwapBody | null = null;
         for (const raw of args.steps) {
           const kind = String(raw.kind ?? 'swap') === 'alert' ? 'alert' : 'swap';
           const note = raw.note ? String(raw.note) : null;
           if (kind === 'swap') {
-            const rawAmount = String(raw.amount ?? '').trim();
-            const chained = /^@?prev(ious)?$/i.test(rawAmount);
-            if (chained) {
-              if (!prevSwap) {
-                throw new Error('amount "@prev" needs an earlier swap step to chain from');
-              }
-              if (!prevSwap.preview) {
-                throw new Error(
-                  `cannot chain from the previous swap step: it failed to price (${prevSwap.previewError ?? 'no quote'})`,
-                );
-              }
-            }
-            const prevOut = chained ? prevSwap!.preview! : null;
             const t: Ticket = {
-              fromChain: String(
-                raw.fromChain ?? (chained ? prevSwap!.toChain : ticketRef.current.fromChain),
-              ),
-              toChain: String(
-                raw.toChain ??
-                  raw.fromChain ??
-                  (chained ? prevSwap!.toChain : ticketRef.current.toChain),
-              ),
-              fromToken: String(raw.fromToken ?? (prevOut ? prevOut.toToken.symbol : '')),
+              fromChain: String(raw.fromChain ?? ticketRef.current.fromChain),
+              toChain: String(raw.toChain ?? raw.fromChain ?? ticketRef.current.toChain),
+              fromToken: String(raw.fromToken ?? ''),
               toToken: String(raw.toToken ?? ''),
-              amount: chained ? prevOut!.toAmount : rawAmount,
+              amount: String(raw.amount ?? '').trim(),
               slippagePercent:
                 typeof raw.slippagePercent === 'number'
                   ? raw.slippagePercent
@@ -1302,23 +1403,8 @@ export default function AgentDesk() {
             if (!t.fromToken || !t.toToken || !t.amount) {
               throw new Error('every swap step needs fromToken, toToken and amount');
             }
-            // A chained leg must actually pick up where the last one lands —
-            // otherwise "@prev" would quietly price a trade that can't follow.
-            if (chained && prevOut) {
-              if (t.fromToken.toLowerCase() !== prevOut.toToken.symbol.toLowerCase()) {
-                throw new Error(
-                  `chained step sells ${t.fromToken} but the previous leg delivers ${prevOut.toToken.symbol}`,
-                );
-              }
-              if (t.fromChain !== prevSwap!.toChain) {
-                throw new Error(
-                  `chained step starts on ${t.fromChain} but the previous leg lands on ${prevSwap!.toChain}`,
-                );
-              }
-            }
             const body = await priceOne(t);
-            steps.push({ kind, note, swap: body, verdict: judge(body), chainedFromPrevious: chained });
-            prevSwap = body;
+            steps.push({ kind, note, swap: body, verdict: judge(body) });
           } else {
             const symbol = String(raw.symbol ?? '').toUpperCase();
             const direction = String(raw.direction ?? 'above');
@@ -1340,11 +1426,7 @@ export default function AgentDesk() {
           }
         }
 
-        // Combined notional counts NEW money only: a chained leg re-trades
-        // value an earlier leg already brought in, so summing it again would
-        // double-charge the daily cap for a single multi-hop relay.
         const priced = steps
-          .filter((s) => !s.chainedFromPrevious)
           .map((s) => num(s.swap?.preview?.fromAmountUsd))
           .filter((n): n is number => n !== null);
         const combinedUsd = priced.length > 0 ? priced.reduce((a, b) => a + b, 0) : null;
@@ -1396,7 +1478,6 @@ export default function AgentDesk() {
           verdict: rollup,
           override: null,
         };
-        const chainedLegs = steps.filter((s) => s.chainedFromPrevious).length;
         return {
           ...addProposal(proposal),
           shownToHuman: {
@@ -1404,17 +1485,10 @@ export default function AgentDesk() {
             combinedUsd,
             legs: steps.map((s) =>
               s.swap
-                ? `${s.chainedFromPrevious ? '↳ ' : ''}${s.swap.amount} ${s.swap.fromToken} → ${s.swap.toToken}`
+                ? `${s.swap.amount} ${s.swap.fromToken} → ${s.swap.toToken}`
                 : `alert ${s.alert?.symbol} ${s.alert?.direction} ${s.alert?.targetPrice}`,
             ),
           },
-          ...(chainedLegs > 0
-            ? {
-                chaining:
-                  `${chainedLegs} leg(s) sell the previous leg's estimated output. ` +
-                  'Amounts are indicative: what a later leg really trades is what the earlier leg actually delivers at signing, and the human signs one leg at a time in order.',
-              }
-            : {}),
         };
       },
 
@@ -1849,6 +1923,89 @@ export default function AgentDesk() {
             </p>
           </div>
 
+          {/* ── Enforce: the server-side copy of the mandate ─────────── */}
+          <div className={styles.enforce} data-testid="enforce">
+            <p className={styles.enforceStatus}>
+              {enforcement ? (
+                enforcement.mandateVersion === mandate.version ? (
+                  <>
+                    <strong className={styles.ok}>Enforced server-side</strong> · mandate v
+                    {enforcement.mandateVersion} is live as spend policy{' '}
+                    <code>{enforcement.policyId.slice(0, 8)}</code>. The API checks every execute by
+                    the agent against it, before any transaction is built.
+                  </>
+                ) : (
+                  <>
+                    <strong className={styles.stale}>Out of date</strong> · v
+                    {enforcement.mandateVersion} is enforced, the desk is on v{mandate.version}.
+                    Re-apply so the server and the desk agree.
+                  </>
+                )
+              ) : (
+                <>
+                  <strong>Desk-only</strong> · the agent honours this envelope here, but nothing
+                  stops it elsewhere. Apply it as a spend policy and the API enforces the caps,
+                  slippage and chains on every execute by the agent.
+                </>
+              )}
+            </p>
+            <div className={styles.enforceRow}>
+              <label className={styles.field}>
+                <span>Agent API key</span>
+                <input
+                  type="password"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="suwappu_sk_…"
+                  value={agentKey}
+                  onChange={(e) => rememberKey(e.target.value)}
+                  aria-describedby="enforce-key-note"
+                />
+              </label>
+              <div className={styles.actions}>
+                <button
+                  type="button"
+                  className={styles.primary}
+                  onClick={applyMandate}
+                  disabled={enforceBusy}
+                >
+                  {enforceBusy
+                    ? 'Working…'
+                    : enforcement
+                      ? enforcement.mandateVersion === mandate.version
+                        ? 'Re-apply'
+                        : `Apply v${mandate.version}`
+                      : 'Enforce on the agent'}
+                </button>
+                {enforcement && (
+                  <button
+                    type="button"
+                    className={styles.ghost}
+                    onClick={revokeEnforcement}
+                    disabled={enforceBusy}
+                  >
+                    Remove
+                  </button>
+                )}
+                {agentKey && (
+                  <button type="button" className={styles.ghost} onClick={() => rememberKey('')}>
+                    Forget key
+                  </button>
+                )}
+              </div>
+            </div>
+            <p id="enforce-key-note" className={styles.enforceNote}>
+              The key stays in this tab&apos;s session storage and is sent only to the Suwappu API.
+              It never enters the receipt, the activity log, or any tool result. Price impact and
+              the buy-token list stay desk-only rules; everything else binds server-side.
+            </p>
+            {enforceError && (
+              <p role="alert" className={styles.error}>
+                {enforceError}
+              </p>
+            )}
+          </div>
+
           {mandateOpen ? (
             <div className={styles.ticketGrid}>
               <label className={styles.field}>
@@ -1944,10 +2101,9 @@ export default function AgentDesk() {
           )}
 
           <p className={styles.finePrint}>
-            This desk never executes, so the mandate cannot physically cap spending. It governs
-            what the page will put in front of you and what the agent is told before it asks.
-            Binding limits live in Suwappu’s server-side wallet spending policies. Stored in this
-            browser only.
+            {enforcement && enforcement.mandateVersion === mandate.version
+              ? 'This desk never executes. It governs what the page puts in front of you and what the agent is told before it asks; the caps, slippage ceiling and chain list are also installed on the agent, where the API enforces them on every execute. The envelope itself is stored in this browser only.'
+              : 'This desk never executes, so by itself the mandate cannot physically cap spending. It governs what the page puts in front of you and what the agent is told before it asks. Apply it above and the API enforces it on the agent. Stored in this browser only.'}
           </p>
         </section>
 
@@ -2125,6 +2281,7 @@ export default function AgentDesk() {
         {preview && !comparison && (
           <div className={styles.fullRow}>
             <RouteDossier
+              key={preview.previewId}
               preview={preview}
               verdict={judge({ ...ticket, preview, previewError: null })}
               slippagePercent={ticket.slippagePercent}
@@ -2224,41 +2381,6 @@ export default function AgentDesk() {
                     />
                   )}
 
-                  {/* Chained legs form a relay: draw each multi-leg sequence
-                      as a value flow, so the human sees leg 2 selling what
-                      leg 1 delivers before approving the whole thing. */}
-                  {p.plan &&
-                    chainedPlanSequences(p.plan.steps).map((seq, si) => {
-                      const spec = specFromPlanLegs(
-                        seq.map((s) => ({
-                          fromChain: s.swap!.fromChain,
-                          toChain: s.swap!.toChain,
-                          fromToken: s.swap!.fromToken,
-                          toToken: s.swap!.toToken,
-                          amount: s.swap!.amount,
-                          preview: s.swap!.preview,
-                        })),
-                      );
-                      return (
-                        spec && (
-                          <CompactFlow
-                            key={`${p.id}-seq-${si}`}
-                            spec={spec}
-                            ariaLabel={`Chained relay ${si + 1}: ${seq.length} legs, each selling the previous leg's estimated output.`}
-                            laneHeader={
-                              <>
-                                <b>RELAY {String(si + 1).padStart(2, '0')}</b>
-                                <span>
-                                  {seq.length} CHAINED LEGS · LATER LEGS SELL WHAT EARLIER LEGS
-                                  DELIVER
-                                </span>
-                              </>
-                            }
-                          />
-                        )
-                      );
-                    })}
-
                   {p.plan && (
                     <ol className={styles.planSteps}>
                       {p.plan.steps.map((s, i) => {
@@ -2303,11 +2425,6 @@ export default function AgentDesk() {
                                 </>
                               )}
                               {s.note && <em className={styles.planNote}> ({s.note})</em>}
-                              {s.chainedFromPrevious && (
-                                <span className={styles.planTag}>
-                                  chained · sells the previous leg&apos;s output
-                                </span>
-                              )}
                               {state === 'signed' && (
                                 <span className={styles.planTag}>signed</span>
                               )}
@@ -2318,14 +2435,29 @@ export default function AgentDesk() {
                               )}
                               {state === 'active' && s.swap && (
                                 <span className={styles.actions}>
-                                  <a
-                                    className={styles.primary}
-                                    href={buildHandoff(s.swap).terminalUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                  >
-                                    Sign leg {legIdx + 1} in Terminal
-                                  </a>
+                                  {(() => {
+                                    const h = buildHandoff(s.swap);
+                                    const key = `${p.id}-leg-${legIdx}`;
+                                    return h.terminalUrl ? (
+                                      <a
+                                        className={styles.primary}
+                                        href={h.terminalUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                      >
+                                        Sign leg {legIdx + 1} in Terminal
+                                      </a>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        className={styles.primary}
+                                        onClick={() => copy(key, h.telegramCommand)}
+                                        title={h.terminalNote ?? undefined}
+                                      >
+                                        {copied === key ? 'Copied' : `Copy ${h.telegramCommand}`}
+                                      </button>
+                                    );
+                                  })()}
                                   <button
                                     type="button"
                                     className={styles.ghost}
@@ -2356,9 +2488,6 @@ export default function AgentDesk() {
                           <span className={styles.planIndex}>Σ</span>
                           <span>
                             Combined notional <strong>{fmtUsd(p.plan.combinedUsd)}</strong>
-                            {p.plan.steps.some((s) => s.chainedFromPrevious) && (
-                              <> · chained legs re-trade earlier output, counted once</>
-                            )}
                           </span>
                         </li>
                       )}
@@ -2481,22 +2610,35 @@ export default function AgentDesk() {
                       </p>
                       {legs.map((leg, i) => {
                         const h = buildHandoff(leg);
+                        const key = `${p.id}-${i}`;
                         return (
                           <div className={styles.actions} key={`${p.id}-h-${i}`}>
-                            <a
-                              className={styles.primary}
-                              href={h.terminalUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              {legs.length > 1 ? `Leg ${i + 1} in Terminal` : 'Open in Terminal'}
-                            </a>
+                            {h.terminalUrl ? (
+                              <a
+                                className={styles.primary}
+                                href={h.terminalUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                {legs.length > 1 ? `Leg ${i + 1} in Terminal` : 'Open in Terminal'}
+                              </a>
+                            ) : (
+                              <a
+                                className={styles.ghost}
+                                href={h.telegramUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title={h.terminalNote ?? undefined}
+                              >
+                                Open Telegram bot
+                              </a>
+                            )}
                             <button
                               type="button"
-                              className={styles.ghost}
-                              onClick={() => copy(`${p.id}-${i}`, h.telegramCommand)}
+                              className={h.terminalUrl ? styles.ghost : styles.primary}
+                              onClick={() => copy(key, h.telegramCommand)}
                             >
-                              {copied === `${p.id}-${i}` ? 'Copied' : `Copy ${h.telegramCommand}`}
+                              {copied === key ? 'Copied' : `Copy ${h.telegramCommand}`}
                             </button>
                           </div>
                         );

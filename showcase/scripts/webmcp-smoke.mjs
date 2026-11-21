@@ -292,8 +292,85 @@ check(
 const mandate = await call('read_mandate');
 show('read_mandate', mandate);
 check('daily budget starts untouched', mandate.dailyRemainingUsd === mandate.dailyUsdCap);
-check('mandate states it is not enforcement', typeof mandate.notEnforcement === 'string');
+check('mandate reports its server-side enforcement state', mandate.enforcement?.status === 'none' && typeof mandate.enforcement.meaning === 'string');
 check('mandate starts at version 1 (P1.1)', mandate.version === 1, String(mandate.version));
+
+// ── 2b. the mandate becomes real: the human installs it server-side ──
+// POST /v1/agent/policies is mocked; what matters is the body the desk sends
+// and that the desk, read_mandate and the receipt all report the result.
+const policyCalls = [];
+await page.route('**/v1/agent/policies**', (route) => {
+  const req = route.request();
+  policyCalls.push({
+    method: req.method(),
+    url: req.url(),
+    auth: req.headers()['authorization'] ?? null,
+    body: req.method() === 'POST' ? JSON.parse(req.postData() ?? 'null') : null,
+  });
+  if (req.method() === 'POST') {
+    return route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        policy: { id: 'pol_smoke_0001', name: 'Agent Desk mandate v1', scope: 'agent' },
+        enforcement: 'mocked',
+      }),
+    });
+  }
+  return route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ success: true, deleted: true }),
+  });
+});
+const compiled = await call('compile_mandate_to_policy', {});
+show('compile_mandate_to_policy', compiled);
+check('compile targets the enforced endpoint', compiled.endpoint === 'POST /v1/agent/policies');
+check(
+  'compiled body carries the caps, slippage and chains',
+  compiled.body?.max_tx_usd === 250 &&
+    compiled.body?.daily_cap_usd === 1000 &&
+    compiled.body?.max_slippage_bps === 100 &&
+    Array.isArray(compiled.body?.allowed_chains) &&
+    compiled.body.allowed_chains.includes('base'),
+  JSON.stringify(compiled.body),
+);
+check(
+  'compile names the rules that stay desk-only',
+  Array.isArray(compiled.deskOnly) && compiled.deskOnly.some((d) => /price impact/i.test(d)),
+);
+const enforceBox = page.getByTestId('enforce');
+await enforceBox.getByPlaceholder('suwappu_sk_…').fill('suwappu_sk_smoke_only_not_a_real_key');
+await enforceBox.getByRole('button', { name: 'Enforce on the agent' }).click();
+await page.waitForFunction(() =>
+  /Enforced server-side/.test(document.querySelector('[data-testid="enforce"]')?.textContent ?? ''),
+);
+const install = policyCalls.find((c) => c.method === 'POST');
+check('desk POSTed the policy with the agent bearer', install?.auth === 'Bearer suwappu_sk_smoke_only_not_a_real_key');
+check(
+  'POST body is the compiled mandate',
+  install?.body?.name === 'Agent Desk mandate v1' &&
+    install?.body?.max_tx_usd === 250 &&
+    install?.body?.daily_cap_usd === 1000,
+  JSON.stringify(install?.body),
+);
+const enforced = await call('read_mandate');
+check('read_mandate now reports enforced', enforced.enforcement?.status === 'enforced' && enforced.enforcement.policyId === 'pol_smoke_0001');
+const deskAfterEnforce = await call('read_desk');
+check(
+  'the key never reaches a tool result',
+  !JSON.stringify(deskAfterEnforce).includes('smoke_only_not_a_real_key') &&
+    !JSON.stringify(enforced).includes('smoke_only_not_a_real_key'),
+);
+await enforceBox.getByRole('button', { name: 'Remove' }).click();
+await page.waitForFunction(() =>
+  /Desk-only/.test(document.querySelector('[data-testid="enforce"]')?.textContent ?? ''),
+);
+check('removing it DELETEs the installed policy', policyCalls.some((c) => c.method === 'DELETE' && c.url.endsWith('/pol_smoke_0001')));
+const unenforced = await call('read_mandate');
+check('read_mandate is back to none', unenforced.enforcement?.status === 'none');
+await page.unroute('**/v1/agent/policies**');
 
 // ── 3. a silent dry-run inside the envelope ────────────────────────
 const inside = await call('check_mandate', {
@@ -560,6 +637,23 @@ await page.waitForFunction(() =>
 const handoff = await call('open_signing_handoff', { proposalId: blocked.proposalId });
 show('open_signing_handoff', handoff);
 check('handoff returns a signing link', Boolean(handoff.handoff?.[0]?.terminalUrl));
+// The link must carry the approved pair, not just the token sold: ETH -> PEPE
+// lands as that pair, with the amount in ETH, never as "buy ETH".
+check(
+  'handoff link carries the approved pair and side',
+  (() => {
+    const u = new URL(String(handoff.handoff?.[0]?.terminalUrl));
+    return (
+      u.pathname.endsWith('/alert-swap') &&
+      u.searchParams.get('from') === 'ETH' &&
+      u.searchParams.get('to') === 'PEPE' &&
+      u.searchParams.get('chain') === 'base' &&
+      u.searchParams.get('side') === 'buy' &&
+      u.searchParams.get('amount') === '0.5'
+    );
+  })(),
+  handoff.handoff?.[0]?.terminalUrl,
+);
 
 // Consuming the approval retires the tool: it leaves the page's tool list
 // entirely. Belt and braces — the handler refuses a replay too, in case an
@@ -652,81 +746,6 @@ check(
   JSON.stringify(planReplay),
 );
 
-// ── 7c. chained legs: a plan can be a true multi-hop relay ─────────
-// `amount: "@prev"` makes a leg sell the previous leg's estimated output —
-// the shape of a real relay (bridge, then trade what arrived) instead of
-// N unrelated tickets. New money is counted once, not per re-trade.
-const chainedPlan = await call('propose_plan', {
-  rationale: 'Bridge a slice to Arbitrum, then rotate whatever arrives back into ETH there.',
-  steps: [
-    {
-      kind: 'swap',
-      fromChain: 'base',
-      toChain: 'arbitrum',
-      fromToken: 'ETH',
-      toToken: 'USDC',
-      amount: '0.004',
-      note: 'bridge leg',
-    },
-    {
-      kind: 'swap',
-      toToken: 'ETH',
-      amount: '@prev',
-      note: 'sell what the bridge delivers',
-    },
-  ],
-});
-show('propose_plan (chained)', chainedPlan);
-check(
-  'the chained leg inherited the previous leg\'s output token and chain',
-  chainedPlan.shownToHuman?.legs?.[1]?.startsWith('↳') &&
-    chainedPlan.shownToHuman.legs[1].includes('USDC → ETH'),
-  JSON.stringify(chainedPlan.shownToHuman?.legs),
-);
-check(
-  'a chained plan says so, and says amounts are indicative',
-  typeof chainedPlan.chaining === 'string' && chainedPlan.chaining.includes('indicative'),
-);
-// Leg 1 puts ~$12.80 in; leg 2 re-trades it. The combined notional must be
-// the new money only — the old sum-of-legs would double-count the relay.
-check(
-  'combined notional counts new money once, not each re-trade of it',
-  typeof chainedPlan.shownToHuman?.combinedUsd === 'number' &&
-    chainedPlan.shownToHuman.combinedUsd < 100,
-  String(chainedPlan.shownToHuman?.combinedUsd),
-);
-const deskWithChainedPlan = await call('read_desk');
-const chainedAtDesk = deskWithChainedPlan.proposals.find(
-  (p) => p.proposalId === chainedPlan.proposalId,
-);
-check(
-  'read_desk flags which leg is chained',
-  chainedAtDesk?.plan?.steps?.[0]?.chainedFromPrevious === false &&
-    chainedAtDesk?.plan?.steps?.[1]?.chainedFromPrevious === true,
-  JSON.stringify(chainedAtDesk?.plan?.steps),
-);
-const chainlessPrev = await call('propose_plan', {
-  rationale: 'A chain with nothing to chain from.',
-  steps: [{ kind: 'swap', fromChain: 'base', toToken: 'USDC', amount: '@prev' }],
-}).catch((e) => ({ error: String(e?.message ?? e) }));
-check(
-  '"@prev" on the first step is refused, not guessed',
-  Boolean(chainlessPrev.error) && String(chainlessPrev.error).includes('earlier swap step'),
-  JSON.stringify(chainlessPrev),
-);
-const mismatchedChain = await call('propose_plan', {
-  rationale: 'A chained leg that does not pick up where the last one landed.',
-  steps: [
-    { kind: 'swap', fromChain: 'base', toChain: 'arbitrum', fromToken: 'ETH', toToken: 'USDC', amount: '0.004' },
-    { kind: 'swap', fromToken: 'ETH', toToken: 'USDC', amount: '@prev' },
-  ],
-}).catch((e) => ({ error: String(e?.message ?? e) }));
-check(
-  'a chained leg selling a token the previous leg does not deliver is refused',
-  Boolean(mismatchedChain.error) && String(mismatchedChain.error).includes('delivers'),
-  JSON.stringify(mismatchedChain),
-);
-
 // ── 8. the completion loop: the envelope really changes ────────────
 // This is the one thing on the desk that finishes in place. Everything else
 // ends in a handoff; an approved amendment rewrites the human's rules here.
@@ -771,39 +790,42 @@ check(
   ).notionalUsd <= 500,
 );
 
-// ── 9. compiling the envelope into enforceable policy ──────────────
-const compiled = await call('compile_mandate_to_policy', {});
+// ── 9. compiling the envelope into the enforced spend policy ──────
+const compiledLater = await call('compile_mandate_to_policy', {});
 check(
-  'mandate compiles to a real wallet-policy payload',
-  Array.isArray(compiled.policies) &&
-    compiled.policies.some((p) => p.type === 'spending_limit' && p.params?.maxAmountWei),
-  JSON.stringify(compiled.policies).slice(0, 200),
+  'mandate compiles to the spend-policy body the API takes',
+  compiledLater.endpoint === 'POST /v1/agent/policies' &&
+    typeof compiledLater.body?.max_tx_usd === 'number' &&
+    typeof compiledLater.body?.daily_cap_usd === 'number',
+  JSON.stringify(compiledLater.body),
 );
 check(
-  'compilation is honest about what it could not carry over',
-  Array.isArray(compiled.notes) && compiled.notes.length > 0,
+  'compilation is honest about what stays desk-only',
+  Array.isArray(compiledLater.deskOnly) &&
+    compiledLater.deskOnly.length > 0 &&
+    Array.isArray(compiledLater.notes) &&
+    compiledLater.notes.length > 0,
 );
 check(
-  'compiled bundle names the endpoint and says it holds no key',
-  compiled.endpoint === 'POST /v1/agent/wallet/policy' &&
-    /never holds one/.test(compiled.authentication ?? ''),
+  'compiled body is named after the mandate version it was compiled from (P1.1)',
+  compiledLater.body?.name === `Agent Desk mandate v${after.version}`,
+  String(compiledLater.body?.name),
 );
 check(
-  'compiled policy payloads are stamped with the mandate version they were compiled from (P1.1)',
-  compiled.policies.length > 0 && compiled.policies.every((p) => p.mandateVersion === after.version),
-  JSON.stringify(compiled.policies.map((p) => p.mandateVersion)),
+  'compiled notes cite the mandate version',
+  compiledLater.notes.some((n) => n.includes(`version ${after.version}`)),
+  JSON.stringify(compiledLater.notes),
 );
 check(
-  'compiled bundle notes cite the mandate version',
-  compiled.notes.some((n) => n.includes(`version ${after.version}`)),
-  JSON.stringify(compiled.notes),
+  'compile reports the enforcement state alongside the body',
+  compiledLater.enforcement?.status === 'none' && typeof compiledLater.howToApply === 'string',
 );
 
 // ── 10. the receipt (default shape, now with wrapped agent text) ───
 const receipt = await call('export_receipt', {});
 check(
-  'receipt lists both swaps, both plans and the amendment',
-  receipt.proposals.length === 5,
+  'receipt lists both swaps, the plan and the amendment',
+  receipt.proposals.length === 4,
   String(receipt.proposals.length),
 );
 const overridden = receipt.proposals.find((p) => p.id === blocked.proposalId);

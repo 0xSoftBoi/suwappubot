@@ -46,3 +46,7 @@ The package runs in the visitor's browser only: `terminal/` is a static Vite bun
 - CI ignores only `GHSA-qr28-fpjm-wq7f`, and only for `terminal/`; all other findings in every workspace stay blocking.
 - The package stays transitive; application code must not import `query-string` or `decode-uri-component` directly.
 - Remove this exception when wagmi is upgraded past the `query-string@7` path, or when WalletConnect ships a release that drops it — whichever comes first, and no later than the review date unless the evidence is renewed.
+
+## Override on record (not an exception): `zod` in `webapp`
+
+- `webapp/package.json` `overrides` pins `zod` to `^4.6.6` because `@p2pdotme/sdk` (1.2.8 through 1.3.13) pins zod at exactly `4.3.6`, which carries GHSA-mrhx-c7xc-m3w5 and which npm reports as "no fix available". The override moves it to 4.6.7, a minor step inside zod 4 with no removed APIs; the webapp build and unit suite pass. It is listed here because `@p2pdotme/sdk` sits on a payments path. Drop the override once the SDK publishes a release on zod 4.6.6+.

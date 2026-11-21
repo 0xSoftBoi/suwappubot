@@ -42,7 +42,21 @@ const BRIDGE_CHAINS = [
 
 const BRIDGE_TOKENS = ["USDC", "USDT"] as const;
 
+/** Optional starting values, e.g. from a deep link. Unknown values are ignored. */
+export interface BridgePrefill {
+  fromChain?: string | null;
+  toChain?: string | null;
+  token?: string | null;
+  amount?: string | null;
+}
+
+const isBridgeChain = (v: unknown): v is (typeof BRIDGE_CHAINS)[number] =>
+  typeof v === "string" && (BRIDGE_CHAINS as readonly string[]).includes(v);
+const isBridgeToken = (v: unknown): v is (typeof BRIDGE_TOKENS)[number] =>
+  typeof v === "string" && (BRIDGE_TOKENS as readonly string[]).includes(v);
+
 interface Props {
+  prefill?: BridgePrefill;
   /** Spot price of the selected token, for ranking on net value. */
   tokenPriceUsd?: number;
   /** Hand off the chosen route to whatever performs signing. */
@@ -58,11 +72,22 @@ export function BridgePanel({
   onConfirm,
   isSubmitting = false,
   failureDetail = null,
+  prefill,
 }: Props) {
-  const [fromChain, setFromChain] = useState<string>("arbitrum");
-  const [toChain, setToChain] = useState<string>("base");
-  const [token, setToken] = useState<string>("USDC");
-  const [amount, setAmount] = useState<string>("");
+  const [fromChain, setFromChain] = useState<string>(
+    isBridgeChain(prefill?.fromChain) ? prefill.fromChain : "arbitrum",
+  );
+  const [toChain, setToChain] = useState<string>(
+    isBridgeChain(prefill?.toChain) ? prefill.toChain : "base",
+  );
+  const [token, setToken] = useState<string>(
+    isBridgeToken(prefill?.token) ? prefill.token : "USDC",
+  );
+  const [amount, setAmount] = useState<string>(
+    prefill?.amount && Number.isFinite(Number(prefill.amount)) && Number(prefill.amount) > 0
+      ? prefill.amount
+      : "",
+  );
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   // The quote endpoint validates from_address against the destination chain's
   // format and rejects the request when it's absent — omitting it here is what

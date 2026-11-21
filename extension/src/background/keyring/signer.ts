@@ -18,7 +18,7 @@ import bs58 from "bs58";
 import { hmac } from "@noble/hashes/hmac";
 import { sha512 } from "@noble/hashes/sha512";
 import { mnemonicToSeedSync } from "@scure/bip39";
-import { ed25519 } from "@noble/curves/ed25519";
+import { ed25519 } from "@noble/curves/ed25519.js";
 
 const EVM_PATH = "m/44'/60'/0'/0/0";
 const SOLANA_PATH = [44, 501, 0, 0]; // m/44'/501'/0'/0', all hardened

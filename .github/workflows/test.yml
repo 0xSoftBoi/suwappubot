@@ -468,6 +468,10 @@ jobs:
       # These packages use bun.lock as their dependency authority. Keep going
       # after one failure so a single CI run reports every affected workspace,
       # then fail the job if any high/critical advisory was found.
+      #
+      # Per-workspace ignores are time-bounded, evidence-backed exceptions; each
+      # one is documented in docs/security/dependency-exceptions.md and must be
+      # removed when its review date passes or the dependency path changes.
       - name: Bun dependency audits (locked workspaces)
         id: bun-audit
         continue-on-error: true

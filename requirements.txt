@@ -282,7 +282,7 @@ pydantic-settings==2.14.2
     # via -r requirements.in
 pygments==2.20.0
     # via pytest
-pyjwt==2.15.0
+pyjwt==2.15.1
     # via -r requirements.in
 pyotp==2.10.0
     # via -r requirements.in

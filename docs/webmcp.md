@@ -46,12 +46,16 @@ agent asking for more rope must never be able to phrase it as a tidy-up. Approve
 and the mandate really changes, persists, and governs the very next
 `check_mandate`.
 
-`compile_mandate_to_policy` then turns that negotiated envelope into
-`POST /v1/agent/wallet/policy` payloads — real Turnkey policies that gate
-managed execution server-side, where a browser page cannot reach. It reports
-honestly what did not survive the compile (a per-trade cap has no direct Turnkey
-equivalent; a token allow-list needs addresses, not symbols). You leave with a
-rule set, not a session.
+`compile_mandate_to_policy` then turns that negotiated envelope into the one
+body `POST /v1/agent/policies` accepts: the spend policy the API evaluates on
+every swap execute by the agent, before a transaction is built. The human
+installs it from the mandate panel ("Enforce") with the agent's API key; from
+the next call on, the per-trade cap, the rolling daily cap, the slippage
+ceiling and the chain list bind server-side, not only here. The tool reports
+honestly what stays desk-only (the price-impact ceiling, which the API has no
+control for, and the buy-token list, because the API's token allow-list binds
+both sides of a trade). You leave with a rule set the server holds, not a
+session.
 
 ### The agent can argue, but it cannot route around you
 
@@ -63,13 +67,24 @@ permission prompt, a negotiation.
 
 ### Honest scope
 
-The desk does not execute, so the mandate **cannot physically cap spending** —
-a user who ignores the desk and signs in their wallet is outside its reach. It
-governs what this page puts in front of you and what the agent is told before it
-asks. Binding enforcement lives server-side in Suwappu's wallet spending
-policies (`POST /v1/agent/wallet/policy`), which gate managed execution. The
-mandate is the browser-side sibling of that idea, not a replacement. The code
-says so, and so does `read_mandate`'s own payload.
+The desk does not execute, so by itself the mandate **cannot physically cap
+spending**: it governs what this page puts in front of you and what the agent
+is told before it asks. Binding enforcement is one click away, not somewhere
+else: "Enforce" installs the mandate as a spend policy (`POST
+/v1/agent/policies`) that the API's policy gate evaluates on every execute by
+the agent, with a managed wallet or a Suwappu-issued credential. `read_mandate`
+reports which it is (`enforcement.status`: `none`, `enforced`, or `stale` once
+an amendment has moved the desk past the installed version), and the receipt
+carries the same field. Four limits stay honest: a self-signing wallet that
+bypasses the API is outside the policy's reach; anyone holding the agent's own
+token can change an agent-scoped policy, so rules the agent must not be able
+to lift belong on an organization key; requests made with an organization key
+are governed by that organization's policies, not these; and USD caps bind on
+EVM quotes only, because the API does not price Solana quotes in USD yet.
+
+The older Turnkey route (`POST /v1/agent/wallet/policy`) is not what the desk
+uses: Suwappu's signer is the root user of each agent sub-org, and Turnkey's
+root quorum bypasses policies, so those rows do not bind today.
 
 ## Design rules
 
@@ -77,16 +92,13 @@ says so, and so does `read_mandate`'s own payload.
    *proposal*. `propose_swap` / `propose_plan` return
    `awaiting_human_approval` (or `blocked_by_mandate_awaiting_human`) and a
    `proposalId`. Nothing else happens.
-2. **Plans, not clicks.** `propose_plan` takes up to five ordered steps — bridge,
-   buy, set an alert — prices every leg, rolls them into one combined notional,
-   and asks for one approval. Agents think in plans; the desk lets them.
-   Steps **chain**: a swap leg with `amount: "@prev"` sells the previous swap
-   leg's estimated output, inheriting its landing chain and token — the shape
-   of a real multi-hop relay, where later legs trade what earlier legs deliver
-   rather than new money. A chained leg that doesn't pick up where the last
-   one lands (wrong token, wrong chain) is refused at proposal time, and the
-   combined notional counts new money once instead of re-billing the daily
-   cap for every re-trade of it.
+2. **Plans, not clicks.** `propose_plan` takes up to five ordered steps — a
+   cross-chain swap, then an alert on what it bought — prices every leg, rolls
+   them into one combined notional, and asks for one approval. Agents think in
+   plans; the desk lets them. A cross-chain trade is one swap step, not a
+   bridge step plus a buy step: the aggregator already routes it as a single
+   multi-hop quote (see `hops` below), priced together and signed as one
+   handoff.
 3. **The agent waits for a person, not a poll.** `check_approval(proposalId,
    waitSeconds)` blocks up to 120s and resolves the instant the human clicks,
    carrying back any note they typed. Proposals expire after 10 minutes.
@@ -94,9 +106,17 @@ says so, and so does `read_mandate`'s own payload.
    exists only while something is blocked; `open_signing_handoff` only while an
    approved, unspent proposal is on the desk, and it refuses a replay once
    consumed. An agent cannot reach for a tool the human has not unlocked.
-5. **This page never holds a key.** The handoff opens Terminal
-   (`/alert-swap`, which prefills the ticket and still requires a human tap) or
-   the Telegram bot with a copy-ready `/s` command. A plan's handoff is
+5. **This page never holds a signing key.** (If the human connects the agent's
+   API key to enforce the mandate, it lives in that tab's session storage, is
+   sent only to the Suwappu API, and never enters a tool result, the activity
+   log or the receipt.) The handoff opens Terminal
+   (`/alert-swap?from=&to=&chain=&side=&amount=` for a same-chain pair, or
+   `/bridge?from=&to=&token=&amount=` for a stable moving chains; both prefill
+   the form and still require a human tap) or the Telegram bot with a
+   copy-ready `/s` command. A cross-chain swap into a different token has no
+   Terminal form, so its handoff is the bot command alone and `terminalUrl`
+   is null; the desk never links to a form the human would have to refill
+   from memory. A plan's handoff is
    **sequenced**: one leg at a time, in order — the next leg's link does not
    exist until the human marks the current one signed on the desk, and signing
    the final leg spends the approval.
@@ -149,7 +169,7 @@ instruction-injection-shaped description is now gone.
 | --- | --- | --- |
 | `read_mandate` | read | The human's envelope, plus today's remaining budget |
 | `amend_mandate` | **completes** | Propose changing the envelope; approval rewrites it in place |
-| `compile_mandate_to_policy` | **completes** | Compile the envelope into enforceable wallet-policy payloads |
+| `compile_mandate_to_policy` | read | Compile the envelope into the spend policy the API enforces; report whether it is installed |
 | `navigate_desk` | read | Move the human's view to a section; report what lives there |
 | `check_mandate` | read | Silent dry-run: which rules a trade breaks, with limit vs actual |
 | `list_chains` | read | Chains Suwappu can route across |
@@ -159,7 +179,7 @@ instruction-injection-shaped description is now gone.
 | `compare_routes` | read | The same swap as RECOMMENDED / FASTEST / CHEAPEST / SAFEST |
 | `read_desk` | read | Ticket, quote, mandate headroom, proposals, activity |
 | `propose_swap` | propose | One trade + rationale in front of the human |
-| `propose_plan` | propose | An ordered multi-step plan as one approval; `amount: "@prev"` chains a leg onto the previous leg's output |
+| `propose_plan` | propose | An ordered multi-step plan as one approval |
 | `propose_price_alert` | propose | An alert to arm in the bot |
 | `check_approval` | read | Block on / poll the human's decision, with their note |
 | `request_override` | unlocked | Only while blocked: argue for bending one rule |
@@ -185,14 +205,14 @@ step detail.
 ```bash
 cd showcase
 bun run dev                     # serve the desk (Next dev on :3000; set DESK_URL if elsewhere)
-bun run webmcp:smoke            # 98 assertions against a modelContext polyfill
+bun run webmcp:smoke            # 102 assertions against a modelContext polyfill
 bun run webmcp:evals:adversarial # 49 injection-under-the-skin checks
 bun run webmcp:lint             # imperative/injection-shaped description lint
 bun run webmcp:grade            # trajectory/pass^k/CuP grader self-test
 ```
 
 `scripts/webmcp-smoke.mjs` installs a spec-shaped `document.modelContext` and
-drives the real page through **98 assertions**, among them: that the ticket
+drives the real page through **102 assertions**, among them: that the ticket
 form is a declarative WebMCP tool (named, described, six described parameters,
 no `toolautosubmit`) and that submitting it prices for real; that a
 mandate-breaking proposal reports itself blocked **and** its Approve button is
@@ -215,14 +235,9 @@ own earlier persuasion for instruction (Spotlighting, arXiv:2403.14720); and a
 WASP-style decoy DOM element plus instruction-bearing form values cannot
 redirect the declarative ticket. The multi-hop assertions: a cross-chain
 preview reports each route leg with its tool and chains while a same-chain
-one is honestly one hop; a plan leg with `amount: "@prev"` inherits the
-previous leg's output token, chain and estimated amount and is flagged as
-chained everywhere it is echoed; the combined notional counts new money once
-rather than re-billing each re-trade; a chain with nothing to chain
-from, or one that doesn't pick up where the last leg lands, is refused
-rather than guessed; and the human-facing surfaces match what the agent is
-told — the proposal card renders a cross-chain trade's legs in the DOM, and
-the route comparison table carries a Legs column.
+one is honestly one hop; and the human-facing surfaces match what the agent
+is told — the proposal card renders a cross-chain trade's legs in the DOM,
+and the route comparison table carries a Legs column.
 
 `scripts/evals-adversarial-smoke.mjs` (**49 assertions**) drives six
 injection-shaped strings through agent-supplied arguments — a token query, a

@@ -77,7 +77,7 @@ const TOOLS = [
   {
     name: 'propose_plan',
     kind: 'propose',
-    body: 'Propose a sequence (bridge, then buy, then set an alert) as one card with a combined notional and one Approve. Legs can chain: "@prev" sells what the previous leg delivers, the shape of a real multi-hop relay. Agents think in plans; approving them a click at a time is what makes agentic UX exhausting.',
+    body: 'Propose a sequence (a swap, then an alert on what it bought) as one card with a combined notional and one Approve. Agents think in plans; approving them a click at a time is what makes agentic UX exhausting.',
   },
   {
     name: 'propose_price_alert',
@@ -130,7 +130,7 @@ const STEPS = [
   {
     n: '05',
     title: 'You approve, then you sign',
-    body: 'Approval unlocks the handoff tool, which opens Terminal or the bot with the trade pre-filled. This page never holds a key or signs a transaction.',
+    body: 'Approval unlocks the handoff tool, which opens Terminal or the bot with the trade pre-filled. This page never holds a signing key or signs a transaction. Apply the mandate from its panel and the API enforces it on every execute by your agent, not just here.',
   },
   {
     n: '06',
