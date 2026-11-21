@@ -5,6 +5,7 @@ import { Tabs, TabsList, TabsPanel, TabsTab } from '@ui-sdk/react/tabs';
 import { track } from '@/lib/analytics';
 import { API_BASE_URL } from '@/lib/links';
 import CopyCode from './CopyCode';
+import { setStoredKey } from '@/components/products/live/keyStore';
 
 const NAME_RE = /^[A-Za-z0-9_-]{3,50}$/;
 
@@ -13,9 +14,9 @@ const NAME_RE = /^[A-Za-z0-9_-]{3,50}$/;
  * "Create my key" form that calls the same public endpoint from the browser
  * (no secret involved; api-ts CORS allows https://suwappu.bot by default).
  *
- * The key lives ONLY in this component's React state: it is never logged,
- * never sent to analytics (events carry outcome only), never written to
- * storage, and is dropped on "I've stored it".
+ * The new key is also handed to the shared browser key store (sessionStorage
+ * unless the visitor ticks "Remember" on a product page) so product widgets can
+ * use it. It is never logged and never sent to analytics (events carry outcome only).
  */
 export default function StartKey({ bash, ts, python }: { bash: string; ts: string; python: string }) {
   const [name, setName] = useState('');
@@ -48,6 +49,7 @@ export default function StartKey({ bash, ts, python }: { bash: string; ts: strin
       const data = await res.json().catch(() => null);
       if (res.ok && data?.agent?.api_key) {
         setKey(String(data.agent.api_key));
+        setStoredKey(String(data.agent.api_key)); // shared store: the same key now works on /products pages
         setCredits(typeof data.credits?.starting_balance === 'number' ? data.credits.starting_balance : null);
         track('start_key_created', { surface: 'start', outcome: 'ok' });
       } else if (res.status === 429) {

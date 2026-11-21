@@ -11,6 +11,8 @@ import TrackedLink from '@/components/solve/TrackedLink';
 import CopyCode from '@/components/solve/CopyCode';
 import SolveFaq from '@/components/solve/SolveFaq';
 import CopyChip from '@/components/products/CopyChip';
+import TryLoader from '@/components/products/TryLoader';
+import { TRY } from '@/components/products/tryConfig';
 import '../../sales-v3.css';
 import '../../solve/solve-v3.css';
 import '../product-deep.css';
@@ -65,6 +67,7 @@ export default async function ProductPage({ params }: { params: Promise<Params> 
   const related = p.related.map(getProduct).filter((r): r is NonNullable<typeof r> => Boolean(r));
   const sp = spans(p.capabilities.length);
   const status = p.status && p.status !== 'live' ? STATUS_NOTE[p.status] : null;
+  const tryCfg = TRY[p.slug];
   const priceHref = p.audience === 'trader' ? '/pricing' : '/start';
   const priceLabel = p.audience === 'trader' ? 'See pricing' : 'Get an API key';
 
@@ -121,6 +124,7 @@ export default async function ProductPage({ params }: { params: Promise<Params> 
                   {cta2 && p.secondaryCta && (
                     <TrackedLink href={cta2} surface="product" slug={p.slug} kind="secondary" className="summer-button summer-button--secondary">{p.secondaryCta.label}</TrackedLink>
                   )}
+                  {tryCfg && <a href="#try" className="summer-button summer-button--secondary">Try it live</a>}
                 </div>
               </div>
               <div className="pd-art v3-tone-dark" aria-hidden="true">
@@ -130,6 +134,19 @@ export default async function ProductPage({ params }: { params: Promise<Params> 
             </header>
           </div>
         </div>
+
+        {/* 1b. try it: live widgets against the production API (client-only, loaded per slug) */}
+        {tryCfg && (
+          <section id="try" className="lv-try" aria-labelledby="try-h">
+            <div className="summer-shell pd-in">
+              <div className="lv-try__head">
+                <h2 id="try-h">{tryCfg.title}</h2>
+                <p>{tryCfg.blurb}</p>
+              </div>
+              <TryLoader slug={p.slug} widgets={tryCfg.widgets} />
+            </div>
+          </section>
+        )}
 
         {/* 2. what it is */}
         <section className="pd-sec" aria-labelledby="what">
