@@ -202,10 +202,21 @@ def _commit_shard_in_cloud(shard, content):
     head_subject = _git("log", "-1", "--format=%s").stdout.strip()
     head_pushed = bool(_git("branch", "-r", "--contains", "HEAD").stdout.strip())
     head_files = _git("show", "--name-only", "--format=", "HEAD").stdout.split()
+    # `[skip ci]` only when the journal commit will be pushed on its own. When it
+    # rides along with unpushed real work it becomes the tip, and GitHub reads
+    # the TIP's skip marker for the whole push, which would skip CI for the code.
+    riding = _has_unpushed_real_work(rel)
+    msg = "harness(journal): session record" + ("" if riding else " [skip ci]")
     if head_subject.startswith("harness(journal)") and not head_pushed and head_files == [rel]:
-        _git("commit", "--amend", "--no-edit", "--no-verify", "-q")
+        done = _git("commit", "--amend", "--no-verify", "-q", "-m", msg)
     else:
-        _git("commit", "--no-verify", "-q", "-m", "harness(journal): session record [skip ci]")
+        done = _git("commit", "--no-verify", "-q", "-m", msg)
+    if done.returncode != 0:
+        # e.g. no git identity yet: undo OUR index change, or every later Stop
+        # would see a staged path and back off as if it were someone's work.
+        _git("reset", "-q", "HEAD", "--", rel)
+        if tracked:
+            _git("update-index", "--skip-worktree", rel)
 
 
 if __name__ == "__main__":
