@@ -795,6 +795,29 @@ def _token_symbol_for_address(chain: str, address_or_symbol: str) -> str:
     )
 
 
+def _human_min_received(quote) -> str:
+    """``quote.to_amount_min`` in the same human units as ``toAmount``.
+
+    Swap engines report ``to_amount_min`` in raw base units (wei, lamports),
+    while the terminal API returns every other amount human-scaled. Shipping
+    the raw value made the UI show e.g. "3181682787316662 ETH" as the minimum
+    received. Scale it by the same factor that produced ``to_amount_human``
+    (to_amount_human / to_amount), which needs no decimals lookup. Display-only:
+    execution enforces slippage from the cached quote, never from this string.
+    """
+    raw_min = str(getattr(quote, "to_amount_min", "") or "").strip()
+    try:
+        if "." in raw_min or "e" in raw_min.lower():
+            return raw_min  # already human-scaled by the provider
+        raw_to = int(str(quote.to_amount))
+        if raw_to <= 0:
+            return raw_min
+        human = Decimal(str(quote.to_amount_human)) * Decimal(int(raw_min)) / Decimal(raw_to)
+        return format(human.normalize(), "f")
+    except Exception:
+        return raw_min
+
+
 def _webapp_swap_token(symbol: str, chain: str) -> WebAppSwapToken:
     token = TOKENS.get(symbol.upper())
     if not token:
@@ -4133,7 +4156,7 @@ async def create_terminal_swap_quote(
         priceImprovementUsd=getattr(quote, "price_improvement_usd", None),
         runnerUpProvider=getattr(quote, "runner_up_provider", None),
         expiresAt=expires_at.isoformat(),
-        minReceived=str(quote.to_amount_min),
+        minReceived=_human_min_received(quote),
         slippage=body.slippage or 0.5,
         estimatedDuration=quote.estimated_time,
     )
@@ -4303,7 +4326,7 @@ async def build_terminal_swap(
         toToken=_webapp_swap_token(to_symbol, body.toChain),
         fromAmount=str(quote.from_amount_human),
         toAmount=str(quote.to_amount_human),
-        minReceived=str(quote.to_amount_min),
+        minReceived=_human_min_received(quote),
         priceImpact=float(quote.price_impact),
         gasUsd=float(quote.gas_cost_usd),
         route=quote.provider,
