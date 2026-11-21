@@ -34,7 +34,7 @@ export function DiscoveryPanel() {
   const [securityLoading, setSecurityLoading] = useState<Set<string>>(new Set())
   const [selectedToken, setSelectedToken] = useState<PulseToken | null>(null)
   const { setSelectedPair } = usePair()
-  const { setPendingSwapAmount } = useTrading()
+  const { setSide, setPendingSwapAmount } = useTrading()
 
   // Clicking a token in the feed loads it everywhere: it becomes the active
   // pair (chart + order book + swap panel all follow) and opens its detail view.
@@ -78,7 +78,9 @@ export function DiscoveryPanel() {
         decimals: 18,
       }))
     }
-    // Pre-fill the SwapPanel amount and force buy side via shared context
+    // Quick-buy: set the side here, then pre-fill the SwapPanel amount. The
+    // panel no longer forces Buy itself, so a /alert-swap?side=sell link keeps its side.
+    setSide('buy')
     setPendingSwapAmount(String(amount))
   }
 

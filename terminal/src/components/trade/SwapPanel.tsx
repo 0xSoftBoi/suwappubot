@@ -347,13 +347,13 @@ export function SwapPanel() {
 
   const flipTokens = () => changeSide(side === 'buy' ? 'sell' : 'buy')
 
-  // FIX 3: Consume quick-buy pre-fill from DiscoveryPanel
+  // Consume a pre-filled amount (DiscoveryPanel quick-buy, /alert-swap links).
+  // The caller owns the side: forcing Buy here turned sell links into buys.
   useEffect(() => {
     if (!pendingSwapAmount) return
-    setSide('buy')
     setAmount(pendingSwapAmount)
     setPendingSwapAmount('')
-  }, [pendingSwapAmount, setPendingSwapAmount, setSide])
+  }, [pendingSwapAmount, setPendingSwapAmount])
 
   if (activeTab === 'limit') {
     return (
