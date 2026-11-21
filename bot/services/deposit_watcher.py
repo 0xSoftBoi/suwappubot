@@ -141,6 +141,33 @@ class _Lagging(Exception):
 COLD_START_LOOKBACK = 500
 
 
+# Backfill (DEPOSIT_BACKFILL="bsc:<block>,polygon:<block>"): re-read an old block
+# range the live scan never covered, from <block> up to the live cursor. It runs
+# in its own task so live crediting is never delayed, keeps its progress in
+# deposit_scan_cursors under "backfill:<chain>" so it resumes across restarts,
+# and credits through the same idempotent path, so overlap with the live scan
+# or a re-run can never credit twice. Windows read per step, and the pause
+# between steps, keep it to a couple of requests a second on public RPCs.
+BACKFILL_WINDOWS_PER_STEP = 10
+BACKFILL_STEP_PAUSE = 5
+
+
+def _parse_backfill(spec: str) -> Dict[str, int]:
+    """Parse "chain:block,chain:block"; unknown chains and bad blocks are ignored."""
+    out: Dict[str, int] = {}
+    for part in (spec or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        chain, _, block = part.partition(":")
+        chain = chain.strip().lower()
+        if chain in CONFIRMATIONS and block.strip().isdigit():
+            out[chain] = int(block.strip())
+        else:
+            logger.warning("Ignoring DEPOSIT_BACKFILL entry %r", part)
+    return out
+
+
 # SQLSTATE classes that mean the database cannot take writes right now, not that
 # this deposit is bad: 08 connection, 25 read-only / txn state, 40 serialization
 # and deadlock, 53 insufficient resources (disk full), 57 operator intervention
@@ -682,6 +709,96 @@ class DepositWatcher:
             to_address=to_address,
         )
 
+    # --- backfill ---------------------------------------------------------
+
+    async def backfill_chain(
+        self, chain: str, start_block: int, windows: int = BACKFILL_WINDOWS_PER_STEP
+    ) -> Optional[int]:
+        """Read up to `windows` old ranges on one chain. Returns deposits credited,
+        or None once the backfill has reached the live cursor (nothing left)."""
+        from bot.services.hot_wallet import hot_wallet_service
+        from bot.services.rpc_manager import rpc_manager
+
+        live = self._get_cursor(chain)
+        if live is None:
+            return 0  # the live scan has not anchored yet; there is no gap to fill
+        key = f"backfill:{chain}"
+        progress = self._get_cursor(key)
+        if progress is None:
+            progress = max(0, start_block - 1)
+            self._set_cursor(key, progress)
+            logger.info("Deposit backfill for %s starting at block %s", chain, start_block)
+        if progress >= live:
+            return None
+
+        watched = hot_wallet_service.list_user_deposit_wallets("evm")
+        tokens = self._token_map(chain)
+        if not watched or not tokens:
+            return 0
+        by_address = {addr.lower(): uid for uid, addr in watched}
+        addresses = list(by_address.keys())
+        token_addresses = [Web3.to_checksum_address(a) for a in tokens]
+        web3 = rpc_manager.get_web3(chain)
+        primary_url = rpc_manager.current_url(chain)
+
+        # A local span: halving it here must not shrink the live scan's.
+        span = MAX_BLOCK_RANGE
+        credited = 0
+        done = 0
+        while done < windows and progress < live:
+            from_block = progress + 1
+            to_block = min(live, progress + span)
+            try:
+                logs = await self._fetch_range(
+                    chain,
+                    web3,
+                    primary_url,
+                    from_block,
+                    to_block,
+                    token_addresses,
+                    addresses,
+                    allow_range_shrink=span > MIN_BLOCK_RANGE,
+                )
+            except _RangeLimited:
+                span = max(MIN_BLOCK_RANGE, span // 2)
+                continue
+            except Exception as exc:
+                # Same rule as the live scan: never move past an unread range.
+                logger.warning(
+                    "Deposit backfill read failed on %s %s-%s: %s", chain, from_block, to_block, exc
+                )
+                break
+            # A failed credit raises out of here before the progress write, so
+            # the window is retried on the next step.
+            for log in logs:
+                credited += 1 if self._handle_log(log, chain, tokens, by_address) else 0
+            progress = to_block
+            self._set_cursor(key, progress)
+            done += 1
+        if progress >= live:
+            logger.info(
+                "Deposit backfill for %s complete through block %s (%s credited this step)",
+                chain,
+                progress,
+                credited,
+            )
+        return credited
+
+    async def _backfill_loop(self, plan: Dict[str, int]) -> None:
+        pending = dict(plan)
+        while self._running and pending:
+            for chain in list(pending):
+                if not self._running:
+                    break
+                try:
+                    result = await self.backfill_chain(chain, pending[chain])
+                except Exception as exc:
+                    logger.error("Deposit backfill failed for %s: %s", chain, exc)
+                    continue
+                if result is None:
+                    pending.pop(chain, None)
+            await asyncio.sleep(BACKFILL_STEP_PAUSE)
+
     # --- lifecycle --------------------------------------------------------
 
     async def _loop(self) -> None:
@@ -701,9 +818,27 @@ class DepositWatcher:
         self._running = True
         self._task = asyncio.create_task(self._loop())
         logger.info("✓ Deposit watcher started (%s chains)", len(CONFIRMATIONS))
+        try:
+            from bot.config.settings import settings
+
+            plan = _parse_backfill(getattr(settings, "deposit_backfill", ""))
+        except Exception as exc:
+            logger.warning("Could not read DEPOSIT_BACKFILL: %s", exc)
+            plan = {}
+        if plan:
+            self._backfill_task = asyncio.create_task(self._backfill_loop(plan))
+            logger.info("Deposit backfill enabled: %s", plan)
 
     async def stop(self) -> None:
         self._running = False
+        backfill = getattr(self, "_backfill_task", None)
+        if backfill:
+            backfill.cancel()
+            try:
+                await backfill
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._backfill_task = None
         if self._task:
             self._task.cancel()
             try:

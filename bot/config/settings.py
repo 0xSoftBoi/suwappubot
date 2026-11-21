@@ -60,6 +60,14 @@ class Settings(BaseSettings):
         default=3.0,
         description="RSS (GB) above which tracemalloc is armed and allocation reports are logged.",
     )
+    deposit_backfill: str = Field(
+        default="",
+        description=(
+            "One-off deposit backfill, 'chain:block,chain:block'. Re-reads each chain "
+            "from <block> up to the live deposit cursor and credits anything missed. "
+            "Idempotent and resumable; remove once the logs report it complete."
+        ),
+    )
     memory_guard_hard_gb: float = Field(
         default=6.0,
         description="RSS (GB) above which the process exits 137 (MEMORY_GUARD_HARD_ACTION=exit) or logs.",
