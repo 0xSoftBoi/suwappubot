@@ -110,7 +110,15 @@
       "contactTitle": "Contact",
       "contactDesc": "Talk to the team",
       "language": "Language",
-      "mobileTitle": "Menu"
+      "mobileTitle": "Menu",
+      "copyTradingTitle": "Copy trading",
+      "copyTradingDesc": "Mirror wallets you pick",
+      "snipingTitle": "Sniping",
+      "snipingDesc": "New launches, with filters",
+      "predictionsTitle": "Predictions",
+      "predictionsDesc": "Prediction markets in the Terminal",
+      "spendPoliciesTitle": "Spend policies",
+      "spendPoliciesDesc": "Limits on what an agent can spend"
     }
   },
   "hero": {

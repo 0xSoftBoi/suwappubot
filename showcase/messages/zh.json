@@ -110,7 +110,15 @@
       "contactTitle": "联系",
       "contactDesc": "联系团队",
       "language": "语言",
-      "mobileTitle": "菜单"
+      "mobileTitle": "菜单",
+      "copyTradingTitle": "跟单交易",
+      "copyTradingDesc": "跟随你选择的钱包",
+      "snipingTitle": "狙击",
+      "snipingDesc": "新币发行，带过滤器",
+      "predictionsTitle": "预测市场",
+      "predictionsDesc": "终端中的预测市场",
+      "spendPoliciesTitle": "支出策略",
+      "spendPoliciesDesc": "限制智能体的支出"
     }
   },
   "hero": {

@@ -15,6 +15,7 @@ import type { NextRequest } from 'next/server';
  */
 const DOC_MD = /^\/docs\/([^/]+)\/([^/]+?)(\.md)?$/;
 const SOLVE_MD = /^\/solve\/([^/]+?)(\.md)?$/;
+const PRODUCT_MD = /^\/products\/([^/]+?)(\.md)?$/;
 
 function markdownRewrite(request: NextRequest): NextResponse | null {
   const sm = request.nextUrl.pathname.match(SOLVE_MD);
@@ -23,6 +24,17 @@ function markdownRewrite(request: NextRequest): NextResponse | null {
     if (sm[2] || (accept.includes('text/markdown') && !accept.includes('text/html'))) {
       const url = request.nextUrl.clone();
       url.pathname = `/api/solve-md/${sm[1]}`;
+      return NextResponse.rewrite(url);
+    }
+    return null;
+  }
+
+  const pm = request.nextUrl.pathname.match(PRODUCT_MD);
+  if (pm) {
+    const accept = request.headers.get('accept') || '';
+    if (pm[2] || (accept.includes('text/markdown') && !accept.includes('text/html'))) {
+      const url = request.nextUrl.clone();
+      url.pathname = `/api/product-md/${pm[1]}`;
       return NextResponse.rewrite(url);
     }
     return null;
@@ -46,7 +58,7 @@ function markdownRewrite(request: NextRequest): NextResponse | null {
 export function middleware(request: NextRequest) {
   const response = markdownRewrite(request) ?? NextResponse.next();
 
-  if (request.nextUrl.pathname.startsWith('/docs') || request.nextUrl.pathname.startsWith('/solve')) {
+  if (request.nextUrl.pathname.startsWith('/docs') || request.nextUrl.pathname.startsWith('/solve') || request.nextUrl.pathname.startsWith('/products')) {
     response.headers.set(
       'Link',
       '</llms.txt>; rel="llms-txt", </llms-full.txt>; rel="llms-full-txt"',
@@ -58,7 +70,7 @@ export function middleware(request: NextRequest) {
   // when the client asks for it). Tell caches the response depends on Accept, or
   // a cached Markdown copy could be served to a browser asking for the page.
   const path = request.nextUrl.pathname;
-  if (!path.endsWith('.md') && (SOLVE_MD.test(path) || DOC_MD.test(path))) {
+  if (!path.endsWith('.md') && (SOLVE_MD.test(path) || PRODUCT_MD.test(path) || DOC_MD.test(path))) {
     response.headers.append('Vary', 'Accept');
   }
 
@@ -66,5 +78,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/docs/:path*', '/solve/:path*'],
+  matcher: ['/docs/:path*', '/solve/:path*', '/products/:path*'],
 };

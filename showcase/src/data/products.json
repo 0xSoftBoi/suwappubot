@@ -1,0 +1,4272 @@
+{
+  "pages": [
+    {
+      "slug": "terminal",
+      "name": "Web Terminal",
+      "category": "Trade",
+      "audience": "trader",
+      "title": "Suwappu Terminal: cross-chain trading workspace",
+      "metaDescription": "A browser trading workspace: swap, charts, order book, perps, copy trading and alerts. Connect MetaMask, Phantom, Ledger or WalletConnect and sign with your own wallet.",
+      "headline": "One browser workspace for every trade you place",
+      "lead": "Swap, chart, bridge, trade perps and manage alerts from one screen. Connect the wallet you already use and sign with it. Nothing to install.",
+      "primaryCta": {
+        "label": "Open the Terminal",
+        "href": "https://terminal.suwappu.bot"
+      },
+      "secondaryCta": {
+        "label": "Prefer chat? Use the bot",
+        "href": "https://t.me/suwappu_bot"
+      },
+      "whatItIs": [
+        "The Terminal is the web side of Suwappu. It puts the swap form, price charts, order book, recent trades, perps, bridge, alerts, DCA and copy trading in one workspace, so you stop switching between tabs and apps.",
+        "It is for traders who want to see the market while they trade. You connect an external wallet and sign a login challenge. The Terminal does not take custody of that wallet."
+      ],
+      "howItWorks": [
+        {
+          "title": "Open the Terminal",
+          "detail": "Go to terminal.suwappu.bot in your browser."
+        },
+        {
+          "title": "Connect a wallet",
+          "detail": "Choose MetaMask, WalletConnect, Coinbase, Ledger, or Phantom for Solana."
+        },
+        {
+          "title": "Sign the challenge",
+          "detail": "You sign a short message to log in. It proves you hold the wallet. It does not move funds."
+        },
+        {
+          "title": "Pick a panel",
+          "detail": "Use the swap panel to quote a trade, or open charts, order book, perps, bridge or alerts."
+        },
+        {
+          "title": "Review and confirm",
+          "detail": "Check the quote before you sign the transaction in your own wallet."
+        },
+        {
+          "title": "Keep going in Telegram",
+          "detail": "The same product runs as a Telegram bot if you want commands and push messages."
+        }
+      ],
+      "capabilities": [
+        {
+          "title": "Swap panel",
+          "detail": "Quote and execute swaps through the same multi-provider router the bot uses."
+        },
+        {
+          "title": "Charts and order book",
+          "detail": "Candle chart with toolbar, order book and recent trades panels."
+        },
+        {
+          "title": "Perps workspace",
+          "detail": "HyperLiquid markets board, positions table, open orders, a smart-money panel, plus perps whale and funding views."
+        },
+        {
+          "title": "Bridge with custody timeline",
+          "detail": "Bridge route list and a timeline that shows where a transfer is while it is in flight."
+        },
+        {
+          "title": "Curve pools and router",
+          "detail": "Browse Curve pools, open pool detail, and use the Curve router tab."
+        },
+        {
+          "title": "Alerts and DCA",
+          "detail": "Create price alerts and DCA schedules from forms inside the Terminal."
+        },
+        {
+          "title": "Copy trading dashboard",
+          "detail": "Leaderboard, following list and per-follow settings in one view."
+        },
+        {
+          "title": "Points and referrals",
+          "detail": "XP bar, streak tracker, milestone wall, reward store and referral panels."
+        }
+      ],
+      "commands": [
+        {
+          "command": "Panel: Swap",
+          "does": "Quote and execute a swap."
+        },
+        {
+          "command": "Panel: Chart",
+          "does": "Candle chart with toolbar."
+        },
+        {
+          "command": "Panel: Order book",
+          "does": "Order book and recent trades."
+        },
+        {
+          "command": "Panel: Perps",
+          "does": "HyperLiquid markets, positions and open orders."
+        },
+        {
+          "command": "Panel: Bridge",
+          "does": "Route list and custody timeline."
+        },
+        {
+          "command": "Panel: Alerts",
+          "does": "List and create price alerts."
+        },
+        {
+          "command": "Panel: DCA",
+          "does": "Create and manage DCA schedules."
+        },
+        {
+          "command": "Panel: Copy trading",
+          "does": "Leaderboard, following list, settings."
+        }
+      ],
+      "specs": [
+        {
+          "label": "Where",
+          "value": "terminal.suwappu.bot, in the browser"
+        },
+        {
+          "label": "Wallets",
+          "value": "MetaMask, WalletConnect, Coinbase, Ledger (detected by connector), Phantom for Solana"
+        },
+        {
+          "label": "Login",
+          "value": "Connect, then sign a challenge message"
+        },
+        {
+          "label": "Custody",
+          "value": "Non-custodial: you sign with your own wallet"
+        },
+        {
+          "label": "Perps venue",
+          "value": "HyperLiquid"
+        },
+        {
+          "label": "Other routes",
+          "value": "/points, /bridge, /alert-swap"
+        },
+        {
+          "label": "Swap fee",
+          "value": "Tiered: Free 1.0%, Pro 0.5%, Premium 0.3%, Enterprise 0.1% (bot taker-fee table)"
+        },
+        {
+          "label": "Install",
+          "value": "None"
+        }
+      ],
+      "example": {
+        "title": "First 60 seconds",
+        "lang": "text",
+        "code": "1. Open https://terminal.suwappu.bot\n2. Click Connect, pick MetaMask (or Phantom for Solana)\n3. Sign the login message in your wallet\n4. Open the swap panel, choose from-token, to-token, amount\n5. (Terminal shows the quote: route, minimum received, fee)\n6. Confirm and sign the transaction in your wallet"
+      },
+      "pricing": "Opening and connecting is free. Swap fees follow the tier table: Free 1.0%, Pro 0.5% ($9.99/mo), Premium 0.3% ($29.99/mo), Enterprise 0.1%. Which Terminal panels sit behind a paid plan is not stated here; check the pricing page.",
+      "limits": [
+        "It does not hold your keys when you connect an external wallet.",
+        "Whether every bot feature (limit orders, trailing stops, sniping) exists as a Terminal panel is not confirmed. Use the bot for those.",
+        "Quotes are scored routes, not a guarantee of the best possible price.",
+        "A browser wallet must be unlocked and on the right network to sign.",
+        "Panels depend on the data feeds behind them, so a quiet market can show an empty order book."
+      ],
+      "faq": [
+        {
+          "q": "Does the Terminal custody my funds?",
+          "a": "No for external wallets. You connect, sign a login message, and approve each transaction yourself. Custody of that wallet stays with you."
+        },
+        {
+          "q": "Which wallets work?",
+          "a": "MetaMask, WalletConnect, Coinbase, Ledger via its connector, and Phantom for Solana."
+        },
+        {
+          "q": "Is there a fee to log in?",
+          "a": "No. Fees apply to swaps and follow your tier: 1.0%, 0.5%, 0.3% or 0.1%."
+        },
+        {
+          "q": "Do I need Telegram?",
+          "a": "No. The Terminal works on its own. The bot is an alternative front end to the same product."
+        },
+        {
+          "q": "What if the backend is unavailable?",
+          "a": "The Terminal detects when its auth backend is not available and flips its status. Try again shortly or use the bot."
+        },
+        {
+          "q": "Can I trade perps here?",
+          "a": "Yes, on HyperLiquid, with a connect step. Leverage caps come from each market."
+        }
+      ],
+      "related": [
+        "telegram-bot",
+        "swap-routing",
+        "perps",
+        "wallets-custody"
+      ],
+      "solveLinks": [
+        "cross-chain-swap-without-a-bridge",
+        "swap-fee-tiers-break-even"
+      ],
+      "visual": "terminal-capture",
+      "keywords": [
+        "crypto trading terminal",
+        "cross-chain swap terminal",
+        "web dex aggregator terminal",
+        "hyperliquid terminal browser",
+        "phantom ledger metamask swap",
+        "non-custodial trading terminal"
+      ]
+    },
+    {
+      "slug": "telegram-bot",
+      "name": "Telegram Bot",
+      "category": "Trade",
+      "audience": "trader",
+      "title": "Suwappu Telegram bot: swap, orders, alerts, copy",
+      "metaDescription": "Trade cross-chain from Telegram. /s to swap, /o /dca /trailing for orders, /a alerts, /snipe, /perps, /predict. Free tier from 1.0% fee; Pro $9.99/mo.",
+      "headline": "Every Suwappu feature, one chat command away",
+      "lead": "Swap across chains, set orders and alerts, copy traders, snipe launches and check your portfolio. Short commands, a confirm step on each, and push messages when something fires.",
+      "primaryCta": {
+        "label": "Open the bot in Telegram",
+        "href": "https://t.me/suwappu_bot"
+      },
+      "secondaryCta": {
+        "label": "See plans",
+        "href": "/pricing"
+      },
+      "whatItIs": [
+        "The Telegram bot is the command-line version of Suwappu. Each job has a short command: /s to swap, /b for balances, /a for alerts, /o for limit orders. Flows are conversational, so you answer prompts instead of filling a form.",
+        "It suits people who trade from a phone and want alerts and fills pushed to them. Swaps, alerts, portfolio and prediction markets need no paid plan. Orders, copy trading and sniping need Pro."
+      ],
+      "howItWorks": [
+        {
+          "title": "Open the bot",
+          "detail": "Tap Open the bot in Telegram and press Start with /start."
+        },
+        {
+          "title": "Accept the terms",
+          "detail": "Commands that move money require you to accept the terms of service first."
+        },
+        {
+          "title": "Set up a wallet",
+          "detail": "Use /w for your wallet, /import to bring one in, or /c for custodial deposits."
+        },
+        {
+          "title": "Run a command",
+          "detail": "Send /s to swap, or any command from the map below."
+        },
+        {
+          "title": "Confirm",
+          "detail": "Every order flow ends in a confirmation screen. Swaps show max slippage before you commit."
+        },
+        {
+          "title": "Get notified",
+          "detail": "Alerts, fills and settled prediction markets are sent back to you as messages."
+        }
+      ],
+      "capabilities": [
+        {
+          "title": "Swap",
+          "detail": "/s quotes routes across chains and shows max slippage on the confirm screen. Default slippage is 0.5%."
+        },
+        {
+          "title": "Orders",
+          "detail": "/o limit orders, /dca on 1h, 4h, 12h or daily intervals, /trailing stops from 1% to 50%. Pro plan."
+        },
+        {
+          "title": "Alerts",
+          "detail": "/a price alerts, checked every 60 seconds. No paid plan gate found."
+        },
+        {
+          "title": "Copy trading",
+          "detail": "/traders, /following, /profile and /tstats. Follow up to 5 leaders. Pro plan."
+        },
+        {
+          "title": "Sniping",
+          "detail": "/snipe, /autosnipe, /watchlist, /snipehistory on Solana launches. Pro plan."
+        },
+        {
+          "title": "Perps and predictions",
+          "detail": "/perps and /hl for HyperLiquid, /predict for Polymarket."
+        },
+        {
+          "title": "Portfolio",
+          "detail": "/p portfolio, /b balance, /hx history, and an opt-in weekly digest."
+        },
+        {
+          "title": "Rewards",
+          "detail": "/ref referrals, /xp points, /checkin, /lb leaderboard, /rewards."
+        }
+      ],
+      "commands": [
+        {
+          "command": "/start",
+          "does": "Open the bot and begin onboarding."
+        },
+        {
+          "command": "/s",
+          "does": "Swap tokens, same chain or cross-chain."
+        },
+        {
+          "command": "/w",
+          "does": "Wallet."
+        },
+        {
+          "command": "/b",
+          "does": "Balances."
+        },
+        {
+          "command": "/p",
+          "does": "Portfolio."
+        },
+        {
+          "command": "/hx",
+          "does": "Trade history."
+        },
+        {
+          "command": "/a",
+          "does": "Create and list price alerts."
+        },
+        {
+          "command": "/o",
+          "does": "Limit orders (Pro)."
+        },
+        {
+          "command": "/dca",
+          "does": "Recurring buys (Pro)."
+        },
+        {
+          "command": "/trailing",
+          "does": "Trailing stop (Pro)."
+        },
+        {
+          "command": "/traders",
+          "does": "Copy-trading leaderboard."
+        },
+        {
+          "command": "/following",
+          "does": "Leaders you follow."
+        },
+        {
+          "command": "/snipe",
+          "does": "Snipe a Solana launch (Pro)."
+        },
+        {
+          "command": "/perps",
+          "does": "HyperLiquid perps."
+        },
+        {
+          "command": "/hl",
+          "does": "HyperLiquid hub."
+        },
+        {
+          "command": "/predict",
+          "does": "Polymarket markets."
+        },
+        {
+          "command": "/ref",
+          "does": "Referrals."
+        },
+        {
+          "command": "/xp",
+          "does": "Points."
+        },
+        {
+          "command": "/2fa",
+          "does": "Set up two-factor auth for large swaps."
+        }
+      ],
+      "specs": [
+        {
+          "label": "Where",
+          "value": "t.me/suwappu_bot"
+        },
+        {
+          "label": "Free commands",
+          "value": "/s, /a, /p, /b, /predict (no tier gate found)"
+        },
+        {
+          "label": "Pro commands",
+          "value": "/o, /dca, /trailing, copy trading, /snipe"
+        },
+        {
+          "label": "Swap fee",
+          "value": "Free 1.0%, Pro 0.5%, Premium 0.3%, Enterprise 0.1%"
+        },
+        {
+          "label": "Pro price",
+          "value": "$9.99 per month"
+        },
+        {
+          "label": "Premium price",
+          "value": "$29.99 per month"
+        },
+        {
+          "label": "Default slippage",
+          "value": "0.5%"
+        },
+        {
+          "label": "Pay for a plan",
+          "value": "/subscribe pro 3, paid in USDG on Robinhood Chain; you sign once, no gas"
+        }
+      ],
+      "example": {
+        "title": "Swap, then protect it",
+        "lang": "telegram",
+        "code": "/s\n(bot asks: from chain, from token, to chain, to token, amount)\n(bot shows the quote: route, minimum received, fee, max slippage)\n[Confirm]\n\n/a\n(bot asks: token, alert type, price)\n(bot confirms the alert; checked every 60 seconds)"
+      },
+      "pricing": "Swaps carry a fee by tier: Free 1.0%, Pro 0.5%, Premium 0.3%, Enterprise 0.1%. Pro is $9.99 a month and unlocks limit orders, DCA, trailing stops, copy trading and sniping. Premium is $29.99. Pay with /subscribe pro 3.",
+      "limits": [
+        "WhatsApp is not live. Telegram is the chat front end.",
+        "Alerts poll every 60 seconds and orders every 30 seconds. Neither is instant.",
+        "What Premium and Enterprise unlock beyond lower fees is not stated here.",
+        "Polymarket is blocked in restricted regions, including the US.",
+        "The bot does not give investment advice or promise results."
+      ],
+      "faq": [
+        {
+          "q": "Is the bot custodial?",
+          "a": "Wallets use envelope encryption with KMS by default. You can also import a wallet. See the wallets page for what is and is not covered."
+        },
+        {
+          "q": "What costs money?",
+          "a": "Swaps carry a tiered fee. Orders, copy trading and sniping need Pro at $9.99 a month."
+        },
+        {
+          "q": "What if I send a command I cannot use?",
+          "a": "The bot declines and shows an upgrade option."
+        },
+        {
+          "q": "Can I use it without the Terminal?",
+          "a": "Yes. Each runs on its own."
+        },
+        {
+          "q": "How do I pay for Pro?",
+          "a": "Send /subscribe pro 3 for three months. You sign once, no gas."
+        },
+        {
+          "q": "Does it work on any chain?",
+          "a": "Swap routing covers multiple chains. Each feature page lists its own venues."
+        }
+      ],
+      "related": [
+        "terminal",
+        "swap-routing",
+        "orders",
+        "wallets-custody"
+      ],
+      "solveLinks": [
+        "telegram-trading-bot-cross-chain",
+        "is-a-telegram-trading-bot-safe",
+        "swap-fee-tiers-break-even"
+      ],
+      "visual": "chat-commands",
+      "keywords": [
+        "telegram trading bot",
+        "crypto telegram bot swap",
+        "cross-chain telegram bot",
+        "telegram dca bot",
+        "telegram limit order bot",
+        "telegram sniper bot solana"
+      ]
+    },
+    {
+      "slug": "swap-routing",
+      "name": "Swaps and Routing",
+      "category": "Trade",
+      "audience": "trader",
+      "title": "Cross-chain swap routing, scored across providers",
+      "metaDescription": "Suwappu races about 10 route adapters in parallel and scores each on output, cost, speed and reliability. Default slippage 0.5%. Honeypot swaps are blocked.",
+      "headline": "Quote many routes. Swap on the best-scoring one.",
+      "lead": "One command races roughly ten route adapters in parallel, scores them, and shows you the winner. Same-chain or cross-chain. Fees 1.0% on Free, down to 0.1%.",
+      "primaryCta": {
+        "label": "Open the bot in Telegram",
+        "href": "https://t.me/suwappu_bot"
+      },
+      "secondaryCta": {
+        "label": "Why cross-chain swaps stall",
+        "href": "/solve/why-is-my-cross-chain-swap-stuck"
+      },
+      "whatItIs": [
+        "Swapping across chains usually means choosing a bridge, then a DEX, then hoping the numbers hold. Suwappu asks about ten adapters at once, including CoW, Socket, Jupiter, Jito, LI.FI, CCTP, Across, Wormhole, LayerZero and Tempo DEX, and ranks the results.",
+        "The ranking is a score, not just the highest output. It weighs cost, speed and provider reliability too. You see the route and the minimum you will receive before you confirm."
+      ],
+      "howItWorks": [
+        {
+          "title": "Send /s",
+          "detail": "Pick the from chain and token, the to chain and token, and the amount."
+        },
+        {
+          "title": "Adapters race",
+          "detail": "The router asks its adapters in parallel: CoW and Socket on EVM, Jupiter and Jito on Solana, bridges and LI.FI across chains."
+        },
+        {
+          "title": "Routes are scored",
+          "detail": "Each route gets a weighted score and the list is sorted high to low."
+        },
+        {
+          "title": "Security check",
+          "detail": "If the token security report flags a honeypot, the swap is blocked before you sign."
+        },
+        {
+          "title": "You review",
+          "detail": "The confirm screen shows the route, max slippage and fee."
+        },
+        {
+          "title": "You confirm",
+          "detail": "Confirm and the swap executes. Cross-chain transfers continue until they settle."
+        }
+      ],
+      "capabilities": [
+        {
+          "title": "Scoring weights",
+          "detail": "Output 35%, cost 35%, speed 15%, reliability 10%, MEV-awareness 5%."
+        },
+        {
+          "title": "Provider reliability",
+          "detail": "Each provider has a reliability value, from 0.99 for Tempo DEX down to 0.85 for LayerZero."
+        },
+        {
+          "title": "MEV-aware bonus",
+          "detail": "CoW on EVM and Jito on Solana get a score bonus where eligible. This is a scoring input, not a guarantee."
+        },
+        {
+          "title": "Native 1:1 rails",
+          "detail": "CCTP and USDT0 routes are treated as zero-slippage rails, not scored like pooled bridges."
+        },
+        {
+          "title": "Slippage control",
+          "detail": "Default 0.5%. The confirm screen shows max slippage."
+        },
+        {
+          "title": "Honeypot hard block",
+          "detail": "A security report with is_honeypot set stops the swap."
+        },
+        {
+          "title": "Solana simulation",
+          "detail": "Solana swaps include an anti-honeypot simulation phase."
+        },
+        {
+          "title": "Tempo gas sponsorship",
+          "detail": "On Tempo only, when enabled, gas can be sponsored for up to 3 transactions per user."
+        }
+      ],
+      "commands": [
+        {
+          "command": "/s",
+          "does": "Start a swap: chains, tokens, amount, then the quote."
+        },
+        {
+          "command": "/b",
+          "does": "Check balances before and after."
+        },
+        {
+          "command": "/hx",
+          "does": "See swap history."
+        }
+      ],
+      "specs": [
+        {
+          "label": "Adapters",
+          "value": "About 10 raced in parallel"
+        },
+        {
+          "label": "Score weights",
+          "value": "Output 0.35, cost 0.35, speed 0.15, reliability 0.10, MEV 0.05"
+        },
+        {
+          "label": "Default slippage",
+          "value": "0.5% (50 bps)"
+        },
+        {
+          "label": "Confirm screen",
+          "value": "Shows route and max slippage"
+        },
+        {
+          "label": "Hard block",
+          "value": "Honeypot flag on the security report"
+        },
+        {
+          "label": "Advisory only",
+          "value": "AEGIS scanner: observe mode, fails open"
+        },
+        {
+          "label": "Private submission",
+          "value": "Flashbots is off by default"
+        },
+        {
+          "label": "Plan required",
+          "value": "None for swaps"
+        },
+        {
+          "label": "Fee tiers",
+          "value": "Free 1.0%, Pro 0.5%, Premium 0.3%, Enterprise 0.1%"
+        }
+      ],
+      "example": {
+        "title": "USDC on Base to SOL on Solana",
+        "lang": "telegram",
+        "code": "/s\nfrom chain: Base\nfrom token: USDC\nto chain: Solana\nto token: SOL\namount: 500\n(bot shows the quote: route, minimum received, fee, max slippage)\n[Confirm]"
+      },
+      "pricing": "No plan is needed to swap. The fee is a percentage of the swap by tier: Free 1.0%, Pro 0.5% ($9.99/mo), Premium 0.3% ($29.99/mo), Enterprise 0.1%. On $1,000, Pro saves $5.00 against Free.",
+      "limits": [
+        "Not guaranteed best price. Routes are scored on several factors, and quotes can move before execution.",
+        "No MEV protection claim. CoW and Jito raise a route's score; other routes carry more exposure.",
+        "The AEGIS scanner only advises. Only a honeypot flag blocks.",
+        "Gas sponsorship is Tempo-only, capped at 3 transactions per user, and depends on being enabled.",
+        "Cross-chain timing varies by route. Exact times are not promised."
+      ],
+      "faq": [
+        {
+          "q": "Do I get the best price?",
+          "a": "Not guaranteed. The router scores routes on output, cost, speed, reliability and an MEV bonus. The top score is not always the highest raw output."
+        },
+        {
+          "q": "What is the fee?",
+          "a": "1.0% on Free, 0.5% on Pro, 0.3% on Premium, 0.1% on Enterprise, charged on the swap."
+        },
+        {
+          "q": "What slippage is used?",
+          "a": "0.5% by default. You see max slippage on the confirm screen."
+        },
+        {
+          "q": "Which scams are blocked?",
+          "a": "A swap is hard-blocked when the security report flags a honeypot. Other checks are advisory."
+        },
+        {
+          "q": "Are swaps gasless?",
+          "a": "Only on Tempo, when sponsorship is on, for up to 3 transactions per user."
+        },
+        {
+          "q": "What if a cross-chain swap stalls?",
+          "a": "See the stuck-swap guide. Transfers settle through the chosen provider, and timing differs by route."
+        }
+      ],
+      "related": [
+        "telegram-bot",
+        "terminal",
+        "orders",
+        "wallets-custody"
+      ],
+      "solveLinks": [
+        "swap-usdc-base-to-solana",
+        "cross-chain-swap-without-a-bridge",
+        "how-much-slippage-cross-chain-swap"
+      ],
+      "visual": "venue-rank",
+      "keywords": [
+        "cross-chain swap",
+        "dex aggregator",
+        "swap usdc base to solana",
+        "best route crypto swap",
+        "cross-chain swap slippage",
+        "bridge and swap one step"
+      ]
+    },
+    {
+      "slug": "orders",
+      "name": "Limit, DCA, Trailing",
+      "category": "Automate",
+      "audience": "trader",
+      "title": "Limit orders, DCA and trailing stops in Telegram",
+      "metaDescription": "Set a limit price, buy on a schedule, or trail a stop from 1% to 50%. Checked every 30 seconds. Pro plan, $9.99/mo. Confirm step on every order.",
+      "headline": "Set the rule once. The bot checks it every 30 seconds.",
+      "lead": "Limit orders, recurring buys and trailing stops from Telegram. Each ends in a confirm step. Pro plan required. Fills are checked on a 30-second loop, not instantly.",
+      "primaryCta": {
+        "label": "Get Pro, $9.99/mo",
+        "href": "/pricing"
+      },
+      "secondaryCta": {
+        "label": "Open the bot in Telegram",
+        "href": "https://t.me/suwappu_bot"
+      },
+      "whatItIs": [
+        "Three order types for people who do not want to watch a screen. /o places a limit order at the price you choose. /dca buys on a schedule. /trailing sells when the price falls a set percentage from its peak.",
+        "They run on the bot's order service, which polls prices every 30 seconds. That makes them useful for plans, not for catching a single-second wick. All three need the Pro plan."
+      ],
+      "howItWorks": [
+        {
+          "title": "Pick the order",
+          "detail": "Send /o for a limit order, /dca for recurring buys, or /trailing for a trailing stop."
+        },
+        {
+          "title": "Answer the prompts",
+          "detail": "For a limit order: from chain, from token, to chain, to token, amount, then target price."
+        },
+        {
+          "title": "Set the rule",
+          "detail": "DCA: choose every 1h, 4h, 12h or daily. Trailing: choose a drop between 1% and 50%."
+        },
+        {
+          "title": "Optional expiry",
+          "detail": "Limit orders can carry an expiry in hours. Expired orders are marked EXPIRED."
+        },
+        {
+          "title": "Confirm",
+          "detail": "Each flow ends on a confirmation screen. Nothing is created until you confirm."
+        },
+        {
+          "title": "The service watches",
+          "detail": "The order service checks every 30 seconds and executes when the condition is met."
+        }
+      ],
+      "capabilities": [
+        {
+          "title": "Limit order",
+          "detail": "Conversational flow: chains, tokens, amount, price, confirm. Cross-chain pairs are asked for in the flow."
+        },
+        {
+          "title": "Optional expiry",
+          "detail": "Set expires_in_hours; expired orders are marked and stop executing."
+        },
+        {
+          "title": "DCA intervals",
+          "detail": "Fixed menu: every 1h, 4h, 12h, or daily. Not free-text."
+        },
+        {
+          "title": "Trailing stop",
+          "detail": "Sells if price drops X% from its peak, X between 1% and 50%."
+        },
+        {
+          "title": "Check cadence",
+          "detail": "Order service loop runs every 30 seconds."
+        },
+        {
+          "title": "Confirm on all three",
+          "detail": "Limit, DCA and trailing each have a confirm step."
+        },
+        {
+          "title": "Terminal hook",
+          "detail": "The Terminal has DCA create and manage forms; a limit-orders hook also exists."
+        }
+      ],
+      "commands": [
+        {
+          "command": "/o",
+          "does": "Create or view limit orders (Pro)."
+        },
+        {
+          "command": "/dca",
+          "does": "Create a recurring buy (Pro)."
+        },
+        {
+          "command": "/trailing",
+          "does": "Create a trailing stop, 1% to 50% (Pro)."
+        },
+        {
+          "command": "/cancel",
+          "does": "Leave a conversational flow without saving."
+        },
+        {
+          "command": "/a",
+          "does": "Use an alert instead if you only want a notification."
+        }
+      ],
+      "specs": [
+        {
+          "label": "Plan required",
+          "value": "Pro ($9.99/mo)"
+        },
+        {
+          "label": "Check interval",
+          "value": "Every 30 seconds"
+        },
+        {
+          "label": "DCA intervals",
+          "value": "1h, 4h, 12h, 24h"
+        },
+        {
+          "label": "Trailing range",
+          "value": "1.0% to 50.0%"
+        },
+        {
+          "label": "Limit expiry",
+          "value": "Optional, in hours"
+        },
+        {
+          "label": "Confirmation",
+          "value": "Required on limit, DCA and trailing"
+        },
+        {
+          "label": "Fee",
+          "value": "Swap fee by tier: 1.0% Free, 0.5% Pro, 0.3% Premium, 0.1% Enterprise"
+        },
+        {
+          "label": "TWAP",
+          "value": "Not available for spot; /twap is HyperLiquid perps only"
+        }
+      ],
+      "example": {
+        "title": "Daily buy, plus a stop",
+        "lang": "telegram",
+        "code": "/dca\n(bot asks: from chain, from token, to chain, to token, amount)\ninterval: Daily\n[Confirm]\n\n/trailing\n(bot asks: token, trailing percent 1-50)\n10\n[Confirm]\n(bot sells if price falls 10% from its peak, checked every 30s)"
+      },
+      "pricing": "Orders require Pro at $9.99 a month. Pro also halves the swap fee from 1.0% to 0.5%, so on $4,000 of volume the fee saving is $20.00, which covers the plan. Free users can still use alerts.",
+      "limits": [
+        "Not instant. The price check runs every 30 seconds.",
+        "No spot TWAP. /twap exists only for HyperLiquid perps.",
+        "DCA intervals are the four fixed options, not custom.",
+        "Honeypot checking inside order flows is not confirmed. Use tokens you have vetted.",
+        "Minimum order size and a cap on active orders are not stated here.",
+        "No order promises a fill at a given price if the market gaps."
+      ],
+      "faq": [
+        {
+          "q": "Which plan do I need?",
+          "a": "Pro at $9.99 a month. The limit, DCA and trailing commands are gated to Pro."
+        },
+        {
+          "q": "How fast are fills?",
+          "a": "The service checks every 30 seconds, so fills trail the price by up to that interval plus execution time."
+        },
+        {
+          "q": "Can I use TWAP on spot?",
+          "a": "No. /twap is for HyperLiquid perps. For spot, use DCA."
+        },
+        {
+          "q": "What range can a trailing stop use?",
+          "a": "1% to 50% below the peak."
+        },
+        {
+          "q": "Do orders expire?",
+          "a": "Limit orders can have an optional expiry in hours. Expired ones are marked EXPIRED."
+        },
+        {
+          "q": "Can I cancel?",
+          "a": "You can leave any flow before confirming. Managing live orders is done through /o."
+        }
+      ],
+      "related": [
+        "alerts",
+        "swap-routing",
+        "telegram-bot",
+        "perps"
+      ],
+      "solveLinks": [
+        "limit-orders-dca-telegram",
+        "swap-fee-tiers-break-even"
+      ],
+      "visual": "order-ladder",
+      "keywords": [
+        "telegram limit order bot",
+        "crypto dca bot telegram",
+        "trailing stop crypto telegram",
+        "cross-chain limit order",
+        "automated crypto buys",
+        "dca every 4 hours"
+      ]
+    },
+    {
+      "slug": "alerts",
+      "name": "Price Alerts",
+      "category": "Automate",
+      "audience": "trader",
+      "title": "Crypto price alerts in Telegram | Suwappu",
+      "metaDescription": "Create a price alert with /a: pick a token, a type and a price. Checked every 60 seconds and sent to Telegram. No paid plan gate found.",
+      "headline": "Name a price. Get a message when it prints.",
+      "lead": "Create an alert in three answers: token, type, price. The bot checks every 60 seconds and messages you. It does not trade for you.",
+      "primaryCta": {
+        "label": "Open the bot in Telegram",
+        "href": "https://t.me/suwappu_bot"
+      },
+      "secondaryCta": {
+        "label": "Open the Terminal",
+        "href": "https://terminal.suwappu.bot"
+      },
+      "whatItIs": [
+        "A price alert watches a token and tells you when your condition is met. That is the whole job. It does not buy, sell or move funds, so it is the safest automation to start with.",
+        "Use it to mark levels you plan to act on, then decide when the message arrives. If you want the bot to act for you, use orders instead."
+      ],
+      "howItWorks": [
+        {
+          "title": "Send /a",
+          "detail": "The bot opens the alert flow."
+        },
+        {
+          "title": "Select a token",
+          "detail": "Choose the token you want to watch."
+        },
+        {
+          "title": "Select a type",
+          "detail": "Pick the kind of alert condition."
+        },
+        {
+          "title": "Enter a price",
+          "detail": "Type the price level."
+        },
+        {
+          "title": "Alert is saved",
+          "detail": "The bot lists it under your active alerts."
+        },
+        {
+          "title": "The service checks",
+          "detail": "A background loop checks all alerts every 60 seconds and messages you when one is met."
+        }
+      ],
+      "capabilities": [
+        {
+          "title": "Three-step flow",
+          "detail": "Token, type, price. Leave the flow any time with /cancel."
+        },
+        {
+          "title": "Active alert list",
+          "detail": "/a also lists active alerts. With none set, it tells you to create one."
+        },
+        {
+          "title": "60-second check",
+          "detail": "The alert service polls on a 60-second interval."
+        },
+        {
+          "title": "Push to Telegram",
+          "detail": "The message arrives in the chat. You do not keep a tab open."
+        },
+        {
+          "title": "Terminal panel",
+          "detail": "The Terminal has an Alerts panel with a create-alert form."
+        },
+        {
+          "title": "Alert-to-swap page",
+          "detail": "The Terminal has an /alert-swap route that links an alert to a swap."
+        }
+      ],
+      "commands": [
+        {
+          "command": "/a",
+          "does": "Create an alert or list active ones."
+        },
+        {
+          "command": "/cancel",
+          "does": "Leave the alert flow."
+        },
+        {
+          "command": "Panel: Alerts",
+          "does": "Terminal list and create form."
+        },
+        {
+          "command": "Route: /alert-swap",
+          "does": "Terminal route for acting on an alert."
+        }
+      ],
+      "specs": [
+        {
+          "label": "Plan required",
+          "value": "None found in code (treated as Free)"
+        },
+        {
+          "label": "Check interval",
+          "value": "60 seconds"
+        },
+        {
+          "label": "Flow",
+          "value": "Select token, select type, enter price"
+        },
+        {
+          "label": "Delivery",
+          "value": "Telegram message"
+        },
+        {
+          "label": "Acts on trades",
+          "value": "No"
+        },
+        {
+          "label": "Chains and sources",
+          "value": "Not stated here"
+        },
+        {
+          "label": "Per-user cap",
+          "value": "Not stated here"
+        },
+        {
+          "label": "Fee",
+          "value": "None for alerts"
+        }
+      ],
+      "example": {
+        "title": "Watch a level",
+        "lang": "telegram",
+        "code": "/a\n(bot asks: select token)\n(bot asks: select alert type)\n(bot asks: enter price)\n(bot confirms the alert)\n\n/a\n(bot lists your active alerts)"
+      },
+      "pricing": "No paid plan gate was found on alerts, so treat them as free. Fees only apply if you later swap, at 1.0% on Free down to 0.1% on Enterprise.",
+      "limits": [
+        "Not real-time. Checks run every 60 seconds, so a brief spike can pass unseen.",
+        "An alert never executes a trade by itself.",
+        "Which tokens and chains are covered depends on the price source and is not stated here.",
+        "A maximum number of alerts per user is not stated here.",
+        "Delivery relies on Telegram being reachable."
+      ],
+      "faq": [
+        {
+          "q": "Are alerts free?",
+          "a": "No plan gate was found on /a, so they behave as free."
+        },
+        {
+          "q": "How fast do they fire?",
+          "a": "The service checks every 60 seconds. Expect up to a minute of delay."
+        },
+        {
+          "q": "Will it trade for me?",
+          "a": "No. It only notifies. Use /o for a limit order that executes."
+        },
+        {
+          "q": "Can I set one in the Terminal?",
+          "a": "Yes, in the Alerts panel, and the Terminal has a route to act on an alert."
+        },
+        {
+          "q": "How do I remove one?",
+          "a": "/a lists your active alerts. Leave a half-built flow with /cancel."
+        },
+        {
+          "q": "Does it cover every token?",
+          "a": "Coverage depends on the price source. Try the token in /a to confirm."
+        }
+      ],
+      "related": [
+        "orders",
+        "telegram-bot",
+        "terminal",
+        "swap-routing"
+      ],
+      "solveLinks": [
+        "price-alerts-telegram",
+        "limit-orders-dca-telegram"
+      ],
+      "visual": "alert-pulse",
+      "keywords": [
+        "crypto price alert telegram",
+        "telegram price alert bot",
+        "token price notification",
+        "price alert cross-chain",
+        "set price alert dex",
+        "telegram crypto alerts free"
+      ]
+    },
+    {
+      "slug": "copy-trading",
+      "name": "Copy Trading",
+      "category": "Automate",
+      "audience": "trader",
+      "title": "Copy trading in Telegram: follow up to 5 leaders",
+      "metaDescription": "Mirror a leader's swaps in notify, auto or paper mode. Default caps $100 per trade, $500 per day, 1% slippage. Follow up to 5. Pro plan, $9.99/mo.",
+      "headline": "Follow a leader. Cap what you copy.",
+      "lead": "Pick from a ranked leaderboard, choose notify, auto or paper mode, and set hard caps per trade and per day. Follow up to five leaders. Pro plan.",
+      "primaryCta": {
+        "label": "Get Pro, $9.99/mo",
+        "href": "/pricing"
+      },
+      "secondaryCta": {
+        "label": "Open the bot in Telegram",
+        "href": "https://t.me/suwappu_bot"
+      },
+      "whatItIs": [
+        "Copy trading mirrors a leader's swaps into your account. You choose how: notify you only, copy automatically, or copy on paper with no funds at risk. Every follow carries limits you set.",
+        "It is for people who want to watch how other wallets trade before committing money. Past results are not a promise. A leader can lose, and an automatic copy loses with them."
+      ],
+      "howItWorks": [
+        {
+          "title": "Browse leaders",
+          "detail": "Send /traders to see the leaderboard, ranked by a score that combines volume, win rate and trade count."
+        },
+        {
+          "title": "Open a profile",
+          "detail": "/profile shows a leader. /tstats shows statistics."
+        },
+        {
+          "title": "Follow",
+          "detail": "Follow a leader. The default copy amount is $10."
+        },
+        {
+          "title": "Pick a mode",
+          "detail": "notify (you decide), auto (copied for you) or paper (simulated)."
+        },
+        {
+          "title": "Set limits",
+          "detail": "Max trade size, daily cap, max slippage, and optional filters."
+        },
+        {
+          "title": "Manage",
+          "detail": "/following lists who you copy, shown as n/5. Deactivate a follow at any time."
+        }
+      ],
+      "capabilities": [
+        {
+          "title": "Three modes",
+          "detail": "notify, auto, paper. Start with paper to see results without risk."
+        },
+        {
+          "title": "Follow cap",
+          "detail": "Up to 5 leaders at once. This is a hard limit."
+        },
+        {
+          "title": "Per-trade cap",
+          "detail": "max_trade_usd defaults to $100. Copy size is the smaller of the leader's amount and your cap."
+        },
+        {
+          "title": "Daily cap",
+          "detail": "daily_limit_usd defaults to $500 and resets daily."
+        },
+        {
+          "title": "Slippage ceiling",
+          "detail": "max_slippage_percent defaults to 1.0%."
+        },
+        {
+          "title": "Filters",
+          "detail": "Skip leader trades below a minimum size, filter by chain list, and optionally require a minimum leader PnL or token age."
+        },
+        {
+          "title": "Ranked leaderboard",
+          "detail": "rank_score = volume x win rate x trade factor / 1000."
+        },
+        {
+          "title": "Own PnL",
+          "detail": "Copy PnL is tracked per token and chain using average cost, separate from your normal PnL."
+        }
+      ],
+      "commands": [
+        {
+          "command": "/traders",
+          "does": "Leaderboard of leaders."
+        },
+        {
+          "command": "/following",
+          "does": "Leaders you follow, shown n/5."
+        },
+        {
+          "command": "/profile",
+          "does": "A leader's profile."
+        },
+        {
+          "command": "/tstats",
+          "does": "Copy trading statistics."
+        },
+        {
+          "command": "Panel: Copy trading",
+          "does": "Terminal dashboard with leaderboard, following list and settings."
+        }
+      ],
+      "specs": [
+        {
+          "label": "Plan required",
+          "value": "Pro ($9.99/mo)"
+        },
+        {
+          "label": "Modes",
+          "value": "notify, auto, paper"
+        },
+        {
+          "label": "Max follows",
+          "value": "5"
+        },
+        {
+          "label": "Default copy amount",
+          "value": "$10"
+        },
+        {
+          "label": "Default max trade",
+          "value": "$100"
+        },
+        {
+          "label": "Default daily limit",
+          "value": "$500"
+        },
+        {
+          "label": "Default max slippage",
+          "value": "1.0%"
+        },
+        {
+          "label": "Leaderboard order",
+          "value": "rank_score, highest first"
+        }
+      ],
+      "example": {
+        "title": "Paper-test a leader",
+        "lang": "telegram",
+        "code": "/traders\n(bot shows the leaderboard)\n(select a leader, choose mode: paper)\n(set max trade and daily limit)\n[Confirm]\n\n/following\n(bot lists leaders you follow, n/5)\n\n/tstats\n(bot shows copy statistics)"
+      },
+      "pricing": "Copy trading requires Pro at $9.99 a month. Copied swaps carry the normal swap fee: 0.5% on Pro, 0.3% on Premium, 0.1% on Enterprise. Paper mode lets you test before real money moves.",
+      "limits": [
+        "Not an investment service. A leader's past results do not predict future ones.",
+        "Auto mode copies losses as well as gains.",
+        "Maximum 5 follows. No exceptions.",
+        "No automatic stop-loss on a leader was found. Your caps are the only guard.",
+        "Which chains and venues are supported is not stated here. Copies follow the swap the router picks.",
+        "The command to follow is started from the leaderboard and profile, not a separate /follow command."
+      ],
+      "faq": [
+        {
+          "q": "Can it spend more than I allow?",
+          "a": "Copy size is capped by your per-trade limit and your daily limit. Defaults are $100 and $500."
+        },
+        {
+          "q": "Can I try without risk?",
+          "a": "Yes. Paper mode simulates copies."
+        },
+        {
+          "q": "How many leaders can I follow?",
+          "a": "Five at once."
+        },
+        {
+          "q": "How are leaders ranked?",
+          "a": "By a score combining volume, win rate and a trade factor. It is a ranking, not a recommendation."
+        },
+        {
+          "q": "What plan is needed?",
+          "a": "Pro, at $9.99 a month."
+        },
+        {
+          "q": "Does it stop if a leader starts losing?",
+          "a": "No automatic stop on the leader was found. Stop a follow yourself or let your daily cap limit damage."
+        }
+      ],
+      "related": [
+        "swap-routing",
+        "orders",
+        "telegram-bot",
+        "terminal"
+      ],
+      "solveLinks": [
+        "telegram-trading-bot-cross-chain",
+        "is-a-telegram-trading-bot-safe"
+      ],
+      "visual": "copy-mirror",
+      "keywords": [
+        "telegram copy trading bot",
+        "copy trade crypto wallets",
+        "copy trading dex",
+        "paper copy trading",
+        "follow wallet trades",
+        "copy trading leaderboard"
+      ]
+    },
+    {
+      "slug": "sniping",
+      "name": "Launch Sniping",
+      "category": "Automate",
+      "audience": "trader",
+      "title": "Solana launch sniping: pump.fun and Raydium",
+      "metaDescription": "Buy new Solana launches from Telegram. Detects pump.fun and Raydium pools. Defaults 0.5 SOL, 10% slippage, 5 SOL per day cap. Pro plan, $9.99/mo.",
+      "headline": "Be early on Solana launches, with daily caps.",
+      "lead": "Watch pump.fun launches and new Raydium pools, buy by contract or on auto, and cap your daily spend. Solana only. Pro plan. No safety filter is enforced.",
+      "primaryCta": {
+        "label": "Get Pro, $9.99/mo",
+        "href": "/pricing"
+      },
+      "secondaryCta": {
+        "label": "Open the bot in Telegram",
+        "href": "https://t.me/suwappu_bot"
+      },
+      "whatItIs": [
+        "Sniping means buying a token in the first moments after it launches. Suwappu listens for new pump.fun tokens and migrations, plus first-liquidity events on new Raydium pools, then buys with the settings you chose.",
+        "It is high-risk by nature. Most new tokens fail, and some are scams. The tool limits your spend, but it does not vet the tokens for you."
+      ],
+      "howItWorks": [
+        {
+          "title": "Start",
+          "detail": "Send /snipe, or /snipe followed by a contract."
+        },
+        {
+          "title": "Set the buy",
+          "detail": "Default buy is 0.5 SOL. Default slippage is 10%. You can change both."
+        },
+        {
+          "title": "Choose auto or manual",
+          "detail": "Tap Auto-Snipe in the /snipe menu for rules, or paste a contract to buy once."
+        },
+        {
+          "title": "Detection",
+          "detail": "The detector reads pump.fun token creation, trades and migration events, and new Raydium pools."
+        },
+        {
+          "title": "Filter",
+          "detail": "Auto-snipe uses a quality score floor of 30 and a liquidity window of 5 to 100 SOL."
+        },
+        {
+          "title": "Execute and log",
+          "detail": "The buy retries up to 3 times. Review Watchlist and Snipe History from the /snipe menu."
+        }
+      ],
+      "capabilities": [
+        {
+          "title": "Sources",
+          "detail": "pump.fun bonding-curve launches and Raydium new AMM and CLMM pools."
+        },
+        {
+          "title": "Migration sniping",
+          "detail": "Catches pump.fun to Raydium migrations when the migration event is seen."
+        },
+        {
+          "title": "Default buy",
+          "detail": "0.5 SOL per snipe."
+        },
+        {
+          "title": "Slippage",
+          "detail": "Default 1000 bps (10%), adjustable."
+        },
+        {
+          "title": "Daily caps",
+          "detail": "10 snipes and 5.0 SOL per day by default."
+        },
+        {
+          "title": "Liquidity window",
+          "detail": "Auto-snipe targets pools holding 5 to 100 SOL of liquidity."
+        },
+        {
+          "title": "Quality score",
+          "detail": "Launches under a score of 30 are filtered out."
+        },
+        {
+          "title": "Retries",
+          "detail": "Up to 3 attempts per snipe."
+        }
+      ],
+      "commands": [
+        {
+          "command": "/snipe",
+          "does": "Open the sniping menu, or /snipe <contract> to target a token."
+        },
+        {
+          "command": "Auto-Snipe (menu button)",
+          "does": "Set automatic sniping rules."
+        },
+        {
+          "command": "New Launches (menu button)",
+          "does": "Browse newly detected launches."
+        },
+        {
+          "command": "Watchlist (menu button)",
+          "does": "Tokens you are watching."
+        },
+        {
+          "command": "Snipe History (menu button)",
+          "does": "Past snipes."
+        },
+        {
+          "command": "Settings (menu button)",
+          "does": "Buy size, slippage and tip."
+        }
+      ],
+      "specs": [
+        {
+          "label": "Plan required",
+          "value": "Pro ($9.99/mo)"
+        },
+        {
+          "label": "Chain",
+          "value": "Solana only"
+        },
+        {
+          "label": "Launch sources",
+          "value": "pump.fun, Raydium"
+        },
+        {
+          "label": "Default buy",
+          "value": "0.5 SOL"
+        },
+        {
+          "label": "Default slippage",
+          "value": "10%"
+        },
+        {
+          "label": "Daily caps",
+          "value": "10 snipes and 5.0 SOL per day; auto-snipe budget 10.0 SOL per day"
+        },
+        {
+          "label": "Liquidity window",
+          "value": "5 to 100 SOL"
+        },
+        {
+          "label": "Max retries",
+          "value": "3"
+        }
+      ],
+      "example": {
+        "title": "Snipe one contract",
+        "lang": "telegram",
+        "code": "/snipe <contract>\n(bot shows the snipe settings: amount 0.5 SOL, slippage 10%)\n[Confirm Snipe]\n\n/snipe → [Snipe History]\n(bot lists your snipes)"
+      },
+      "pricing": "Sniping requires Pro at $9.99 a month. Pro also lowers the swap fee from 1.0% to 0.5%. Your own daily cap defaults to 5 SOL.",
+      "limits": [
+        "Solana only. No EVM sniping and no other launchpads.",
+        "No honeypot or mint and freeze authority filter is enforced. The settings exist but are not wired. Check each token yourself.",
+        "Auto-snipe filters are quality score and liquidity range, nothing more.",
+        "10% default slippage means you can pay well above the quoted price.",
+        "Most launches lose value. Do not spend what you cannot lose.",
+        "Migration sniping only works when the detector sees the migration event."
+      ],
+      "faq": [
+        {
+          "q": "Does it check for rug pulls?",
+          "a": "No. The honeypot and authority flags are stored but not enforced in sniping. Treat every token as unvetted."
+        },
+        {
+          "q": "Which chains?",
+          "a": "Solana only."
+        },
+        {
+          "q": "What caps protect me?",
+          "a": "By default 10 snipes and 5.0 SOL per day, 0.5 SOL per buy."
+        },
+        {
+          "q": "What launchpads?",
+          "a": "pump.fun and new Raydium pools."
+        },
+        {
+          "q": "Why is slippage 10%?",
+          "a": "New tokens move fast and thin. You can lower it, but buys may fail."
+        },
+        {
+          "q": "What plan?",
+          "a": "Pro at $9.99 a month."
+        }
+      ],
+      "related": [
+        "swap-routing",
+        "alerts",
+        "telegram-bot",
+        "wallets-custody"
+      ],
+      "solveLinks": [
+        "snipe-new-solana-launches-telegram",
+        "is-a-telegram-trading-bot-safe"
+      ],
+      "visual": "launch-radar",
+      "keywords": [
+        "solana sniper bot telegram",
+        "pump.fun sniper",
+        "raydium new pool sniper",
+        "telegram sniping bot",
+        "migration sniping pump fun",
+        "auto snipe solana"
+      ]
+    },
+    {
+      "slug": "perps",
+      "name": "HyperLiquid Perps",
+      "category": "Markets",
+      "audience": "trader",
+      "title": "HyperLiquid perps from Telegram and the Terminal",
+      "metaDescription": "Open and close HyperLiquid perpetuals from /perps or the Terminal. Leverage caps come from each market, fallback 20x. Liquidations are detected and reported.",
+      "headline": "HyperLiquid perps, with the leverage cap shown by the market",
+      "lead": "Open and close perpetual positions on HyperLiquid from Telegram or the Terminal. Leverage is capped by each market, with a 20x fallback. Leverage can liquidate you.",
+      "primaryCta": {
+        "label": "Open the bot in Telegram",
+        "href": "https://t.me/suwappu_bot"
+      },
+      "secondaryCta": {
+        "label": "Open the Terminal",
+        "href": "https://terminal.suwappu.bot"
+      },
+      "whatItIs": [
+        "Perpetual futures let you take a leveraged long or short on a market. Suwappu routes these to HyperLiquid, the venue. The bot handles opening and closing, and syncs your positions from the exchange before listing them.",
+        "It is for traders who already understand margin and liquidation. Leverage multiplies losses as well as gains. A position can be closed out by the exchange if the market moves against you."
+      ],
+      "howItWorks": [
+        {
+          "title": "Send /perps",
+          "detail": "The bot opens a conversational flow for a new position."
+        },
+        {
+          "title": "Choose market and side",
+          "detail": "Pick the market and whether you are long or short."
+        },
+        {
+          "title": "Set size and leverage",
+          "detail": "Leverage is checked against that market's maximum, from HyperLiquid's own market data."
+        },
+        {
+          "title": "See margin",
+          "detail": "Margin required is size times entry price divided by leverage."
+        },
+        {
+          "title": "Confirm and sign",
+          "detail": "The order is signed and sent to HyperLiquid."
+        },
+        {
+          "title": "Monitor",
+          "detail": "Positions are re-synced from HyperLiquid. If one disappears on the exchange, it is marked liquidated."
+        }
+      ],
+      "capabilities": [
+        {
+          "title": "Per-market leverage cap",
+          "detail": "Max leverage is read from HyperLiquid per market. The fallback is 20x, minimum 1x."
+        },
+        {
+          "title": "Margin arithmetic",
+          "detail": "Margin = size x entry price / leverage. A $10,000 position at 10x needs $1,000."
+        },
+        {
+          "title": "Position sync",
+          "detail": "Positions are re-synced from HyperLiquid before they are listed."
+        },
+        {
+          "title": "Liquidation detection",
+          "detail": "A monitor detects closures and marks them liquidated."
+        },
+        {
+          "title": "HyperLiquid hub",
+          "detail": "/hl gives access to /spot, /stake, /unstake, /vault and /hlmove."
+        },
+        {
+          "title": "Perps TWAP",
+          "detail": "/twap <MARKET> <long|short> <size> <minutes> slices a perps order over time."
+        },
+        {
+          "title": "Terminal perps workspace",
+          "detail": "Markets board, positions table, open orders, smart-money panel, whale and funding views."
+        }
+      ],
+      "commands": [
+        {
+          "command": "/perps",
+          "does": "Open or close perpetual positions."
+        },
+        {
+          "command": "/hl",
+          "does": "HyperLiquid hub."
+        },
+        {
+          "command": "/twap",
+          "does": "Perps only. Bare /twap shows running TWAPs. /twap <MARKET> <long|short> <size> <minutes> submits a live order at once, with no confirmation step."
+        },
+        {
+          "command": "/spot",
+          "does": "HyperLiquid spot."
+        },
+        {
+          "command": "/stake",
+          "does": "HyperLiquid staking."
+        },
+        {
+          "command": "/vault",
+          "does": "HyperLiquid vaults."
+        },
+        {
+          "command": "Panel: Perps",
+          "does": "Terminal markets board, positions, open orders."
+        }
+      ],
+      "specs": [
+        {
+          "label": "Venue",
+          "value": "HyperLiquid"
+        },
+        {
+          "label": "Chains",
+          "value": "HyperLiquid only"
+        },
+        {
+          "label": "Leverage cap",
+          "value": "Per market, from HyperLiquid; fallback 20x"
+        },
+        {
+          "label": "Minimum leverage",
+          "value": "1x"
+        },
+        {
+          "label": "Margin formula",
+          "value": "size x entry / leverage"
+        },
+        {
+          "label": "TWAP syntax",
+          "value": "/twap <MARKET> <long|short> <size> <minutes>"
+        },
+        {
+          "label": "Liquidation",
+          "value": "Detected on sync; position marked liquidated"
+        },
+        {
+          "label": "Plan required",
+          "value": "Not stated here"
+        }
+      ],
+      "example": {
+        "title": "Check positions, then a TWAP entry",
+        "lang": "telegram",
+        "code": "/perps\n(bot lists your positions, re-synced from HyperLiquid)\n\n/twap\n(bot shows your running TWAP orders; nothing is placed)\n\n# Live order. There is no confirmation step: sending this submits it.\n/twap <MARKET> <long|short> <size> <minutes>\n(bot replies: TWAP started)"
+      },
+      "pricing": "Which plan is required for perps is not stated here; check the pricing page. Swap fees follow tiers: Free 1.0%, Pro 0.5%, Premium 0.3%, Enterprise 0.1%. HyperLiquid charges its own exchange fees.",
+      "limits": [
+        "Leverage can wipe out your margin. Liquidation is a normal outcome of a bad trade.",
+        "Maximum leverage is not 50x. It depends on the market, with a 20x fallback.",
+        "HyperLiquid only. No cross-venue perps and no spot-margin.",
+        "Liquidation alerts depend on a monitor; its interval is not stated here.",
+        "Order types and market list beyond the basics are not stated here.",
+        "This is not investment advice."
+      ],
+      "faq": [
+        {
+          "q": "What is the maximum leverage?",
+          "a": "It differs by market and is read from HyperLiquid. If that lookup fails, a 20x fallback applies."
+        },
+        {
+          "q": "Is /twap for spot?",
+          "a": "No. /twap is HyperLiquid perps only. For spot, use DCA."
+        },
+        {
+          "q": "Do you hold my position?",
+          "a": "The position lives on HyperLiquid. Suwappu signs and syncs it."
+        },
+        {
+          "q": "What happens on liquidation?",
+          "a": "The exchange closes the position. The bot sees it gone on the next sync and marks it liquidated."
+        },
+        {
+          "q": "Can I trade perps in the browser?",
+          "a": "Yes. The Terminal has a perps workspace with a HyperLiquid connect step."
+        },
+        {
+          "q": "Does it cover other perp venues?",
+          "a": "No. HyperLiquid only."
+        }
+      ],
+      "related": [
+        "terminal",
+        "orders",
+        "telegram-bot",
+        "wallets-custody"
+      ],
+      "solveLinks": [
+        "telegram-trading-bot-cross-chain",
+        "is-a-telegram-trading-bot-safe"
+      ],
+      "visual": "perp-ladder",
+      "keywords": [
+        "hyperliquid telegram bot",
+        "hyperliquid perps trading",
+        "perps twap hyperliquid",
+        "leverage trading telegram",
+        "hyperliquid terminal",
+        "perpetuals bot"
+      ]
+    },
+    {
+      "slug": "predictions",
+      "name": "Prediction Markets",
+      "category": "Markets",
+      "audience": "trader",
+      "title": "Polymarket prediction markets in Telegram",
+      "metaDescription": "Trade Polymarket outcome shares with /predict. Markets are monitored and auto-settled when they resolve. Not available in restricted regions, including the US.",
+      "headline": "Trade Polymarket outcomes from a chat command",
+      "lead": "Open /predict, find a market and take a side. A monitor watches prices and settles resolved markets for you. Blocked in restricted regions, including the US.",
+      "primaryCta": {
+        "label": "Open the bot in Telegram",
+        "href": "https://t.me/suwappu_bot"
+      },
+      "secondaryCta": {
+        "label": "Open the Terminal",
+        "href": "https://terminal.suwappu.bot"
+      },
+      "whatItIs": [
+        "Polymarket lists yes-or-no questions about future events. Each outcome trades at a price that reflects the market's odds. /predict lets you trade those outcome shares through Polymarket's order book from Telegram.",
+        "It is for people who want to express a view on an event. Outcome shares can go to zero. This is a market on events, not a stock or an investment product."
+      ],
+      "howItWorks": [
+        {
+          "title": "Send /predict",
+          "detail": "The bot opens the prediction market flow."
+        },
+        {
+          "title": "Find a market",
+          "detail": "Browse Polymarket markets and read the current odds."
+        },
+        {
+          "title": "Pick an outcome",
+          "detail": "Choose the side you want to buy."
+        },
+        {
+          "title": "Confirm the trade",
+          "detail": "Review and confirm. The order goes to Polymarket's order book."
+        },
+        {
+          "title": "Monitoring",
+          "detail": "A monitor polls the order book midpoint for your positions."
+        },
+        {
+          "title": "Settlement",
+          "detail": "When a market resolves, the monitor settles it and notifies you."
+        }
+      ],
+      "capabilities": [
+        {
+          "title": "Polymarket order book",
+          "detail": "Trades go through Polymarket's CLOB."
+        },
+        {
+          "title": "Midpoint tracking",
+          "detail": "The monitor polls the midpoint price on your positions."
+        },
+        {
+          "title": "Auto-settlement",
+          "detail": "Resolved markets are settled by the monitor, not by you."
+        },
+        {
+          "title": "Notifications",
+          "detail": "You are messaged when a market settles."
+        },
+        {
+          "title": "Region check",
+          "detail": "Restricted regions are blocked. The list covers the US and about 33 other regions."
+        },
+        {
+          "title": "Rate limit",
+          "detail": "15 requests per 60 seconds per user."
+        },
+        {
+          "title": "Terminal panel",
+          "detail": "The Terminal includes a predict panel."
+        }
+      ],
+      "commands": [
+        {
+          "command": "/predict",
+          "does": "Browse markets and trade outcomes."
+        },
+        {
+          "command": "/p",
+          "does": "Portfolio overview."
+        },
+        {
+          "command": "/b",
+          "does": "Balances."
+        }
+      ],
+      "specs": [
+        {
+          "label": "Venue",
+          "value": "Polymarket (CLOB)"
+        },
+        {
+          "label": "Command",
+          "value": "/predict"
+        },
+        {
+          "label": "Plan required",
+          "value": "None found in code"
+        },
+        {
+          "label": "Rate limit",
+          "value": "15 requests per 60 seconds"
+        },
+        {
+          "label": "Region rule",
+          "value": "Restricted regions blocked; unknown regions pass through"
+        },
+        {
+          "label": "Updates",
+          "value": "Polled, not pushed by webhook"
+        },
+        {
+          "label": "Settlement",
+          "value": "Automatic when the market resolves"
+        },
+        {
+          "label": "Redemption chain",
+          "value": "Not stated here"
+        }
+      ],
+      "example": {
+        "title": "Take a side",
+        "lang": "telegram",
+        "code": "/predict\n(bot lists Polymarket markets)\n(select a market, then an outcome)\n(bot shows the order: outcome, price, size)\n[Confirm]\n\n(later) (bot notifies you when the market settles)"
+      },
+      "pricing": "No plan gate was found on /predict. Polymarket's own trading costs apply on top of Suwappu's. Pro at $9.99 a month lowers the swap fee from 1.0% to 0.5% for any swap you make to fund a position.",
+      "limits": [
+        "Not available in Polymarket's restricted regions, including the US.",
+        "Outcome shares can lose their entire value if you pick the wrong side.",
+        "No webhooks. Positions can be stale between polls.",
+        "The bot limits you to 15 requests per minute.",
+        "Which chain you redeem on is not stated here.",
+        "Odds are not predictions or advice."
+      ],
+      "faq": [
+        {
+          "q": "Can I use it in the US?",
+          "a": "No. Polymarket restricts the US and other regions, and the bot enforces that list."
+        },
+        {
+          "q": "Who settles resolved markets?",
+          "a": "The monitor does, then it tells you."
+        },
+        {
+          "q": "Is the price live?",
+          "a": "It is polled, so it can lag. Positions may be stale between polls."
+        },
+        {
+          "q": "Do I need a paid plan?",
+          "a": "No plan gate was found."
+        },
+        {
+          "q": "What if my region is unknown?",
+          "a": "The check does not block when a region cannot be determined. Polymarket's own rules still apply to you."
+        },
+        {
+          "q": "Is this investing?",
+          "a": "No. It is a market on event outcomes, and you can lose the full stake."
+        }
+      ],
+      "related": [
+        "telegram-bot",
+        "terminal",
+        "wallets-custody",
+        "alerts"
+      ],
+      "solveLinks": [
+        "telegram-trading-bot-cross-chain",
+        "price-alerts-telegram"
+      ],
+      "visual": "odds-bar",
+      "keywords": [
+        "polymarket telegram bot",
+        "trade polymarket from telegram",
+        "prediction market bot",
+        "polymarket predict command",
+        "polymarket auto settle",
+        "prediction markets crypto telegram"
+      ]
+    },
+    {
+      "slug": "wallets-custody",
+      "name": "Wallets and Custody",
+      "category": "Custody",
+      "audience": "trader",
+      "title": "Wallets, keys and 2FA: how Suwappu holds funds",
+      "metaDescription": "Keys are envelope-encrypted with KMS by default. Import your own wallet, enable TOTP 2FA for large swaps, and track balances and PnL with /p and /b.",
+      "headline": "Know where your keys live before you trade",
+      "lead": "Default wallets use KMS envelope encryption. You can import your own, add TOTP 2FA for large swaps, and read balances and PnL with two commands.",
+      "primaryCta": {
+        "label": "Open the bot in Telegram",
+        "href": "https://t.me/suwappu_bot"
+      },
+      "secondaryCta": {
+        "label": "Is a Telegram bot safe?",
+        "href": "/solve/is-a-telegram-trading-bot-safe"
+      },
+      "whatItIs": [
+        "A trading bot has to sign for you, so it matters where keys sit. By default, bot wallets are encrypted with envelope encryption using a cloud key service (scheme kms_aesgcm_v2). Holding keys with Turnkey is an opt-in per wallet.",
+        "This page covers the wallet, the controls around it, and the read-only portfolio tools. It is custodial in the bot's default mode, so understand that trade-off. The Terminal works differently: you sign from your own wallet."
+      ],
+      "howItWorks": [
+        {
+          "title": "Create or bring a wallet",
+          "detail": "Use /w for your wallet, /import to bring one in, /bindwallet to bind an external one, or /c for custodial deposits."
+        },
+        {
+          "title": "Keys are encrypted",
+          "detail": "Default scheme kms_aesgcm_v2: envelope encryption backed by KMS."
+        },
+        {
+          "title": "Add 2FA",
+          "detail": "/2fa enrolls TOTP authentication, used for large swaps."
+        },
+        {
+          "title": "Trade",
+          "detail": "Swaps and orders sign from the wallet you chose."
+        },
+        {
+          "title": "Withdraw",
+          "detail": "Withdrawals check the destination address and end in a confirmation step. They can be paused."
+        },
+        {
+          "title": "Watch",
+          "detail": "/p shows your portfolio, /b balances, /hx history."
+        }
+      ],
+      "capabilities": [
+        {
+          "title": "KMS envelope encryption",
+          "detail": "Default scheme kms_aesgcm_v2. An older Fernet scheme exists for legacy wallets."
+        },
+        {
+          "title": "Opt-in Turnkey",
+          "detail": "Turnkey-held keys are chosen per wallet, not the default."
+        },
+        {
+          "title": "TOTP 2FA",
+          "detail": "/2fa enrolls, verifies and disables TOTP for large swaps."
+        },
+        {
+          "title": "Import and bind",
+          "detail": "/import brings in a wallet; /bindwallet and /unbindwallet connect external ones."
+        },
+        {
+          "title": "Withdrawal checks",
+          "detail": "Address validation and a confirm step before funds leave."
+        },
+        {
+          "title": "Realized PnL",
+          "detail": "Computed per token as received minus spent."
+        },
+        {
+          "title": "Portfolio and balances",
+          "detail": "/p and /b are read-only."
+        },
+        {
+          "title": "Weekly digest",
+          "detail": "An opt-in summary message. Off unless you turn it on."
+        }
+      ],
+      "commands": [
+        {
+          "command": "/w",
+          "does": "Wallet."
+        },
+        {
+          "command": "/c",
+          "does": "Custodial deposits and withdrawals."
+        },
+        {
+          "command": "/import",
+          "does": "Import a wallet."
+        },
+        {
+          "command": "/bindwallet",
+          "does": "Bind an external wallet."
+        },
+        {
+          "command": "/unbindwallet",
+          "does": "Remove a bound wallet."
+        },
+        {
+          "command": "/2fa",
+          "does": "Enroll, verify or disable TOTP 2FA."
+        },
+        {
+          "command": "/recovery",
+          "does": "Wallet recovery settings."
+        },
+        {
+          "command": "/p",
+          "does": "Portfolio."
+        },
+        {
+          "command": "/b",
+          "does": "Balances."
+        },
+        {
+          "command": "/hx",
+          "does": "History."
+        }
+      ],
+      "specs": [
+        {
+          "label": "Default encryption",
+          "value": "kms_aesgcm_v2 (envelope, KMS)"
+        },
+        {
+          "label": "Turnkey",
+          "value": "Opt-in per wallet"
+        },
+        {
+          "label": "2FA",
+          "value": "TOTP, applied to large swaps"
+        },
+        {
+          "label": "2FA threshold",
+          "value": "Not stated here"
+        },
+        {
+          "label": "Withdrawals",
+          "value": "Address validation plus confirm step; can be paused"
+        },
+        {
+          "label": "Terminal custody",
+          "value": "Non-custodial: you sign externally"
+        },
+        {
+          "label": "Portfolio tools",
+          "value": "Read-only"
+        },
+        {
+          "label": "Weekly digest",
+          "value": "Opt-in"
+        }
+      ],
+      "example": {
+        "title": "Set up and check",
+        "lang": "telegram",
+        "code": "/2fa\n(bot walks you through TOTP enrollment)\n\n/p\n(bot shows your portfolio)\n\n/b\n(bot shows balances by chain)"
+      },
+      "pricing": "Wallets, balances and portfolio are not gated behind a paid plan that we found. Fees only apply to swaps: Free 1.0%, Pro 0.5%, Premium 0.3%, Enterprise 0.1%. 2FA has no listed cost.",
+      "limits": [
+        "Default bot wallets are custodial. Suwappu's infrastructure holds the encrypted key.",
+        "2FA covers large swaps. We did not find 2FA on withdrawals.",
+        "The 2FA size threshold is not stated here.",
+        "Withdrawal limits and cooldowns are not stated here.",
+        "Private-key export is not confirmed. Do not assume you can take the key out.",
+        "No audit is claimed."
+      ],
+      "faq": [
+        {
+          "q": "Who holds my key?",
+          "a": "By default, the bot stores it envelope-encrypted with KMS. Turnkey is opt-in per wallet. In the Terminal you keep your own wallet."
+        },
+        {
+          "q": "Does 2FA protect withdrawals?",
+          "a": "It is built for large swaps. Withdrawals have address validation and a confirm step. We did not find 2FA on them."
+        },
+        {
+          "q": "Can I use my own wallet?",
+          "a": "Yes. Use /import, /bindwallet, or connect in the Terminal."
+        },
+        {
+          "q": "Is the portfolio view safe?",
+          "a": "It is read-only."
+        },
+        {
+          "q": "Is the weekly digest on?",
+          "a": "No. It is opt-in."
+        },
+        {
+          "q": "Can I export my key?",
+          "a": "Not confirmed. Check before you rely on it."
+        }
+      ],
+      "related": [
+        "telegram-bot",
+        "terminal",
+        "swap-routing",
+        "spend-policies"
+      ],
+      "solveLinks": [
+        "is-a-telegram-trading-bot-safe",
+        "telegram-trading-bot-cross-chain"
+      ],
+      "visual": "key-vault",
+      "keywords": [
+        "is telegram trading bot safe",
+        "crypto bot custodial wallet",
+        "kms encrypted crypto wallet",
+        "telegram bot 2fa totp",
+        "import wallet trading bot",
+        "non-custodial crypto terminal"
+      ]
+    },
+    {
+      "slug": "agent-api",
+      "name": "Agent API",
+      "category": "Build",
+      "audience": "developer",
+      "status": "live",
+      "title": "Agent API: quote, simulate and execute swaps over REST",
+      "metaDescription": "A REST API for agent swaps: quote, dry-run, then sign yourself or execute from a managed wallet. Idempotent execution, signed webhooks, 60-second quotes.",
+      "headline": "Quote, simulate, then execute. One REST API.",
+      "lead": "The Agent API is Suwappu's REST surface for cross-chain swaps. Quote and dry-run cost 1 credit each, execution costs 5, and nothing moves until you choose to execute.",
+      "primaryCta": {
+        "label": "Get an API key",
+        "href": "/start"
+      },
+      "secondaryCta": {
+        "label": "Read the quick start",
+        "href": "/docs/quick-start/overview"
+      },
+      "whatItIs": [
+        "The Agent API lives under https://api.suwappu.bot/v1/agent. You register an agent with one POST, receive a suwappu_sk_ key, and call quote, simulate and swap routes with that key in an Authorization: Bearer header.",
+        "You choose who signs. POST /swap returns an unsigned transaction for you to sign with your own wallet. POST /swap/execute signs from a managed wallet and broadcasts. Both start from the same quote, so you can dry-run first and compare the result before anything is sent."
+      ],
+      "howItWorks": [
+        {
+          "title": "Register",
+          "detail": "POST /v1/agent/register with a name. The response holds your suwappu_sk_ key once; only a hash is kept. Registration is limited to 5 requests per minute per IP."
+        },
+        {
+          "title": "Quote",
+          "detail": "POST /v1/agent/quote with from_token, to_token, amount, chain (or from_chain and to_chain) and your wallet_address. You get a quote_id, expected_amount_out and minimum_amount_out."
+        },
+        {
+          "title": "Simulate",
+          "detail": "POST /v1/agent/swap/simulate with the quote_id and the same wallet. It reports balance, allowance, gas and revert checks without signing or broadcasting."
+        },
+        {
+          "title": "Swap or execute",
+          "detail": "POST /swap returns an unsigned transaction. POST /swap/execute runs it from the managed wallet. Send an Idempotency-Key header on execute."
+        },
+        {
+          "title": "Track",
+          "detail": "Poll GET /swap/status/:swapId, list with GET /swaps, or set a callback_url and receive signed webhooks."
+        }
+      ],
+      "capabilities": [
+        {
+          "title": "Wallet-bound quotes",
+          "detail": "A quote is valid for 60 seconds and tied to the wallet that requested it. A different wallet or agent is rejected at swap time. A quote without wallet_address cannot become a transaction."
+        },
+        {
+          "title": "Dry run before signing",
+          "detail": "POST /swap/simulate accepts a quote_id or raw from_token, to_token and amount. Solana simulations run through Jupiter. It costs 1 credit and creates no swap record."
+        },
+        {
+          "title": "Two signing paths",
+          "detail": "Unsigned transaction from /swap, or managed execution from /swap/execute. Pick per call, not per account."
+        },
+        {
+          "title": "Idempotent execution",
+          "detail": "Idempotency-Key is 1 to 64 characters from A-Z a-z 0-9 _ . : -. The key is stored per agent with a request fingerprint. An invalid key returns 400 VALIDATION_ERROR."
+        },
+        {
+          "title": "Approval-aware swaps",
+          "detail": "If a policy requires approval, /swap answers HTTP 202 with status pending, an approval_id and expires_at, instead of a transaction."
+        },
+        {
+          "title": "Signed webhooks",
+          "detail": "Set callback_url on register or PATCH /me. Payloads are signed with HMAC-SHA256 in the X-Suwappu-Signature header. POST /webhooks/test sends a signed test event."
+        },
+        {
+          "title": "Structured errors",
+          "detail": "Errors carry success, error, error_code, and sometimes details and hint. Codes include VALIDATION_ERROR, UNAUTHORIZED, WALLET_NOT_FOUND, QUOTE_NOT_FOUND, POLICY_VIOLATION and UPSTREAM_ERROR."
+        },
+        {
+          "title": "OpenAPI and Postman",
+          "detail": "GET /v1/agent/openapi and GET /v1/agent/postman return the spec and a collection, so you can generate a client in any language."
+        }
+      ],
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/v1/agent/register",
+          "does": "Create an agent and receive the API key (unauthenticated)."
+        },
+        {
+          "method": "POST",
+          "path": "/v1/agent/quote",
+          "does": "Price a swap; returns quote_id and minimum_amount_out. 1 credit."
+        },
+        {
+          "method": "POST",
+          "path": "/v1/agent/swap/simulate",
+          "does": "Dry run a quote. No signing, no broadcast. 1 credit."
+        },
+        {
+          "method": "POST",
+          "path": "/v1/agent/swap",
+          "does": "Return an unsigned transaction, or 202 pending if approval is required."
+        },
+        {
+          "method": "POST",
+          "path": "/v1/agent/swap/execute",
+          "does": "Execute from a managed wallet. 5 credits. Accepts Idempotency-Key."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/agent/swap/status/:swapId",
+          "does": "Read one swap's status."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/agent/swaps",
+          "does": "List your swaps."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/agent/webhooks",
+          "does": "List webhook events; filter by status, event_type, limit, offset."
+        },
+        {
+          "method": "POST",
+          "path": "/v1/agent/webhooks/test",
+          "does": "Send a signed test delivery to your callback_url."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/agent/openapi",
+          "does": "OpenAPI spec."
+        }
+      ],
+      "specs": [
+        {
+          "label": "Base URL",
+          "value": "https://api.suwappu.bot/v1/agent"
+        },
+        {
+          "label": "Auth",
+          "value": "Authorization: Bearer suwappu_sk_... (register is unauthenticated)"
+        },
+        {
+          "label": "Quote lifetime",
+          "value": "60 seconds, wallet-bound"
+        },
+        {
+          "label": "Credit cost",
+          "value": "Quote 1, simulate 1, swap or execute 5"
+        },
+        {
+          "label": "Free tier rate limit",
+          "value": "30 requests per minute; HTTP 429 with Retry-After beyond it"
+        },
+        {
+          "label": "Chain types",
+          "value": "EVM and Solana"
+        },
+        {
+          "label": "Executes funds",
+          "value": "Only /swap/execute (managed wallet). /swap returns an unsigned transaction."
+        },
+        {
+          "label": "Webhook signature",
+          "value": "HMAC-SHA256 hex in X-Suwappu-Signature"
+        },
+        {
+          "label": "Status",
+          "value": "Live on api.suwappu.bot"
+        }
+      ],
+      "example": {
+        "title": "Quote, then dry-run with the same wallet",
+        "lang": "bash",
+        "code": "# 1. quote (wallet_address is required to build a real transaction)\ncurl -s -X POST https://api.suwappu.bot/v1/agent/quote \\\n  -H \"Authorization: Bearer $SUWAPPU_API_KEY\" -H \"Content-Type: application/json\" \\\n  -d '{\"from_token\":\"ETH\",\"to_token\":\"USDC\",\"amount\":\"0.1\",\"chain\":\"base\",\"wallet_address\":\"0xYourWallet\"}'\n\n# 2. dry run the returned quote_id with the same wallet\ncurl -s -X POST https://api.suwappu.bot/v1/agent/swap/simulate \\\n  -H \"Authorization: Bearer $SUWAPPU_API_KEY\" -H \"Content-Type: application/json\" \\\n  -d '{\"quote_id\":\"QUOTE_ID\",\"wallet_address\":\"0xYourWallet\"}'"
+      },
+      "pricing": "Metered calls draw prepaid credits: a quote or dry run costs 1, a swap costs 5, and 1 credit is about $0.001. New agents get 100 starter credits (three grants per IP per day at most). Swap fees are 0.8% on EVM and 0.3% on Solana, 20% lower for World ID verified agents.",
+      "limits": [
+        "A quote expires after 60 seconds. Request a fresh one if you wait.",
+        "Simulation is a dry run. It does not guarantee the swap will succeed at execution.",
+        "Quotes are not idempotent; only /swap/execute honours Idempotency-Key.",
+        "Webhook retry policy is not documented here, so treat webhooks as a convenience and reconcile with /swap/status.",
+        "Starter credits can be withheld by the per-IP guard."
+      ],
+      "faq": [
+        {
+          "q": "Who holds the keys?",
+          "a": "With /swap you sign with your own wallet; Suwappu never sees the key. With /swap/execute the managed wallet signs. Your suwappu_sk_ API key is shown once and only a hash is stored."
+        },
+        {
+          "q": "What if a call fails or times out?",
+          "a": "Check GET /swap/status or /swaps first, then retry /swap/execute with the same Idempotency-Key. If the outcome is unknown, the charge is held and reconciled by that key."
+        },
+        {
+          "q": "Is execution idempotent?",
+          "a": "Yes on /swap/execute, scoped to your agent and the request contents. A new key is a new trade. Quotes have no idempotency."
+        },
+        {
+          "q": "Can I cap what an agent spends?",
+          "a": "Yes. Wallet-level policies are self-serve; org-wide caps and approvals are set with the team. See spend-policies."
+        },
+        {
+          "q": "What is logged?",
+          "a": "Approval and policy events are written to an audit log you can read at GET /v1/agent/audit. See approvals-audit."
+        }
+      ],
+      "related": [
+        "mcp-server",
+        "sdks",
+        "spend-policies",
+        "swap-routing"
+      ],
+      "solveLinks": [
+        "cross-chain-swap-api",
+        "simulate-swap-before-signing",
+        "idempotent-agent-swaps"
+      ],
+      "visual": "pipeline-flow",
+      "keywords": [
+        "cross-chain swap API",
+        "crypto swap API for AI agents",
+        "quote and simulate swap API",
+        "REST API execute token swap",
+        "agent swap API idempotency key",
+        "unsigned transaction swap API"
+      ]
+    },
+    {
+      "slug": "mcp-server",
+      "name": "MCP Server",
+      "category": "Build",
+      "audience": "developer",
+      "status": "live",
+      "title": "MCP server for crypto swaps, prices and markets",
+      "metaDescription": "Hosted MCP server with 23 tools: quotes, dry runs, swaps, status, portfolio, prices, perps and prediction reads. Connect Claude or any MCP client.",
+      "headline": "Give your agent 23 market tools over MCP.",
+      "lead": "Point any MCP client at https://api.suwappu.bot/mcp. Discovery tools work without a key; quoting, dry runs and swaps need your API key.",
+      "primaryCta": {
+        "label": "Get an API key",
+        "href": "/start"
+      },
+      "secondaryCta": {
+        "label": "Read the quick start",
+        "href": "/docs/quick-start/overview"
+      },
+      "whatItIs": [
+        "The MCP server is a hosted JSON-RPC endpoint at https://api.suwappu.bot/mcp. It exposes the same swap engine as the REST Agent API as named tools, so a model can call get_quote or simulate_swap without you writing glue code.",
+        "If your client only speaks stdio, install the @suwappu/mcp-server package. It is a thin bridge that defines no tools of its own and forwards every call to the hosted endpoint, so the tool list is always the server's current one."
+      ],
+      "howItWorks": [
+        {
+          "title": "Get a key",
+          "detail": "Register an agent with POST /v1/agent/register. Discovery works without a key, but other tools return an error until you add one."
+        },
+        {
+          "title": "Add the server",
+          "detail": "Use the URL https://api.suwappu.bot/mcp with an Authorization: Bearer header, or run the stdio bridge with SUWAPPU_API_KEY set."
+        },
+        {
+          "title": "List tools",
+          "detail": "Call tools/list. The server negotiates protocol version through _meta; the MCP-Protocol-Version header must match it."
+        },
+        {
+          "title": "Quote and simulate",
+          "detail": "Call get_quote, then simulate_swap with the same wallet. Both are read-only."
+        },
+        {
+          "title": "Prepare and sign",
+          "detail": "Call execute_swap with the quote_id to get an unsigned transaction, then sign it with your own wallet and submit it. Check isError on every result."
+        }
+      ],
+      "capabilities": [
+        {
+          "title": "Swap tools",
+          "detail": "get_quote and simulate_swap price a swap. execute_swap turns a quote into an unsigned transaction for you to sign. get_swap_status and get_swap_history read managed swaps started through the REST API."
+        },
+        {
+          "title": "Portfolio and prices",
+          "detail": "get_portfolio and get_prices give the agent balances and market prices before it decides."
+        },
+        {
+          "title": "Chains and tokens",
+          "detail": "list_chains, list_tokens, get_tempo_tokens, near_resolve_asset and near_convert_amount help it resolve names to real assets."
+        },
+        {
+          "title": "Perps reads and quotes",
+          "detail": "perps_markets, perps_quote and perps_positions. There is no perps order tool; perps is quote and read only."
+        },
+        {
+          "title": "Prediction market data",
+          "detail": "predict_markets, predict_market, predict_book, predict_price and predict_trades read markets, order books, prices and trades."
+        },
+        {
+          "title": "Lending reads",
+          "detail": "lend_markets and lend_market are read-only. No lending execution."
+        },
+        {
+          "title": "Policy visibility",
+          "detail": "list_wallet_policies lets the agent see the wallet limits it is operating under before it tries a swap."
+        },
+        {
+          "title": "Stdio bridge",
+          "detail": "npx @suwappu/mcp-server with SUWAPPU_API_KEY and optional SUWAPPU_API_URL (default https://api.suwappu.bot)."
+        }
+      ],
+      "endpoints": [
+        {
+          "method": "TOOL",
+          "path": "get_quote",
+          "does": "Price a swap. 1 credit."
+        },
+        {
+          "method": "TOOL",
+          "path": "simulate_swap",
+          "does": "Dry run a quote without signing. 1 credit."
+        },
+        {
+          "method": "TOOL",
+          "path": "execute_swap",
+          "does": "Build an unsigned transaction from a quote_id. You sign and submit it. 5 credits."
+        },
+        {
+          "method": "TOOL",
+          "path": "get_swap_status",
+          "does": "Read the status of a managed swap from REST POST /v1/agent/swap/execute."
+        },
+        {
+          "method": "TOOL",
+          "path": "get_swap_history",
+          "does": "List past managed swaps from the REST API."
+        },
+        {
+          "method": "TOOL",
+          "path": "get_portfolio",
+          "does": "Wallet balances. Metered."
+        },
+        {
+          "method": "TOOL",
+          "path": "get_prices",
+          "does": "Token prices."
+        },
+        {
+          "method": "TOOL",
+          "path": "list_chains",
+          "does": "Supported chains."
+        },
+        {
+          "method": "TOOL",
+          "path": "list_tokens",
+          "does": "Tokens on a chain."
+        },
+        {
+          "method": "TOOL",
+          "path": "perps_quote",
+          "does": "Perps quote. Read only."
+        },
+        {
+          "method": "TOOL",
+          "path": "predict_markets",
+          "does": "Browse prediction markets."
+        },
+        {
+          "method": "TOOL",
+          "path": "lend_markets",
+          "does": "Browse lending markets. Read only."
+        },
+        {
+          "method": "TOOL",
+          "path": "list_wallet_policies",
+          "does": "Show wallet policies."
+        }
+      ],
+      "specs": [
+        {
+          "label": "Endpoint",
+          "value": "POST https://api.suwappu.bot/mcp (JSON-RPC over HTTP)"
+        },
+        {
+          "label": "Server name",
+          "value": "suwappu"
+        },
+        {
+          "label": "Tool count",
+          "value": "23, in the tool registry"
+        },
+        {
+          "label": "Auth",
+          "value": "Authorization: Bearer <key>; discovery works without one"
+        },
+        {
+          "label": "Protocol versions",
+          "value": "2024-11-05, 2025-03-26, 2025-06-18 plus a current version negotiated via _meta"
+        },
+        {
+          "label": "Stdio bridge",
+          "value": "@suwappu/mcp-server, repo version 0.6.0"
+        },
+        {
+          "label": "Quote lifetime",
+          "value": "60 seconds"
+        },
+        {
+          "label": "Writes",
+          "value": "execute_swap prepares an unsigned transaction; no tool signs or broadcasts"
+        },
+        {
+          "label": "Credit cost",
+          "value": "Same as REST: 1 for quote and simulate, 5 for execute"
+        }
+      ],
+      "example": {
+        "title": "List tools with curl, or add the server to a client",
+        "lang": "bash",
+        "code": "curl -s -X POST https://api.suwappu.bot/mcp \\\n  -H \"Authorization: Bearer $SUWAPPU_API_KEY\" \\\n  -H \"Content-Type: application/json\" \\\n  -H \"Accept: application/json, text/event-stream\" \\\n  -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}'\n\n# Client config (HTTP transport):\n# { \"mcpServers\": { \"suwappu\": { \"type\": \"http\",\n#   \"url\": \"https://api.suwappu.bot/mcp\",\n#   \"headers\": { \"Authorization\": \"Bearer suwappu_sk_YOUR_KEY\" } } } }"
+      },
+      "pricing": "Metered calls draw prepaid credits: a quote or dry run costs 1, a swap costs 5, and 1 credit is about $0.001. New agents get 100 starter credits (three grants per IP per day at most). Swap fees are 0.8% on EVM and 0.3% on Solana, 20% lower for World ID verified agents. Metering follows the REST costs.",
+      "limits": [
+        "Perps is quote and read only. Lending is read only.",
+        "Prediction markets can place orders through the REST API; the MCP tools listed here are reads.",
+        "No MCP tool signs or broadcasts. For managed-wallet execution use REST POST /v1/agent/swap/execute.",
+        "execute_swap evaluates org spend policy first; a block or required approval comes back as an error. It creates no managed swap record, so get_swap_status and get_swap_history do not show transactions you prepared this way.",
+        "Always check isError on tool results; errors are returned in the result, not as transport failures.",
+        "The npm package version in the repo is 0.6.0. Check the registry before pinning."
+      ],
+      "faq": [
+        {
+          "q": "Does the model ever see my keys?",
+          "a": "No MCP tool signs for you: execute_swap returns an unsigned transaction and you sign it with your own wallet. Your API key sits in client config, so scope it and rotate it if it leaks."
+        },
+        {
+          "q": "What if execute_swap fails?",
+          "a": "It returns an error in the result. A policy block or a required approval looks the same way, so read the message. Nothing is signed or broadcast either way, so check on-chain before you resubmit a transaction you already signed."
+        },
+        {
+          "q": "Can I stop the model spending too much?",
+          "a": "Yes. Wallet policies cap per-transaction size and restrict addresses. Org-wide caps and approvals are set with the team."
+        },
+        {
+          "q": "Which tools are read-only?",
+          "a": "Everything except execute_swap, which only prepares an unsigned transaction. No MCP tool signs or broadcasts."
+        },
+        {
+          "q": "What gets logged?",
+          "a": "Approval and policy events go to the audit log, readable at GET /v1/agent/audit."
+        }
+      ],
+      "related": [
+        "agent-api",
+        "sdks",
+        "managed-wallets",
+        "terminal"
+      ],
+      "solveLinks": [
+        "mcp-server-for-crypto-swaps",
+        "give-claude-crypto-wallet-safely",
+        "let-ai-agent-swap-tokens"
+      ],
+      "visual": "tool-orbit",
+      "keywords": [
+        "MCP server crypto swaps",
+        "MCP crypto wallet for Claude",
+        "token swap MCP tool",
+        "MCP server DEX",
+        "let Claude swap tokens",
+        "remote MCP server crypto API"
+      ]
+    },
+    {
+      "slug": "sdks",
+      "name": "TypeScript and Python SDKs",
+      "category": "Build",
+      "audience": "developer",
+      "status": "live",
+      "title": "TypeScript and Python SDKs for swap execution",
+      "metaDescription": "Typed SDKs for the Suwappu Agent API. @suwappu/sdk for TypeScript, suwappu for Python. Quote, simulate, swap, status, billing, approvals and audit.",
+      "headline": "Typed clients for the Agent API.",
+      "lead": "Use the TypeScript package @suwappu/sdk or the Python package suwappu instead of hand-rolling requests. Same routes, same credits, typed responses and one error class.",
+      "primaryCta": {
+        "label": "Get an API key",
+        "href": "/start"
+      },
+      "secondaryCta": {
+        "label": "Read the quick start",
+        "href": "/docs/quick-start/overview"
+      },
+      "whatItIs": [
+        "The SDKs wrap the Agent API. In TypeScript, one Suwappu client covers quotes, simulation, swaps, status, portfolio, prices, chains, tokens, perps, prediction and lending reads, billing, and live subscriptions. The base URL defaults to https://api.suwappu.bot.",
+        "The Python package ships pydantic models for responses such as Quote and SwapResult and is async, created through create_client. Both SDKs are thin: they add types and error handling, not new behaviour, so anything in the REST docs applies unchanged."
+      ],
+      "howItWorks": [
+        {
+          "title": "Install",
+          "detail": "Add the package from your registry. Check the registry for the current version; the repo copies are 0.6.0 (TypeScript)."
+        },
+        {
+          "title": "Create a client",
+          "detail": "new Suwappu({ apiKey }) in TypeScript, or create_client(api_key=...) in Python."
+        },
+        {
+          "title": "Quote",
+          "detail": "getQuote / get_quote with from, to, chain, amount and the signing wallet."
+        },
+        {
+          "title": "Simulate",
+          "detail": "simulateSwap with the quote id and wallet. Proceed only if wouldExecute is true."
+        },
+        {
+          "title": "Execute and watch",
+          "detail": "swap or executeSwap, then getSwapStatus. Catch SuwappuError for API failures."
+        }
+      ],
+      "capabilities": [
+        {
+          "title": "Swap loop",
+          "detail": "getQuote, simulateSwap, prepareSwap, swap, executeSwap and getSwapStatus map one to one onto the REST routes."
+        },
+        {
+          "title": "Reads",
+          "detail": "getPortfolio, getPrices, listChains, listTokens, nearAssets, nearResolveAsset, getOhlcv, resolveSymbol and resolveAddress."
+        },
+        {
+          "title": "Markets",
+          "detail": "getPerpsMarkets, getPredictionMarkets and getLendMarkets for read access to those venues."
+        },
+        {
+          "title": "Account and billing",
+          "detail": "register, me, getBilling, billingCheckout, billingCrypto and billingStatus. getDataUsage reports data usage."
+        },
+        {
+          "title": "Control namespaces",
+          "detail": "Approvals, Audit and KillSwitch namespaces on the TypeScript client for desk workflows."
+        },
+        {
+          "title": "Live updates",
+          "detail": "subscribeLive opens a live subscription from the TypeScript client."
+        },
+        {
+          "title": "One error type",
+          "detail": "SuwappuError, aliased SuwappuApiError, carries the API's error body so you can branch on error_code."
+        },
+        {
+          "title": "Python types",
+          "detail": "pydantic models in suwappu/types.py, including Quote, SwapResult and PerpQuote."
+        }
+      ],
+      "endpoints": [],
+      "specs": [
+        {
+          "label": "TypeScript package",
+          "value": "@suwappu/sdk (repo version 0.6.0)"
+        },
+        {
+          "label": "Python package",
+          "value": "suwappu"
+        },
+        {
+          "label": "Default base URL",
+          "value": "https://api.suwappu.bot"
+        },
+        {
+          "label": "Client factory",
+          "value": "createClient(config) in TypeScript; create_client in Python"
+        },
+        {
+          "label": "Auth",
+          "value": "API key passed to the client"
+        },
+        {
+          "label": "Quote lifetime",
+          "value": "60 seconds, same as REST"
+        },
+        {
+          "label": "Credit cost",
+          "value": "Same as REST: 1 quote or simulate, 5 execute"
+        },
+        {
+          "label": "Error class",
+          "value": "SuwappuError (alias SuwappuApiError)"
+        },
+        {
+          "label": "Status",
+          "value": "Live; check the registry for the published version"
+        }
+      ],
+      "example": {
+        "title": "Quote and dry-run in TypeScript",
+        "lang": "ts",
+        "code": "import { Suwappu } from \"@suwappu/sdk\";\n\nconst client = new Suwappu({ apiKey: process.env.SUWAPPU_API_KEY });\n\nconst quote = await client.getQuote({\n  from: \"USDC\", to: \"ETH\", chain: \"base\", amount: \"100\",\n  walletAddress: \"0xYourWallet\",\n});\nconst sim = await client.simulateSwap({\n  quoteId: quote.id, walletAddress: \"0xYourWallet\",\n});\nif (!sim.wouldExecute) throw new Error(\"dry run failed\");"
+      },
+      "pricing": "Metered calls draw prepaid credits: a quote or dry run costs 1, a swap costs 5, and 1 credit is about $0.001. New agents get 100 starter credits (three grants per IP per day at most). Swap fees are 0.8% on EVM and 0.3% on Solana, 20% lower for World ID verified agents. The SDKs themselves are free.",
+      "limits": [
+        "Registry versions were not checked here. Confirm what npm and PyPI currently publish.",
+        "The Approvals, Audit and KillSwitch namespaces are on the TypeScript client; Python parity is not confirmed.",
+        "A quote still expires after 60 seconds. The SDK does not refresh it for you.",
+        "SDKs do not add idempotency to quotes."
+      ],
+      "faq": [
+        {
+          "q": "Do the SDKs hold my keys?",
+          "a": "No. They send your suwappu_sk_ API key as a Bearer token. Private keys stay in your wallet or in the managed wallet on the server."
+        },
+        {
+          "q": "What if a request fails?",
+          "a": "The TypeScript SDK throws SuwappuError with the API's error body. Read swap status before retrying an execute."
+        },
+        {
+          "q": "Is retrying safe?",
+          "a": "Only for /swap/execute with the same Idempotency-Key. Reads are safe to retry. Check how your SDK version exposes that header."
+        },
+        {
+          "q": "Can I use another language?",
+          "a": "Yes. Generate a client from GET /v1/agent/openapi."
+        },
+        {
+          "q": "What is logged?",
+          "a": "The SDK logs nothing for you. Server-side approval and policy events are in the audit log."
+        }
+      ],
+      "related": [
+        "agent-api",
+        "mcp-server",
+        "approvals-audit"
+      ],
+      "solveLinks": [
+        "typescript-python-sdk-dex-swaps",
+        "let-ai-agent-swap-tokens",
+        "free-swap-quote-api"
+      ],
+      "visual": "sdk-stack",
+      "keywords": [
+        "TypeScript SDK crypto swap",
+        "Python SDK DEX swaps",
+        "swap API client library",
+        "@suwappu/sdk",
+        "agent swap SDK",
+        "cross-chain swap SDK"
+      ]
+    },
+    {
+      "slug": "managed-wallets",
+      "name": "Managed Wallets",
+      "category": "Control",
+      "audience": "developer",
+      "status": "live",
+      "title": "Managed wallets with per-transaction limits",
+      "metaDescription": "Create server-managed EVM and Solana wallets for your agent. Add a per-transaction limit and an address allowlist, then read the portfolio.",
+      "headline": "A wallet your agent can use, within limits.",
+      "lead": "Create a managed wallet through the API, fund it, and let the agent execute from it. Cap each transaction and restrict destinations with self-serve policies.",
+      "primaryCta": {
+        "label": "Get an API key",
+        "href": "/start"
+      },
+      "secondaryCta": {
+        "label": "Read the quick start",
+        "href": "/docs/quick-start/overview"
+      },
+      "whatItIs": [
+        "A managed wallet is an address Suwappu holds and signs for, so your agent can call POST /swap/execute without ever touching a private key. You create it with POST /v1/agent/wallets and fund it yourself. Solana wallets are created with chain_type solana.",
+        "Policies attach to the wallet. A spending limit caps each transaction, in wei, and an address allowlist restricts where funds can go. You manage them over the API. Organisation-wide caps are a separate layer, covered under spend policies."
+      ],
+      "howItWorks": [
+        {
+          "title": "Create",
+          "detail": "POST /v1/agent/wallets. Pass chain_type solana for a Solana wallet. Creation is metered."
+        },
+        {
+          "title": "Fund",
+          "detail": "Send funds to the returned address yourself. Suwappu does not fund it."
+        },
+        {
+          "title": "Set a policy",
+          "detail": "POST /v1/agent/wallet/policy with a per-transaction spending limit in wei and an address allowlist."
+        },
+        {
+          "title": "Execute",
+          "detail": "Quote with that wallet_address, simulate, then POST /swap/execute."
+        },
+        {
+          "title": "Review",
+          "detail": "GET /wallet/policies lists policies. GET /portfolio shows balances. DELETE /wallet/policy/:policyId removes one."
+        }
+      ],
+      "capabilities": [
+        {
+          "title": "Server-side signing",
+          "detail": "The agent never holds a private key. Execution happens through /swap/execute."
+        },
+        {
+          "title": "EVM and Solana",
+          "detail": "Create either; Solana via chain_type solana."
+        },
+        {
+          "title": "Per-transaction limit",
+          "detail": "A spending_limit in wei applies to each transaction, not per day."
+        },
+        {
+          "title": "Address allowlist",
+          "detail": "Restrict which addresses the wallet may send to."
+        },
+        {
+          "title": "Scoped access",
+          "detail": "Wallet listing needs the trade:read scope."
+        },
+        {
+          "title": "Portfolio read",
+          "detail": "GET /v1/agent/portfolio returns balances; it is metered and needs trade:read."
+        },
+        {
+          "title": "Policy visibility for models",
+          "detail": "The MCP tool list_wallet_policies shows an agent its own limits."
+        },
+        {
+          "title": "Reserved keys",
+          "detail": "Wallet keys are server-managed and cannot be set through PATCH /me."
+        }
+      ],
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/v1/agent/wallets",
+          "does": "Create a managed wallet. Metered."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/agent/wallets",
+          "does": "List your wallets. Needs trade:read."
+        },
+        {
+          "method": "POST",
+          "path": "/v1/agent/wallet/policy",
+          "does": "Create a wallet policy."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/agent/wallet/policies",
+          "does": "List wallet policies."
+        },
+        {
+          "method": "DELETE",
+          "path": "/v1/agent/wallet/policy/:policyId",
+          "does": "Remove a policy."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/agent/portfolio",
+          "does": "Read balances. Metered; needs trade:read."
+        }
+      ],
+      "specs": [
+        {
+          "label": "Create",
+          "value": "POST /v1/agent/wallets"
+        },
+        {
+          "label": "Chains",
+          "value": "EVM and Solana"
+        },
+        {
+          "label": "Policy types (self-serve)",
+          "value": "Per-transaction limit (wei), address allowlist"
+        },
+        {
+          "label": "Scope required",
+          "value": "trade:read for wallets and portfolio"
+        },
+        {
+          "label": "Signing",
+          "value": "Server-side, via /swap/execute"
+        },
+        {
+          "label": "Funding",
+          "value": "You send funds in; nothing is funded for you"
+        },
+        {
+          "label": "Credit cost",
+          "value": "Wallet creation and portfolio are metered; execute is 5"
+        },
+        {
+          "label": "Not self-serve",
+          "value": "Daily and hourly caps, velocity, approvals, kill switch"
+        }
+      ],
+      "example": {
+        "title": "Check your wallet policies",
+        "lang": "bash",
+        "code": "curl -s https://api.suwappu.bot/v1/agent/wallet/policies \\\n  -H \"Authorization: Bearer $SUWAPPU_API_KEY\""
+      },
+      "pricing": "Metered calls draw prepaid credits: a quote or dry run costs 1, a swap costs 5, and 1 credit is about $0.001. New agents get 100 starter credits (three grants per IP per day at most). Swap fees are 0.8% on EVM and 0.3% on Solana, 20% lower for World ID verified agents. Creating a wallet and reading the portfolio are metered calls.",
+      "limits": [
+        "Self-serve wallet policies are a per-transaction limit and an address allowlist only.",
+        "The limit is per transaction in wei. It is not a daily cap.",
+        "You fund the wallet yourself, and any value in it is exposed to your agent up to those limits.",
+        "Portfolio response fields are documented in the OpenAPI spec; check it before parsing."
+      ],
+      "faq": [
+        {
+          "q": "Who holds the keys?",
+          "a": "Suwappu signs from the managed wallet on your agent's request. Your agent only holds an API key. Use a scoped key and keep balances small."
+        },
+        {
+          "q": "What if a policy blocks a swap?",
+          "a": "You get an error with error_code POLICY_VIOLATION. Nothing is sent. Adjust the swap or the policy."
+        },
+        {
+          "q": "Is execution idempotent?",
+          "a": "Yes, with an Idempotency-Key on /swap/execute."
+        },
+        {
+          "q": "Who can change policies?",
+          "a": "Wallet policies are managed through the same agent API, so do not assume an agent cannot loosen its own limits. Org-wide caps, approvals and the kill switch have no public create route; the team sets them."
+        },
+        {
+          "q": "What is logged?",
+          "a": "Approval and policy gate events are written to the audit log."
+        }
+      ],
+      "related": [
+        "spend-policies",
+        "approvals-audit",
+        "wallets-custody",
+        "agent-api"
+      ],
+      "solveLinks": [
+        "spending-limits-ai-agent-wallet",
+        "give-claude-crypto-wallet-safely",
+        "let-ai-agent-swap-tokens"
+      ],
+      "visual": "key-vault",
+      "keywords": [
+        "managed wallet for AI agent",
+        "agent crypto wallet API",
+        "spending limit AI agent wallet",
+        "wallet address allowlist agent",
+        "server-side signing agent wallet",
+        "Solana agent wallet API"
+      ]
+    },
+    {
+      "slug": "spend-policies",
+      "name": "Spend Policies",
+      "category": "Control",
+      "audience": "desk",
+      "status": "live",
+      "title": "Spend policies for AI agents: caps, velocity, kill switch",
+      "metaDescription": "Two policy layers for agent funds: self-serve wallet limits, and org-wide daily caps, session caps, velocity limits, approvals and a kill switch.",
+      "headline": "Limits that sit outside the agent's control.",
+      "lead": "Wallet limits are self-serve. Org-wide daily caps, hourly caps, velocity limits and approval rules are set with the team, and there is no public route to create them.",
+      "primaryCta": {
+        "label": "Talk to the team",
+        "href": "/contact"
+      },
+      "secondaryCta": {
+        "label": "Read the quick start",
+        "href": "/docs/quick-start/overview"
+      },
+      "whatItIs": [
+        "There are two layers. Wallet policies belong to a managed wallet: a per-transaction limit in wei and an address allowlist, created with POST /v1/agent/wallet/policy. They are self-serve and take effect on that wallet.",
+        "Organisation policies sit above them. They evaluate a daily cap in USD, a session cap per hour window and a maximum number of transactions per hour, and can route a swap into an approval. Organisation-level policy creation is not a public route; we configure it with your team."
+      ],
+      "howItWorks": [
+        {
+          "title": "Agent requests a swap",
+          "detail": "The call arrives at /swap or /swap/execute with a quote bound to a wallet."
+        },
+        {
+          "title": "Wallet policy check",
+          "detail": "The per-transaction limit and address allowlist on the wallet apply to the swap."
+        },
+        {
+          "title": "Org policy check",
+          "detail": "Daily cap, session cap and velocity are evaluated for the org."
+        },
+        {
+          "title": "Allow, block or hold",
+          "detail": "A violation returns POLICY_VIOLATION. If approval is required, /swap returns HTTP 202 with status pending, approval_id and expires_at."
+        },
+        {
+          "title": "Override with the kill switch",
+          "detail": "An org key with the admin scope can set the org kill switch through POST /v1/agent/killswitch."
+        }
+      ],
+      "capabilities": [
+        {
+          "title": "Per-transaction limit",
+          "detail": "Self-serve on the wallet, expressed in wei."
+        },
+        {
+          "title": "Address allowlist",
+          "detail": "Self-serve. Restricts where a wallet can send."
+        },
+        {
+          "title": "Daily cap",
+          "detail": "Org policy field dailyCapUsd, in USD. Set with the team."
+        },
+        {
+          "title": "Session cap",
+          "detail": "Org policy field sessionCapUsd, applied over a one-hour window."
+        },
+        {
+          "title": "Velocity",
+          "detail": "Org policy field maxTxPerHour limits how many transactions run in an hour."
+        },
+        {
+          "title": "Approvals mode",
+          "detail": "A policy can require a human decision. Requests expire after 15 minutes."
+        },
+        {
+          "title": "Org kill switch",
+          "detail": "Body: scope, active, reason (up to 300 characters). Org keys can set scope org only."
+        },
+        {
+          "title": "Fails closed",
+          "detail": "The policy gate records a policy_gate_fail_closed audit event on its fail-closed path."
+        }
+      ],
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/v1/agent/wallet/policy",
+          "does": "Create a wallet policy (limit, allowlist). Self-serve."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/agent/wallet/policies",
+          "does": "List wallet policies."
+        },
+        {
+          "method": "DELETE",
+          "path": "/v1/agent/wallet/policy/:policyId",
+          "does": "Delete a wallet policy."
+        },
+        {
+          "method": "POST",
+          "path": "/v1/agent/killswitch",
+          "does": "Set the org kill switch. Org key with admin scope."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/agent/killswitch",
+          "does": "Read kill switch state."
+        }
+      ],
+      "specs": [
+        {
+          "label": "Wallet layer",
+          "value": "Per-transaction limit (wei), address allowlist; self-serve"
+        },
+        {
+          "label": "Org layer",
+          "value": "Daily cap USD, session cap USD (hourly window), max transactions per hour; set with the team"
+        },
+        {
+          "label": "Approval window",
+          "value": "15 minutes"
+        },
+        {
+          "label": "Kill switch auth",
+          "value": "Org API key with admin scope"
+        },
+        {
+          "label": "Kill switch scope",
+          "value": "org only via the API; global is never settable through it"
+        },
+        {
+          "label": "Reason length",
+          "value": "Up to 300 characters"
+        },
+        {
+          "label": "Violation response",
+          "value": "error_code POLICY_VIOLATION"
+        },
+        {
+          "label": "Org policy create route",
+          "value": "None public"
+        }
+      ],
+      "example": {
+        "title": "Read the org kill switch state",
+        "lang": "bash",
+        "code": "# Needs an org API key that carries the admin scope\ncurl -s https://api.suwappu.bot/v1/agent/killswitch \\\n  -H \"Authorization: Bearer $SUWAPPU_ORG_KEY\""
+      },
+      "pricing": "A swap costs 5 credits and 1 credit is about $0.001; fees are 0.8% EVM and 0.3% Solana. Org-wide policy setup is done with the team, so talk to us about plans.",
+      "limits": [
+        "Org-wide policies have no public create route. You cannot self-configure them.",
+        "The kill switch halts one org, not every agent. Global scope is not available through the API.",
+        "Agent-scope kill switch is valid in the schema but returns 403 for org keys.",
+        "Where the kill switch is enforced inside the swap path has not been confirmed here; test it on your own org before relying on it."
+      ],
+      "faq": [
+        {
+          "q": "Who holds the keys?",
+          "a": "Managed wallets sign on the server; policies are evaluated before that signing. If you sign yourself with /swap, policies still apply to the unsigned transaction request."
+        },
+        {
+          "q": "What happens when a swap breaks a cap?",
+          "a": "The call is refused with POLICY_VIOLATION and nothing is sent. If the rule is an approval, you get a 202 pending response instead."
+        },
+        {
+          "q": "Can the agent edit org policies?",
+          "a": "No public route creates them, so no agent call can. Wallet policies are different and are managed over the agent API."
+        },
+        {
+          "q": "Who can flip the kill switch?",
+          "a": "Only an org key carrying the admin scope. Mint that key sparingly."
+        },
+        {
+          "q": "What is logged?",
+          "a": "Approval lifecycle events and policy gate failures go to the audit log."
+        }
+      ],
+      "related": [
+        "managed-wallets",
+        "approvals-audit",
+        "organisations"
+      ],
+      "solveLinks": [
+        "spending-limits-ai-agent-wallet",
+        "agent-kill-switch-for-trading-agents",
+        "approval-workflow-onchain-trades"
+      ],
+      "visual": "policy-rings",
+      "keywords": [
+        "spending limits AI agent wallet",
+        "agent kill switch crypto",
+        "daily cap trading agent",
+        "velocity limits agent transactions",
+        "policy engine for trading agents",
+        "limit what an AI agent can spend"
+      ]
+    },
+    {
+      "slug": "approvals-audit",
+      "name": "Approvals and Audit",
+      "category": "Control",
+      "audience": "desk",
+      "status": "live",
+      "title": "Approvals and audit log for agent trades",
+      "metaDescription": "Hold risky agent swaps for a human decision, with 15-minute expiry, step-up and one-time use. Every step lands in a verifiable audit log.",
+      "headline": "A human decides. Every step is recorded.",
+      "lead": "When policy requires approval, the swap waits as pending for 15 minutes. An owner approves or denies it, the approval is used once, and each step is logged.",
+      "primaryCta": {
+        "label": "Talk to the team",
+        "href": "/contact"
+      },
+      "secondaryCta": {
+        "label": "Read the quick start",
+        "href": "/docs/quick-start/overview"
+      },
+      "whatItIs": [
+        "Approvals turn a policy hit into a human decision. The agent's /swap call returns HTTP 202 with status pending, an approval_id and expires_at. The agent polls GET /v1/agent/approvals/:id. An owner lists, approves or denies requests, with a step-up challenge available before approving.",
+        "The audit log records the lifecycle: created, consumed, failed or blocked. Agents read their own rows, org keys read their org's rows, and a verify route checks the log's integrity. Hash-chain internals and export formats are not documented here."
+      ],
+      "howItWorks": [
+        {
+          "title": "Request held",
+          "detail": "A policy requires approval. /swap returns 202, status pending, approval_id, expires_at."
+        },
+        {
+          "title": "Owner reviews",
+          "detail": "GET /v1/agent/approvals lists requests for the owner, who authenticates with a JWT and proof of possession."
+        },
+        {
+          "title": "Step-up",
+          "detail": "POST /approvals/:id/step-up/challenge issues a challenge with its own expiry."
+        },
+        {
+          "title": "Approve or deny",
+          "detail": "POST /approvals/:id/approve or /deny. The update only applies to a pending, unexpired request, so a double click wins once."
+        },
+        {
+          "title": "Agent resubmits",
+          "detail": "The resubmit must match the org, the approved status, and amount_out_min not worse than the approved minimum. Approval is consumed once."
+        },
+        {
+          "title": "Audit",
+          "detail": "Read GET /v1/agent/audit, and run GET /v1/agent/audit/verify to check it."
+        }
+      ],
+      "capabilities": [
+        {
+          "title": "15-minute expiry",
+          "detail": "APPROVAL_TTL is 15 minutes. An expired pending request reads as expired."
+        },
+        {
+          "title": "Lifecycle statuses",
+          "detail": "pending, approved, denied, expired, consumed."
+        },
+        {
+          "title": "One-time consumption",
+          "detail": "An approval is consumed on use. A race is logged as approval.consume_race_lost."
+        },
+        {
+          "title": "Price protection on resume",
+          "detail": "The resubmitted swap cannot have a worse amount_out_min than the approved one."
+        },
+        {
+          "title": "Step-up challenge",
+          "detail": "An extra check before an owner approves. Approve and deny routes are rate-limited at 30 per window per IP."
+        },
+        {
+          "title": "Audit events",
+          "detail": "approval.created, approval.consumed, approval.execution_failed, approval.blocked_on_resubmit, approval.validation_failed, approval.unsupported_chain and more."
+        },
+        {
+          "title": "Filtered reads",
+          "detail": "GET /audit takes event_type, agent_id, since and limit (default 100, max 500)."
+        },
+        {
+          "title": "Integrity check",
+          "detail": "GET /audit/verify runs the chain verification. Owner equivalents exist at /owner/audit and /owner/audit/verify."
+        }
+      ],
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/v1/agent/approvals/:id",
+          "does": "Agent polls its own approval request."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/agent/approvals",
+          "does": "Owner lists approvals. JWT and proof of possession."
+        },
+        {
+          "method": "POST",
+          "path": "/v1/agent/approvals/:id/step-up/challenge",
+          "does": "Issue a step-up challenge."
+        },
+        {
+          "method": "POST",
+          "path": "/v1/agent/approvals/:id/approve",
+          "does": "Approve a pending request."
+        },
+        {
+          "method": "POST",
+          "path": "/v1/agent/approvals/:id/deny",
+          "does": "Deny a pending request."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/agent/audit",
+          "does": "Read audit events."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/agent/audit/verify",
+          "does": "Verify the audit chain."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/agent/owner/audit",
+          "does": "Owner audit read. JWT."
+        }
+      ],
+      "specs": [
+        {
+          "label": "Approval lifetime",
+          "value": "15 minutes from creation"
+        },
+        {
+          "label": "Statuses",
+          "value": "pending, approved, denied, expired, consumed"
+        },
+        {
+          "label": "Pending response",
+          "value": "HTTP 202 with approval_id and expires_at"
+        },
+        {
+          "label": "Agent reads",
+          "value": "Bearer API key, own request only"
+        },
+        {
+          "label": "Owner actions",
+          "value": "JWT with proof of possession"
+        },
+        {
+          "label": "Audit default page",
+          "value": "100 rows; max 500"
+        },
+        {
+          "label": "Audit scoping",
+          "value": "Org key reads its org; agent token reads its own agent"
+        },
+        {
+          "label": "Export route",
+          "value": "None seen"
+        }
+      ],
+      "example": {
+        "title": "Poll an approval, then read the audit log",
+        "lang": "bash",
+        "code": "curl -s https://api.suwappu.bot/v1/agent/approvals/APPROVAL_ID \\\n  -H \"Authorization: Bearer $SUWAPPU_API_KEY\"\n\ncurl -s \"https://api.suwappu.bot/v1/agent/audit?event_type=approval.created&limit=50\" \\\n  -H \"Authorization: Bearer $SUWAPPU_API_KEY\""
+      },
+      "pricing": "Approval and audit routes are not listed as metered swap calls. The swap itself costs 5 credits when executed; 1 credit is about $0.001. Which plan includes approvals for your desk is set with the team.",
+      "limits": [
+        "Pending approvals expire after 15 minutes. The agent has to request again.",
+        "There is no export route in the agent API, so pull rows through GET /audit.",
+        "Hash-chain details are not documented here; use /audit/verify rather than assuming.",
+        "SOC 2 or third-party audit status is not claimed.",
+        "Approval is only triggered by a policy; it is not a default."
+      ],
+      "faq": [
+        {
+          "q": "Who holds the keys?",
+          "a": "Execution still signs from the managed wallet, or you sign yourself. Approval only decides whether the request may proceed."
+        },
+        {
+          "q": "What if the agent resubmits after the price moves?",
+          "a": "A resubmit is rejected if amount_out_min is worse than the approved minimum."
+        },
+        {
+          "q": "Can a request be approved twice?",
+          "a": "No. Approve is conditional on pending and unexpired, and the approval is consumed once."
+        },
+        {
+          "q": "Who can approve?",
+          "a": "The owner, authenticated with a JWT and proof of possession. Approve and deny are owner routes; the agent's own route only reads its request."
+        },
+        {
+          "q": "What is logged?",
+          "a": "Creation, consumption, validation failures, blocked resubmits, execution failures and policy fail-closed events."
+        }
+      ],
+      "related": [
+        "spend-policies",
+        "organisations",
+        "managed-wallets"
+      ],
+      "solveLinks": [
+        "approval-workflow-onchain-trades",
+        "audit-log-for-trading-agents",
+        "agent-kill-switch-for-trading-agents"
+      ],
+      "visual": "approval-timeline",
+      "keywords": [
+        "approval workflow for crypto trades",
+        "audit log trading agent",
+        "human in the loop agent swaps",
+        "agent trade approval API",
+        "verifiable audit log agent",
+        "step-up approval onchain"
+      ]
+    },
+    {
+      "slug": "organisations",
+      "name": "Organisations",
+      "category": "Control",
+      "audience": "desk",
+      "status": "live",
+      "title": "Organisation accounts, roles and scoped API keys",
+      "metaDescription": "Run agents under an org: owner, admin, member and viewer roles, a seat limit, scoped org API keys without wildcard access, and usage reporting.",
+      "headline": "One org, scoped keys, clear roles.",
+      "lead": "Create an organisation, invite people as admin, member or viewer, and mint API keys with named scopes. A wildcard key cannot be minted.",
+      "primaryCta": {
+        "label": "Talk to the team",
+        "href": "/contact"
+      },
+      "secondaryCta": {
+        "label": "Read the quick start",
+        "href": "/docs/quick-start/overview"
+      },
+      "whatItIs": [
+        "An organisation groups people and API keys under one account. You create it with POST /enterprise/orgs. Members have one of four roles. Org keys carry only the scopes you grant, and each scope is listed explicitly.",
+        "Org keys are what unlock desk controls: audit reads for the whole org, and the org kill switch for keys with the admin scope. The default seat limit is 10, and invites are refused once it is reached."
+      ],
+      "howItWorks": [
+        {
+          "title": "Create the org",
+          "detail": "POST /enterprise/orgs. You become the owner."
+        },
+        {
+          "title": "Invite people",
+          "detail": "POST /enterprise/orgs/:orgId/members with role admin, member or viewer; default member. Owner or admin only."
+        },
+        {
+          "title": "Mint a scoped key",
+          "detail": "POST /enterprise/orgs/:orgId/api-keys with a name of 1 to 100 characters and a scopes array."
+        },
+        {
+          "title": "Use the key",
+          "detail": "Send it as a Bearer token to the Agent API. Scopes limit what it can call."
+        },
+        {
+          "title": "Review usage",
+          "detail": "GET /enterprise/orgs/:orgId/usage."
+        },
+        {
+          "title": "Revoke",
+          "detail": "DELETE /enterprise/orgs/:orgId/api-keys/:keyId."
+        }
+      ],
+      "capabilities": [
+        {
+          "title": "Four roles",
+          "detail": "owner, admin, member, viewer. Only an owner changes roles. The owner cannot be removed, and an admin cannot remove an admin."
+        },
+        {
+          "title": "Scoped keys",
+          "detail": "Grantable scopes: read, swap, orders, portfolio, alerts, admin, swap:execute, trade:read."
+        },
+        {
+          "title": "No wildcard",
+          "detail": "The * scope is deliberately not mintable. Admins cannot grant wildcard access."
+        },
+        {
+          "title": "Seat limit",
+          "detail": "Defaults to 10. Invites fail once the count reaches it."
+        },
+        {
+          "title": "Member management",
+          "detail": "List, invite, change role and remove with the /members routes."
+        },
+        {
+          "title": "Org update",
+          "detail": "PATCH /enterprise/orgs/:orgId, owner or admin."
+        },
+        {
+          "title": "Usage",
+          "detail": "GET /orgs/:orgId/usage reports org usage; check the OpenAPI spec for fields."
+        },
+        {
+          "title": "Admin-gated controls",
+          "detail": "Kill switch calls need an org key with the admin scope."
+        }
+      ],
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/enterprise/orgs",
+          "does": "Create an organisation."
+        },
+        {
+          "method": "GET",
+          "path": "/enterprise/orgs/me",
+          "does": "Your organisation."
+        },
+        {
+          "method": "GET",
+          "path": "/enterprise/orgs/:orgId/members",
+          "does": "List members."
+        },
+        {
+          "method": "POST",
+          "path": "/enterprise/orgs/:orgId/members",
+          "does": "Invite a member (admin, member, viewer)."
+        },
+        {
+          "method": "PATCH",
+          "path": "/enterprise/orgs/:orgId/members/:targetUserId",
+          "does": "Change a role. Owner only."
+        },
+        {
+          "method": "DELETE",
+          "path": "/enterprise/orgs/:orgId/members/:targetUserId",
+          "does": "Remove a member."
+        },
+        {
+          "method": "GET",
+          "path": "/enterprise/orgs/:orgId/api-keys",
+          "does": "List org keys."
+        },
+        {
+          "method": "POST",
+          "path": "/enterprise/orgs/:orgId/api-keys",
+          "does": "Mint a scoped key."
+        },
+        {
+          "method": "DELETE",
+          "path": "/enterprise/orgs/:orgId/api-keys/:keyId",
+          "does": "Revoke a key."
+        },
+        {
+          "method": "GET",
+          "path": "/enterprise/orgs/:orgId/usage",
+          "does": "Usage for the org."
+        }
+      ],
+      "specs": [
+        {
+          "label": "Roles",
+          "value": "owner, admin, member, viewer"
+        },
+        {
+          "label": "Invite roles",
+          "value": "admin, member, viewer (default member)"
+        },
+        {
+          "label": "Seat limit",
+          "value": "Default 10"
+        },
+        {
+          "label": "Key scopes",
+          "value": "read, swap, orders, portfolio, alerts, admin, swap:execute, trade:read"
+        },
+        {
+          "label": "Wildcard scope",
+          "value": "Not mintable"
+        },
+        {
+          "label": "Key name",
+          "value": "1 to 100 characters"
+        },
+        {
+          "label": "Who mints keys",
+          "value": "Owner or admin"
+        },
+        {
+          "label": "Base path",
+          "value": "https://api.suwappu.bot/enterprise"
+        }
+      ],
+      "example": {
+        "title": "Mint a read-only org key",
+        "lang": "bash",
+        "code": "curl -s -X POST https://api.suwappu.bot/enterprise/orgs/ORG_ID/api-keys \\\n  -H \"Authorization: Bearer $OWNER_OR_ADMIN_TOKEN\" -H \"Content-Type: application/json\" \\\n  -d '{\"name\":\"treasury-readonly\",\"scopes\":[\"read\",\"portfolio\"]}'"
+      },
+      "pricing": "Org keys draw on the same credits as any agent: a quote costs 1, a swap 5, and 1 credit is about $0.001. Seat limits and rate limits follow your plan; talk to the team for desk pricing. Fees are 0.8% EVM and 0.3% Solana.",
+      "limits": [
+        "The seat limit defaults to 10. Raising it is a conversation with the team.",
+        "Scopes are an explicit list; there is no wildcard shortcut.",
+        "Usage response fields were not confirmed here. Check the OpenAPI spec.",
+        "Check the OpenAPI spec for the exact authentication each /enterprise route expects."
+      ],
+      "faq": [
+        {
+          "q": "Who holds the keys?",
+          "a": "An org key is shown to whoever mints it. Treat it like a password and revoke it with DELETE if it leaks."
+        },
+        {
+          "q": "What if I grant too much scope?",
+          "a": "Revoke the key and mint a new one with a narrower scope list."
+        },
+        {
+          "q": "Can an admin make a super-key?",
+          "a": "No. Wildcard scope is not mintable by anyone through this route."
+        },
+        {
+          "q": "Who can change roles?",
+          "a": "Only the owner changes roles. Owner or admin can invite and mint keys."
+        },
+        {
+          "q": "What is logged?",
+          "a": "Org key calls produce audit rows readable at GET /audit, which returns your org's rows."
+        }
+      ],
+      "related": [
+        "spend-policies",
+        "approvals-audit",
+        "billing-credits"
+      ],
+      "solveLinks": [
+        "treasury-swaps-api-for-desks",
+        "audit-log-for-trading-agents",
+        "spending-limits-ai-agent-wallet"
+      ],
+      "visual": "org-tree",
+      "keywords": [
+        "organisation API keys crypto trading",
+        "scoped API keys agent",
+        "team roles trading API",
+        "treasury swap API for desks",
+        "org seat limit API keys",
+        "least privilege agent keys"
+      ]
+    },
+    {
+      "slug": "billing-credits",
+      "name": "Billing and Credits",
+      "category": "Operate",
+      "audience": "developer",
+      "status": "live",
+      "title": "Prepaid credits, HTTP 402 and rate limits",
+      "metaDescription": "Pay per call with prepaid credits: quote 1, swap 5, about $0.001 each. Top up in USDC, 30-day plans, tiered rate limits, and swap fees stated up front.",
+      "headline": "Prepaid credits. Costs you can add up.",
+      "lead": "A quote costs 1 credit, a swap costs 5, and 1 credit is about $0.001. New agents start with 100. Out of credits, the API answers HTTP 402.",
+      "primaryCta": {
+        "label": "Get an API key",
+        "href": "/start"
+      },
+      "secondaryCta": {
+        "label": "Read the quick start",
+        "href": "/docs/quick-start/overview"
+      },
+      "whatItIs": [
+        "Metered routes draw prepaid credits from your agent's balance. You still need an API key. There is no card form: you pay in USDC and post the transaction hash to the top-up route, which is idempotent on txHash.",
+        "Read your live balance and cost weights from GET /v1/agent/billing; metering is a server setting, so that response is the source of truth. The on-chain x402 per-request payment path is built but off by default, so do not rely on it."
+      ],
+      "howItWorks": [
+        {
+          "title": "Start with 100 credits",
+          "detail": "Registration grants 100 starter credits unless the IP guard withholds them: at most three grants per IP per day."
+        },
+        {
+          "title": "Read the balance",
+          "detail": "GET /v1/agent/billing returns balance and cost weights. It is not metered."
+        },
+        {
+          "title": "Run out",
+          "detail": "A metered call returns HTTP 402 when credits are exhausted."
+        },
+        {
+          "title": "Top up",
+          "detail": "Send USDC, then POST /v1/agent/billing/topup with txHash, chain and amount (greater than zero)."
+        },
+        {
+          "title": "Or buy a plan",
+          "detail": "POST /v1/agent/billing/subscribe with tier, txHash and chain. Plans run 30 days and do not auto-renew."
+        }
+      ],
+      "capabilities": [
+        {
+          "title": "Credit weights",
+          "detail": "Quote 1, simulate 1, swap or execute 5. Portfolio is metered; tokens and chains are free."
+        },
+        {
+          "title": "Refunds on bad calls",
+          "detail": "Execute charges 5 credits, refunded on an invalid key or validation failure. An unknown outcome keeps the charge and reconciles by idempotency key."
+        },
+        {
+          "title": "Idempotent top-ups",
+          "detail": "The txHash is pre-checked, so posting it twice does not credit twice."
+        },
+        {
+          "title": "30-day plans",
+          "detail": "A subscription window is 30 days with no auto-renew. Renew by paying again."
+        },
+        {
+          "title": "Tiered rate limits",
+          "detail": "Free 30 requests per minute, Pro 500, Premium 2,000, Enterprise 10,000. Over limit returns 429 with Retry-After."
+        },
+        {
+          "title": "Plan prices",
+          "detail": "Pro $9.99, Premium $29.99, Enterprise $99.99 per 30 days, prepaid in crypto."
+        },
+        {
+          "title": "Swap fees",
+          "detail": "0.8% on EVM, 0.3% on Solana; 20% lower for World ID verified agents."
+        },
+        {
+          "title": "Recurring top-ups",
+          "detail": "POST /billing/recurring exists; its semantics are not covered here."
+        }
+      ],
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/v1/agent/billing",
+          "does": "Balance and cost weights. Free."
+        },
+        {
+          "method": "POST",
+          "path": "/v1/agent/billing/topup",
+          "does": "Credit a balance from a USDC txHash. Idempotent on txHash."
+        },
+        {
+          "method": "POST",
+          "path": "/v1/agent/billing/subscribe",
+          "does": "Buy a 30-day tier (tier, txHash, chain)."
+        },
+        {
+          "method": "POST",
+          "path": "/v1/agent/billing/recurring",
+          "does": "Recurring payment setup."
+        }
+      ],
+      "specs": [
+        {
+          "label": "Credit value",
+          "value": "1 credit is about $0.001"
+        },
+        {
+          "label": "Starter credits",
+          "value": "100, max three grants per IP per day"
+        },
+        {
+          "label": "Quote and simulate",
+          "value": "1 credit each"
+        },
+        {
+          "label": "Swap or execute",
+          "value": "5 credits"
+        },
+        {
+          "label": "Out of credits",
+          "value": "HTTP 402"
+        },
+        {
+          "label": "Rate limits",
+          "value": "Free 30/min; Pro 500; Premium 2,000; Enterprise 10,000"
+        },
+        {
+          "label": "Plan window",
+          "value": "30 days, no auto-renew"
+        },
+        {
+          "label": "Base fee",
+          "value": "0.8% EVM, 0.3% Solana; 20% off with World ID"
+        },
+        {
+          "label": "x402 header path",
+          "value": "Built, off by default"
+        }
+      ],
+      "example": {
+        "title": "Check balance, then top up",
+        "lang": "bash",
+        "code": "curl -s https://api.suwappu.bot/v1/agent/billing \\\n  -H \"Authorization: Bearer $SUWAPPU_API_KEY\"\n\ncurl -s -X POST https://api.suwappu.bot/v1/agent/billing/topup \\\n  -H \"Authorization: Bearer $SUWAPPU_API_KEY\" -H \"Content-Type: application/json\" \\\n  -d '{\"txHash\":\"0xYOUR_PAYMENT_TX\",\"chain\":\"base\",\"amount\":5}'"
+      },
+      "pricing": "The arithmetic: 1 credit is about $0.001, so a quote is about $0.001 and a swap call about $0.005, before the 0.8% EVM or 0.3% Solana swap fee. At $5 you get roughly 5,000 credits.",
+      "limits": [
+        "Which chains and tokens top-ups accept was not confirmed here. Check /billing or the docs before sending funds.",
+        "Subscriptions do not auto-renew. The window is 30 days.",
+        "Starter credits can be withheld by the IP guard.",
+        "The x402 on-chain per-request path is off by default.",
+        "Whether metering applies is a server setting; read GET /billing for live weights."
+      ],
+      "faq": [
+        {
+          "q": "Do I need an API key?",
+          "a": "Yes. Every metered route needs one. Payment is credits, not a replacement for a key."
+        },
+        {
+          "q": "What if I top up twice?",
+          "a": "The txHash is pre-checked, so the same hash is not credited twice."
+        },
+        {
+          "q": "What if a swap fails after charging?",
+          "a": "Validation failures are refunded. If the outcome is unknown, the charge is held and reconciled by idempotency key."
+        },
+        {
+          "q": "Who can spend my credits?",
+          "a": "Any holder of your key. Use scoped org keys and wallet limits to bound it."
+        },
+        {
+          "q": "What is logged?",
+          "a": "Agent actions, including approvals and policy events, are in the audit log at GET /v1/agent/audit. Read your balance and cost weights at GET /v1/agent/billing."
+        }
+      ],
+      "related": [
+        "agent-api",
+        "organisations",
+        "swap-routing"
+      ],
+      "solveLinks": [
+        "x402-pay-per-call-api",
+        "free-swap-quote-api",
+        "cross-chain-swap-api"
+      ],
+      "visual": "credit-meter",
+      "keywords": [
+        "pay per call crypto API",
+        "prepaid credits swap API",
+        "HTTP 402 API credits",
+        "swap API pricing",
+        "free swap quote API",
+        "agent API rate limits"
+      ]
+    },
+    {
+      "slug": "autopilot",
+      "name": "Autopilot",
+      "category": "Operate",
+      "audience": "desk",
+      "status": "paper",
+      "title": "Autopilot: autonomous trading agents in paper mode",
+      "metaDescription": "Autopilot agents publish every decision to a public feed. They run in paper mode by default: simulated fills, no real funds. Read the decisions yourself.",
+      "headline": "Autonomous agents. Public decisions. Paper by default.",
+      "lead": "Autopilot agents run in paper mode by default: fills are simulated and no real funds move. Every decision is readable through a public feed, no key needed.",
+      "primaryCta": {
+        "label": "Read the quick start",
+        "href": "/docs/quick-start/overview"
+      },
+      "secondaryCta": {
+        "label": "Talk to the team",
+        "href": "/contact"
+      },
+      "whatItIs": [
+        "Autopilot is a set of autonomous trading agents with a public transparency feed. Each agent has a profile, positions, a journal and a list of decisions. The feed pages show a PAPER chip whenever the agent is in paper mode: simulated trading, no real funds.",
+        "Paper is the default mode. Paper fills are charged a simulated fee from the agent's rules (paperFeeBps), so results are not flattered by free trades. Live mode is refused unless the service has an agent API key configured. We have not confirmed that any agent runs live in production."
+      ],
+      "howItWorks": [
+        {
+          "title": "Agent forms a thesis",
+          "detail": "A thesis is built from market data. A deterministic thesis is used when the language model step is not run."
+        },
+        {
+          "title": "Gates check it",
+          "detail": "Rules and gates decide whether the agent may act."
+        },
+        {
+          "title": "Executor fills it",
+          "detail": "In paper mode the fill is simulated with the paper fee. Live mode needs the service's agent key and is refused without it."
+        },
+        {
+          "title": "Decision is recorded",
+          "detail": "The decision, its reasoning and the resulting position are stored."
+        },
+        {
+          "title": "You read it",
+          "detail": "Query the public feed, a decision, or its verify route."
+        }
+      ],
+      "capabilities": [
+        {
+          "title": "Public agent list",
+          "detail": "GET /v1/autopilot lists agents. No key needed for the public reads."
+        },
+        {
+          "title": "Agent profile",
+          "detail": "GET /v1/autopilot/:slug."
+        },
+        {
+          "title": "Decisions",
+          "detail": "GET /v1/autopilot/:slug/decisions, with a limit parameter."
+        },
+        {
+          "title": "Positions",
+          "detail": "GET /v1/autopilot/:slug/positions."
+        },
+        {
+          "title": "Journal",
+          "detail": "GET /v1/autopilot/:slug/journal."
+        },
+        {
+          "title": "Decision detail and verify",
+          "detail": "GET /v1/autopilot/decisions/:id and /decisions/:id/verify."
+        },
+        {
+          "title": "Paper fees",
+          "detail": "Simulated fills use the agent's paperFeeBps rule."
+        },
+        {
+          "title": "Admin-only control",
+          "detail": "Creating agents, editing rules and running them sit behind an admin key and are not public."
+        }
+      ],
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/v1/autopilot",
+          "does": "List Autopilot agents."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/autopilot/:slug",
+          "does": "One agent's profile and mode."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/autopilot/:slug/decisions",
+          "does": "Recent decisions. Takes limit."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/autopilot/:slug/positions",
+          "does": "Current positions."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/autopilot/:slug/journal",
+          "does": "Agent journal."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/autopilot/decisions/:id",
+          "does": "One decision."
+        },
+        {
+          "method": "GET",
+          "path": "/v1/autopilot/decisions/:id/verify",
+          "does": "Verify a decision."
+        }
+      ],
+      "specs": [
+        {
+          "label": "Default mode",
+          "value": "Paper: simulated fills, no real funds"
+        },
+        {
+          "label": "Live mode",
+          "value": "Refused unless the service has an agent API key set"
+        },
+        {
+          "label": "Public reads",
+          "value": "List, profile, decisions, positions, journal, decision detail, verify"
+        },
+        {
+          "label": "Control routes",
+          "value": "Admin key only; not public"
+        },
+        {
+          "label": "Paper fee",
+          "value": "paperFeeBps from the agent's rules"
+        },
+        {
+          "label": "Thesis",
+          "value": "Deterministic when the language model step is not run"
+        },
+        {
+          "label": "Live in production",
+          "value": "Not confirmed"
+        },
+        {
+          "label": "Status",
+          "value": "Paper mode"
+        }
+      ],
+      "example": {
+        "title": "Read the public feed",
+        "lang": "bash",
+        "code": "curl -s https://api.suwappu.bot/v1/autopilot\n\n# Replace SLUG with an agent from the list\ncurl -s \"https://api.suwappu.bot/v1/autopilot/SLUG/decisions?limit=40\""
+      },
+      "pricing": "Reading the public feed does not need an API key. Autopilot is not a product you buy a seat in; if you want to run an agent of your own with real execution, use the Agent API, where a swap costs 5 credits and 1 credit is about $0.001.",
+      "limits": [
+        "Paper mode: nothing here is a record of real trades or real returns.",
+        "We have not confirmed that any Autopilot agent runs live in production.",
+        "Simulated fills use a configured fee, not real venue conditions.",
+        "Paper results are not a prediction of future performance. This is not investment advice.",
+        "You cannot create or control Autopilot agents through the public API."
+      ],
+      "faq": [
+        {
+          "q": "Does Autopilot trade real money?",
+          "a": "Not by default. Agents run in paper mode with simulated fills. Live mode is refused unless the service has an agent API key set."
+        },
+        {
+          "q": "What if a decision looks wrong?",
+          "a": "Read the decision and its journal entry, and call its verify route. You cannot alter an agent through the public API."
+        },
+        {
+          "q": "Can I give Autopilot my keys?",
+          "a": "No. It does not take your keys or funds. It is a transparency feed, not a managed account."
+        },
+        {
+          "q": "Who can change an agent's rules?",
+          "a": "Only operators with the admin key."
+        },
+        {
+          "q": "What is recorded?",
+          "a": "Decisions, positions and a journal per agent, readable through the public routes."
+        }
+      ],
+      "related": [
+        "agent-api",
+        "terminal",
+        "perps",
+        "orders"
+      ],
+      "solveLinks": [
+        "a2a-crypto-trading-agent",
+        "audit-log-for-trading-agents",
+        "let-ai-agent-swap-tokens"
+      ],
+      "visual": "paper-ledger",
+      "keywords": [
+        "autonomous trading agent paper mode",
+        "AI trading agent transparency",
+        "public agent decision feed",
+        "paper trading AI agent crypto",
+        "verifiable agent decisions",
+        "Autopilot trading agents"
+      ]
+    },
+    {
+      "slug": "arbiter",
+      "name": "Arbiter",
+      "category": "Preview",
+      "audience": "developer",
+      "status": "preview",
+      "title": "Arbiter: escrow for agent work (NEAR testnet preview)",
+      "metaDescription": "Arbiter is a preview of escrow for agent work that pays on verified delivery. Demonstrated on NEAR testnet. Not enabled on the production API.",
+      "headline": "Escrow that pays on verified delivery.",
+      "lead": "Arbiter is a preview. It is shown on NEAR testnet only, with no mainnet funds, and its routes are not enabled on the production API yet.",
+      "primaryCta": {
+        "label": "Read the quick start",
+        "href": "/docs/quick-start/overview"
+      },
+      "secondaryCta": {
+        "label": "Talk to the team",
+        "href": "/contact"
+      },
+      "whatItIs": [
+        "Arbiter holds payment for agent work in escrow and releases it when delivery is verified against a rubric. The evidence is submitted as a blob, and the verdict is attested on NEAR testnet. The outputs on the Arbiter page are real testnet results, not mainnet activity.",
+        "It is a demo build, not a public API. The backend routes only mount when a server flag is on, and that flag is off by default. On 2026-11-21 these routes returned 404 on api.suwappu.bot. The header of the code says: no mainnet funds, no production payment paths."
+      ],
+      "howItWorks": [
+        {
+          "title": "A job and a rubric",
+          "detail": "Buyer and agent agree what delivery means, expressed as a rubric."
+        },
+        {
+          "title": "Funds held",
+          "detail": "Payment sits in escrow. On testnet this is test funds only."
+        },
+        {
+          "title": "Evidence submitted",
+          "detail": "The agent sends an evidence blob by webhook, with a body limit of 64 KB."
+        },
+        {
+          "title": "Verification",
+          "detail": "The evidence is scored against the rubric and a verdict is produced."
+        },
+        {
+          "title": "Attestation and release",
+          "detail": "The result is attested on NEAR testnet and payment follows the verdict."
+        }
+      ],
+      "capabilities": [
+        {
+          "title": "Rubric-based verdicts",
+          "detail": "Delivery is judged against a stated rubric rather than an ad hoc call."
+        },
+        {
+          "title": "Testnet attestation",
+          "detail": "Verdicts are logged on NEAR testnet. Real testnet transactions are shown on the Arbiter page."
+        },
+        {
+          "title": "Fixtures",
+          "detail": "GET /hackathon/arbiter/fixtures and /fixtures/:key return sample cases where the routes are enabled."
+        },
+        {
+          "title": "Verify preview",
+          "detail": "POST /hackathon/arbiter/verify-preview runs a verification preview."
+        },
+        {
+          "title": "Status route",
+          "detail": "GET /hackathon/arbiter/status reports whether the preview is configured."
+        },
+        {
+          "title": "Contract-backed live path",
+          "detail": "The testnet path needs an Arbiter contract and a WASM build configured on the server."
+        },
+        {
+          "title": "Evidence size cap",
+          "detail": "Webhook bodies are limited to 64 KB."
+        }
+      ],
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/hackathon/arbiter/status",
+          "does": "Preview status. Mounted only when the flag is on."
+        },
+        {
+          "method": "GET",
+          "path": "/hackathon/arbiter/fixtures",
+          "does": "List sample cases."
+        },
+        {
+          "method": "GET",
+          "path": "/hackathon/arbiter/fixtures/:key",
+          "does": "One sample case."
+        },
+        {
+          "method": "POST",
+          "path": "/hackathon/arbiter/verify-preview",
+          "does": "Preview a verdict."
+        }
+      ],
+      "specs": [
+        {
+          "label": "Status",
+          "value": "Preview. Not enabled on the production API."
+        },
+        {
+          "label": "Network",
+          "value": "NEAR testnet only"
+        },
+        {
+          "label": "Funds",
+          "value": "No mainnet funds"
+        },
+        {
+          "label": "Server flag",
+          "value": "HACKATHON_ARBITER, default off"
+        },
+        {
+          "label": "Production check",
+          "value": "Routes returned 404 on api.suwappu.bot, 2026-11-21"
+        },
+        {
+          "label": "Evidence body limit",
+          "value": "64 KB"
+        },
+        {
+          "label": "Public API",
+          "value": "No. Excluded from the public OpenAPI spec"
+        },
+        {
+          "label": "Mainnet",
+          "value": "Not live"
+        }
+      ],
+      "example": {
+        "title": "Check whether the preview is enabled",
+        "lang": "bash",
+        "code": "# Returns 404 on api.suwappu.bot today. It only responds where the\n# HACKATHON_ARBITER flag is on.\ncurl -i https://api.suwappu.bot/hackathon/arbiter/status"
+      },
+      "pricing": "Arbiter has no price because it is not on sale. Nothing in it uses production credits. The Agent API it sits beside charges 1 credit for a quote and 5 for a swap, at about $0.001 per credit.",
+      "limits": [
+        "Not live on the production API. Routes return 404 today.",
+        "NEAR testnet only. No mainnet funds, no production payment path.",
+        "Not a public API and not in the OpenAPI spec. Request shapes may change.",
+        "Mainnet availability has no date.",
+        "Escrow outcomes shown are testnet results, not evidence of mainnet behaviour."
+      ],
+      "faq": [
+        {
+          "q": "Is Arbiter live?",
+          "a": "No. It is a preview demonstrated on NEAR testnet. Its routes are not enabled on the production API."
+        },
+        {
+          "q": "Does it hold real funds?",
+          "a": "No. Testnet only, with no mainnet funds."
+        },
+        {
+          "q": "Can I build on it?",
+          "a": "Not against production. Talk to the team if you want to evaluate it."
+        },
+        {
+          "q": "Who decides the verdict?",
+          "a": "The rubric agreed for the job. The scoring details are not covered here."
+        },
+        {
+          "q": "What is recorded?",
+          "a": "Attestations on NEAR testnet. Real testnet transactions are listed on the Arbiter page."
+        }
+      ],
+      "related": [
+        "agent-api",
+        "agent-desk",
+        "wallets-custody"
+      ],
+      "solveLinks": [
+        "a2a-crypto-trading-agent",
+        "audit-log-for-trading-agents",
+        "approval-workflow-onchain-trades"
+      ],
+      "visual": "verdict-card",
+      "keywords": [
+        "escrow for AI agent work",
+        "agent payment on verified delivery",
+        "NEAR testnet escrow agents",
+        "agent to agent payments escrow",
+        "rubric based delivery verification",
+        "onchain attestation agent work"
+      ]
+    },
+    {
+      "slug": "agent-desk",
+      "name": "Agent Desk",
+      "category": "Preview",
+      "audience": "desk",
+      "status": "preview",
+      "title": "Agent Desk: give your agent a mandate, not your keys",
+      "metaDescription": "Agent Desk is a browser surface where an agent proposes swap sequences under a mandate and a human signs. WebMCP tools. Preview, not a public API.",
+      "headline": "Give your agent a mandate, not your keys.",
+      "lead": "Agent Desk is a preview. Agents in your browser propose swap sequences through WebMCP tools, and a human reviews, overrides and signs. It is not a public API.",
+      "primaryCta": {
+        "label": "Read the quick start",
+        "href": "/docs/quick-start/overview"
+      },
+      "secondaryCta": {
+        "label": "Talk to the team",
+        "href": "/contact"
+      },
+      "whatItIs": [
+        "Agent Desk is a page where a model operates a swap desk through WebMCP, the browser tool interface. You define a mandate, and the agent proposes sequences against it. A route dossier explains each route. The human stays at the signing step.",
+        "It exposes 16 static tools. Two more appear only at the right moment: request_override after a human blocks a step, and open_signing_handoff after a human approves. This is a demo surface. Its endpoints are not part of the public OpenAPI spec."
+      ],
+      "howItWorks": [
+        {
+          "title": "Set a mandate",
+          "detail": "You state what the agent may do. The mandate bounds its proposals."
+        },
+        {
+          "title": "Agent proposes",
+          "detail": "It calls tools such as propose-sequence to draft a swap sequence."
+        },
+        {
+          "title": "Review the route",
+          "detail": "A route dossier shows how the swap would run."
+        },
+        {
+          "title": "Human decides",
+          "detail": "You can block a step. The agent can then call request_override, which only exists after a block."
+        },
+        {
+          "title": "Sign yourself",
+          "detail": "After approval, open_signing_handoff passes the transaction to you to sign."
+        }
+      ],
+      "capabilities": [
+        {
+          "title": "16 static WebMCP tools",
+          "detail": "Registered when the page loads. Schemas are exported in webmcp/tools.schema.json."
+        },
+        {
+          "title": "Dynamic tools",
+          "detail": "request_override and open_signing_handoff are registered only after a human blocks or approves."
+        },
+        {
+          "title": "Mandate, not keys",
+          "detail": "The agent works inside a stated mandate and never receives your key."
+        },
+        {
+          "title": "Approval proposals",
+          "detail": "Approval proposals are part of the tool set."
+        },
+        {
+          "title": "Route dossier",
+          "detail": "Each route is explained before you approve."
+        },
+        {
+          "title": "Evals",
+          "detail": "15 evaluation cases plus 6 adversarial ones ship with the tool set."
+        },
+        {
+          "title": "Smoke test",
+          "detail": "A smoke script with 47 assertions is documented. We have not run it for this page."
+        },
+        {
+          "title": "Terminal swap proxy",
+          "detail": "The desk uses a swap proxy on the API. Its endpoints are not documented here."
+        }
+      ],
+      "endpoints": [
+        {
+          "method": "TOOL",
+          "path": "propose-sequence",
+          "does": "Draft a swap sequence under the mandate."
+        },
+        {
+          "method": "TOOL",
+          "path": "request_override",
+          "does": "Dynamic. Appears only after a human blocks a step."
+        },
+        {
+          "method": "TOOL",
+          "path": "open_signing_handoff",
+          "does": "Dynamic. Appears only after a human approves."
+        }
+      ],
+      "specs": [
+        {
+          "label": "Status",
+          "value": "Preview. Demo surface, not a public API."
+        },
+        {
+          "label": "Interface",
+          "value": "WebMCP in the browser"
+        },
+        {
+          "label": "Static tools",
+          "value": "16"
+        },
+        {
+          "label": "Dynamic tools",
+          "value": "request_override, open_signing_handoff"
+        },
+        {
+          "label": "Evals",
+          "value": "15 cases plus 6 adversarial"
+        },
+        {
+          "label": "Smoke assertions",
+          "value": "47, documented, not run for this page"
+        },
+        {
+          "label": "Signing",
+          "value": "Human, via signing handoff"
+        },
+        {
+          "label": "OpenAPI",
+          "value": "Not in the public spec"
+        }
+      ],
+      "example": {
+        "title": "The dynamic tool names in the tool set",
+        "lang": "json",
+        "code": "{\n  \"dynamic_tools\": [\"request_override\", \"open_signing_handoff\"],\n  \"registered\": \"only after a human blocks or approves a step\"\n}"
+      },
+      "pricing": "The desk has no separate price here. Swaps behind it use the same economics as the Agent API: a quote costs 1 credit, a swap 5, and 1 credit is about $0.001, with 0.8% EVM and 0.3% Solana fees.",
+      "limits": [
+        "Preview and demo. Not a supported public API and not in the OpenAPI spec.",
+        "Needs a browser with WebMCP support.",
+        "The desk endpoints were not verified for this page.",
+        "The agent proposes; a person signs. It does not execute on its own.",
+        "Eval and smoke counts describe the test set, not a guarantee of behaviour."
+      ],
+      "faq": [
+        {
+          "q": "Who holds the keys?",
+          "a": "You. The agent gets a mandate and tools, not your key. Signing is handed to you."
+        },
+        {
+          "q": "What if the agent proposes something I do not want?",
+          "a": "Block it. The agent can then request an override, and you decide."
+        },
+        {
+          "q": "Is it idempotent?",
+          "a": "Idempotency applies to the Agent API execute route, not to this desk surface."
+        },
+        {
+          "q": "Who sets the mandate?",
+          "a": "You do, in the page."
+        },
+        {
+          "q": "What is logged?",
+          "a": "This page does not document desk logging. The Agent API audit log covers approval and policy events."
+        }
+      ],
+      "related": [
+        "agent-api",
+        "mcp-server",
+        "spend-policies",
+        "terminal"
+      ],
+      "solveLinks": [
+        "give-claude-crypto-wallet-safely",
+        "approval-workflow-onchain-trades",
+        "let-ai-agent-swap-tokens"
+      ],
+      "visual": "browser-mandate",
+      "keywords": [
+        "WebMCP crypto agent",
+        "AI agent swap desk",
+        "give agent mandate not keys",
+        "human approval AI trading browser",
+        "browser agent crypto swap",
+        "agent trading desk preview"
+      ],
+      "more": [
+        {
+          "title": "Agent Swap Passport (preview)",
+          "body": "Passport is a separate preview: an agent proves it is backed by a verified human through World ID, binds an ENS name, and requests swaps. It is not enabled on the production API; those routes returned 404 on api.suwappu.bot on 2026-11-21, and the server flag that mounts them is off by default. Only World ID is treated as a live signal in the demo; a second integration is shown as not integrated. In production, the World ID verified benefit that exists today is the 20% discount on the base swap fee (0.8% EVM, 0.3% Solana)."
+        }
+      ]
+    }
+  ]
+}

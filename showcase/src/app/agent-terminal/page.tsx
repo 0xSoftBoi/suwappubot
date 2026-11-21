@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import SummerNav from '@/components/SummerNav';
+import TrackedLink from '@/components/solve/TrackedLink';
 import SummerFooter from '@/components/SummerFooter';
 import AgentDesk from './AgentDesk';
 import stats from '@/data/stats.generated.json';
@@ -8,6 +9,7 @@ import { Reveal, Backdrop } from '@/components/v3';
 import styles from './agent-desk.module.css';
 import '../sales-v3.css';
 import '../product-v3.css';
+import '../products/product-deep.css';
 
 export const metadata: Metadata = {
   title: 'Agent Desk | Give your agent a mandate, not your keys',
@@ -242,6 +244,7 @@ export default function AgentTerminalPage() {
               How it works ↓
             </a>
           </div>
+          <p className="pdx-detail"><TrackedLink href="/products/agent-desk" surface="product" slug="agent-desk" kind="product">Full details: Agent Desk →</TrackedLink></p>
         </header>
           </div>
         </div>

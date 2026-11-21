@@ -18,23 +18,28 @@ export const MENU_PANELS: MenuPanel[] = [
   {
     key: 'products', id: 'products', groups: [
       { key: 'grpTrade', items: [
-        { key: 'terminal', href: TERMINAL_URL, external: true },
-        { key: 'bot', href: TELEGRAM_URL, external: true },
+        { key: 'terminal', href: '/products/terminal' },
+        { key: 'bot', href: '/products/telegram-bot' },
         { key: 'miniApp', href: MINI_APP_URL, external: true },
-        { key: 'autopilot', href: '/autopilot' },
+        { key: 'autopilot', href: '/products/autopilot' },
+        { key: 'copyTrading', href: '/products/copy-trading' },
+        { key: 'sniping', href: '/products/sniping' },
       ]},
       { key: 'grpMarkets', items: [
-        { key: 'swaps', href: '/#engine' },
-        { key: 'perps', href: '/#hyperliquid' },
+        { key: 'swaps', href: '/products/swap-routing' },
+        { key: 'perps', href: '/products/perps' },
+        { key: 'predictions', href: '/products/predictions' },
         { key: 'tempo', href: '/#tempo' },
         { key: 'curve', href: '/#curve' },
         { key: 'signals', href: '/signals' },
       ]},
       { key: 'grpAgents', items: [
-        { key: 'agentApi', href: '/agents' },
-        { key: 'agentDesk', href: '/agent-terminal' },
+        { key: 'agentApi', href: '/products/agent-api' },
+        { key: 'mcp', href: '/products/mcp-server' },
+        { key: 'spendPolicies', href: '/products/spend-policies' },
+        { key: 'agentDesk', href: '/products/agent-desk' },
         { key: 'passport', href: '/passport' },
-        { key: 'arbiter', href: '/arbiter' },
+        { key: 'arbiter', href: '/products/arbiter' },
       ]},
     ],
   },
@@ -57,9 +62,9 @@ export const MENU_PANELS: MenuPanel[] = [
     key: 'developers', id: 'developers', groups: [
       { key: 'grpBuild', items: [
         { key: 'start', href: '/start' },
-        { key: 'agentApi', href: '/agents' },
-        { key: 'mcp', href: '/docs/quick-start/mcp-clients' },
-        { key: 'sdks', href: '/docs/quick-start/sdk-examples' },
+        { key: 'agentApi', href: '/products/agent-api' },
+        { key: 'mcp', href: '/products/mcp-server' },
+        { key: 'sdks', href: '/products/sdks' },
       ]},
       { key: 'grpReference', items: [
         { key: 'docs', href: '/docs' },

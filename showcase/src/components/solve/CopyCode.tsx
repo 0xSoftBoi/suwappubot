@@ -6,11 +6,11 @@ import { track } from '@/lib/analytics';
 /**
  * Designed code panel with a Copy button. `telegram` snippets render as a chat
  * (one outgoing message per line) because that is how a person uses them.
- * Copy fires `solve_snippet_copied` with the page slug and language only.
+ * Copy fires `solve_snippet_copied` with the page slug, language and an optional `surface`.
  */
 export default function CopyCode({
-  code, lang, label, slug,
-}: { code: string; lang: string; label: string; slug: string }) {
+  code, lang, label, slug, surface,
+}: { code: string; lang: string; label: string; slug: string; surface?: string }) {
   const [copied, setCopied] = useState(false);
   const chat = lang === 'telegram';
 
@@ -19,7 +19,7 @@ export default function CopyCode({
       await navigator.clipboard.writeText(code);
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
-      track('solve_snippet_copied', { slug, lang });
+      track('solve_snippet_copied', surface ? { slug, lang, surface } : { slug, lang });
     } catch { /* clipboard unavailable: the text is selectable */ }
   };
 
