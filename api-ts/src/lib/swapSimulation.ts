@@ -99,6 +99,8 @@ interface RpcResult<T> {
 interface RpcEndpoints {
 	primary: string
 	fallback?: string | null
+	/** Chain id the fallback must serve before its answer is trusted. */
+	expectedChainId?: number
 }
 
 /**
@@ -118,6 +120,48 @@ function classifyRpcError(e: unknown): string {
 }
 
 const RPC_MIN_ATTEMPT_MS = 1_500
+// With a fallback the primary gets a shorter slice so the whole call stays
+// bounded (worst case ~ 5s + 3s chainId probe + 1.5s call = 9.5s).
+const RPC_PRIMARY_WITH_FALLBACK_MS = 5_000
+
+const REVERT_RE = /revert/i
+
+type RpcErrorBody = { code?: unknown; message?: unknown; data?: unknown }
+
+/**
+ * Only a node's genuine execution failure counts as a revert: JSON-RPC code 3
+ * (the de-facto "execution reverted" code) or revert wording in message/data.
+ * Everything else (rate limits -32005, internal errors -32603, timeouts, odd
+ * shapes) is a provider failure, not a statement about the transaction.
+ */
+function isRevertError(err: RpcErrorBody): boolean {
+	if (err.code === 3) return true
+	const msg = typeof err.message === 'string' ? err.message : ''
+	const dat = typeof err.data === 'string' ? err.data : ''
+	return REVERT_RE.test(msg) || REVERT_RE.test(dat)
+}
+
+function interpretBody<T>(data: unknown): RpcResult<T> | null {
+	if (!data || typeof data !== 'object') return null
+	const body = data as { result?: T; error?: unknown }
+	if (body.error !== undefined && body.error !== null) {
+		if (typeof body.error !== 'object') {
+			return { ok: false, transport: true, error: 'RPC provider error' }
+		}
+		const err = body.error as RpcErrorBody
+		if (!isRevertError(err)) {
+			const code = typeof err.code === 'number' ? ` (code ${err.code})` : ''
+			return { ok: false, transport: true, error: `RPC provider error${code}` }
+		}
+		// A real revert from the node. Surface embedded revert data (if present)
+		// alongside the message so eth_call_revert_check can decode it.
+		const message = typeof err.message === 'string' && err.message ? err.message : 'execution reverted'
+		const dataPart = typeof err.data === 'string' && err.data ? ` (data: ${err.data})` : ''
+		return { ok: false, error: `${message}${dataPart}` }
+	}
+	if (body.result === undefined) return null
+	return { ok: true, result: body.result }
+}
 
 async function rpcCallOnce<T>(
 	rpcUrl: string,
@@ -132,34 +176,45 @@ async function rpcCallOnce<T>(
 			body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
 			signal: AbortSignal.timeout(timeoutMs),
 		})
-		if (!res.ok) {
-			return { ok: false, transport: true, error: `RPC HTTP ${res.status}` }
-		}
-		let data: { result?: T; error?: { message: string; data?: string } } | null
+		let data: unknown
 		try {
-			data = (await res.json()) as typeof data
+			data = await res.json()
 		} catch {
-			return { ok: false, transport: true, error: 'RPC invalid response' }
+			return res.ok
+				? { ok: false, transport: true, error: 'RPC invalid response' }
+				: { ok: false, transport: true, error: `RPC HTTP ${res.status}` }
 		}
-		if (!data || typeof data !== 'object' || (data.error === undefined && data.result === undefined)) {
-			return { ok: false, transport: true, error: 'RPC invalid response' }
+		const parsed = interpretBody<T>(data)
+		// Some providers return reverts with HTTP 4xx/5xx — honour a JSON-RPC
+		// error body regardless of status; otherwise a non-2xx is transport.
+		if (!res.ok) {
+			return parsed && parsed.error !== undefined ? parsed : { ok: false, transport: true, error: `RPC HTTP ${res.status}` }
 		}
-		if (data.error) {
-			// A real JSON-RPC error from the node. Surface embedded revert data (if
-			// present) alongside the message so eth_call_revert_check can decode it.
-			const dataPart = data.error.data ? ` (data: ${data.error.data})` : ''
-			return { ok: false, error: `${data.error.message}${dataPart}` }
-		}
-		return { ok: true, result: data.result }
+		return parsed ?? { ok: false, transport: true, error: 'RPC invalid response' }
 	} catch (e) {
 		const error = classifyRpcError(e)
 		return { ok: false, transport: true, error: error === 'RPC timeout' ? error : 'RPC unreachable' }
 	}
 }
 
+// URLs already confirmed (this process) to serve the expected chain id.
+const verifiedFallbacks = new Set<string>()
+
+async function fallbackServesChain(url: string, chainId: number, timeoutMs: number): Promise<boolean> {
+	const key = `${chainId}|${url}`
+	if (verifiedFallbacks.has(key)) return true
+	const r = await rpcCallOnce<string>(url, 'eth_chainId', [], timeoutMs)
+	if (r.ok && typeof r.result === 'string' && Number(r.result) === chainId) {
+		verifiedFallbacks.add(key)
+		return true
+	}
+	return false
+}
+
 /**
  * Raw JSON-RPC call. On a transport failure retries ONCE against the fallback
- * endpoint (if any); total wall time stays within ~RPC_TIMEOUT_MS.
+ * endpoint (if any, and only after confirming it serves the expected chain).
+ * Worst case ~9.5s with a fallback, 8s without.
  */
 async function rpcCall<T = unknown>(
 	rpc: RpcEndpoints,
@@ -167,10 +222,18 @@ async function rpcCall<T = unknown>(
 	params: unknown[],
 ): Promise<RpcResult<T>> {
 	const startedAt = Date.now()
-	const first = await rpcCallOnce<T>(rpc.primary, method, params, RPC_TIMEOUT_MS)
+	const first = await rpcCallOnce<T>(
+		rpc.primary,
+		method,
+		params,
+		rpc.fallback ? RPC_PRIMARY_WITH_FALLBACK_MS : RPC_TIMEOUT_MS,
+	)
 	if (!first.transport || !rpc.fallback) return first
-	const remaining = Math.max(RPC_MIN_ATTEMPT_MS, RPC_TIMEOUT_MS - (Date.now() - startedAt))
-	const second = await rpcCallOnce<T>(rpc.fallback, method, params, remaining)
+	const budget = () => Math.max(RPC_MIN_ATTEMPT_MS, RPC_TIMEOUT_MS - (Date.now() - startedAt))
+	if (rpc.expectedChainId !== undefined && !(await fallbackServesChain(rpc.fallback, rpc.expectedChainId, budget()))) {
+		return first
+	}
+	const second = await rpcCallOnce<T>(rpc.fallback, method, params, budget())
 	// If the fallback also had a transport failure, report the primary's reason.
 	return second.transport ? first : second
 }
@@ -243,7 +306,7 @@ const EVM_ADDRESS_SHAPE_RE = /^0x[0-9a-fA-F]{40}$/
 /** Runs checks 2-5 (balance, allowance, gas, eth_call) for an EVM quote. Never throws. */
 export async function runEvmChecks(input: EvmCheckInput): Promise<SimulationCheck[]> {
 	const rpcUrl = getRpcUrl(input.chainId)
-	const rpc: RpcEndpoints | null = rpcUrl ? { primary: rpcUrl, fallback: getRpcFallbackUrl(input.chainId) } : null
+	const rpc: RpcEndpoints | null = rpcUrl ? { primary: rpcUrl, fallback: getRpcFallbackUrl(input.chainId), expectedChainId: input.chainId } : null
 	const isNative = isNativeEvmToken(input.fromTokenAddress)
 	const checks: SimulationCheck[] = []
 
@@ -419,6 +482,7 @@ async function checkEvmEthCallRevert(rpc: RpcEndpoints, input: EvmCheckInput): P
 		return {
 			name: 'eth_call_revert_check',
 			status: 'warn',
+			unverified: true,
 			detail: 'skipped: no executable transaction data or fromAddress available for this quote',
 		}
 	}
@@ -432,6 +496,9 @@ async function checkEvmEthCallRevert(rpc: RpcEndpoints, input: EvmCheckInput): P
 			},
 			'latest',
 		])
+		if (res.ok && (typeof res.result !== 'string' || !/^0x[0-9a-fA-F]*$/.test(res.result))) {
+			return { name: 'eth_call_revert_check', status: 'warn', unverified: true, detail: 'Could not verify: RPC unavailable (invalid response)' }
+		}
 		if (res.ok) {
 			return { name: 'eth_call_revert_check', status: 'pass', detail: 'eth_call simulation did not revert' }
 		}
@@ -588,7 +655,7 @@ export async function runSolanaChecks(input: SolanaCheckInput): Promise<{ balanc
  * would_execute is true only if every check that ran either passed, or
  * degraded to a 'warn' that is NOT a safety-critical unverified result.
  *
- * balance_sufficient, gas_affordable and eth_call_revert_check are safety-critical: a 'warn' there
+ * balance_sufficient, gas_affordable, allowance_sufficient and eth_call_revert_check are safety-critical: a 'warn' there
  * because the check couldn't actually run (no wallet_address, RPC
  * timeout/error, format mismatch) is an unverified result, not a verified
  * pass — so it must not let would_execute report true. Any other 'warn'
@@ -599,7 +666,7 @@ export async function runSolanaChecks(input: SolanaCheckInput): Promise<{ balanc
 export function computeWouldExecute(checks: SimulationCheck[]): boolean {
 	return checks.every((c) => {
 		if (c.status === 'fail') return false
-		if (c.unverified && (c.name === 'balance_sufficient' || c.name === 'gas_affordable' || c.name === 'eth_call_revert_check')) return false
+		if (c.unverified && (c.name === 'balance_sufficient' || c.name === 'gas_affordable' || c.name === 'allowance_sufficient' || c.name === 'eth_call_revert_check')) return false
 		return true
 	})
 }
