@@ -27,6 +27,15 @@ import { DatabaseError, ForbiddenError, mapErrorToResponse, NotFoundError, Valid
 import { describeError } from '../lib/errors'
 import { STEP_UP_REJECTED_PREFIX } from '../services/ApprovalService'
 import { agentError } from '../lib/agentError'
+import {
+	checkNativeValue,
+	deriveNativeCap,
+	getCachedCap,
+	invalidateCachedCap,
+	MAX_WEI_DIGITS,
+	setCachedCap,
+	weiFitsTurnkey,
+} from '../lib/agentWalletCap'
 import { agentBearerAuth, agentBearerAuthAllowInactive, scanForThreatsObserveOnly } from '../middleware'
 import { agentFlexAuth } from '../middleware/agentFlexAuth'
 // flexAuth is still used by the owner-facing audit reads that landed on main
@@ -1311,6 +1320,60 @@ function policyUnavailableResponse(
 		},
 		503,
 	)
+}
+
+/**
+ * MONEY-PATH. Per-transaction NATIVE-VALUE cap from the agent's own wallet
+ * policies (see lib/agentWalletCap.ts for why this is enforced here and not by
+ * Turnkey). Runs before anything is handed to the signer on POST /swap/execute
+ * (the only route that signs with an agent's managed wallet; signing itself
+ * happens in python-api). Scope: caps the native token value (wei) of each
+ * transaction only — NOT ERC-20 amounts, not a time-window limit, and the same
+ * agent key can delete the policy, so it guards runaway logic, not a compromised
+ * key. EVM only (policies live on the EVM sub-org).
+ *
+ * Returns a Response to send (403 POLICY_VIOLATION / 503 POLICY_CHECK_UNAVAILABLE)
+ * or null to proceed. Runs on every call, including idempotent replays.
+ */
+async function enforceAgentNativeCap(
+	c: Context,
+	agent: Agent,
+	agentIdentifier: string,
+	orgId: string | null,
+	quote: any,
+	isSolana: boolean,
+): Promise<Response | null> {
+	if (isSolana) return null
+	const subOrgId = ((agent.metadata || {}) as Record<string, unknown>).wallet_sub_org_id as string | undefined
+	if (!subOrgId) return null
+
+	let cap = getCachedCap(subOrgId)
+	if (!cap) {
+		const listed = await runEffectEither(
+			Effect.gen(function* () {
+				const turnkeyService = yield* TurnkeyService
+				return yield* turnkeyService.listPolicies(subOrgId)
+			}),
+		)
+		if (Either.isLeft(listed)) {
+			return policyUnavailableResponse(c, { orgId, agentId: agentIdentifier, stage: 'wallet_native_cap', error: listed.left })
+		}
+		cap = deriveNativeCap(listed.right)
+		setCachedCap(subOrgId, cap)
+	}
+
+	const verdict = checkNativeValue(cap, quote?.transactionRequest?.value)
+	if (verdict.ok) return null
+	writeAuditLog({
+		userId: 0,
+		orgId,
+		agentId: agentIdentifier,
+		eventType: 'policy.wallet_native_cap_blocked',
+		details: { reason: verdict.reason },
+	})
+	return agentError(c, 403, 'POLICY_VIOLATION', verdict.message, {
+		hint: 'Lower the swap amount, or delete/recreate the wallet spending_limit policy. Applies to native-token value per transaction only.',
+	})
 }
 
 /**
@@ -3000,6 +3063,15 @@ agentRoutes.post('/swap/execute', async (c) => {
 			return outcome.response
 		}
 
+		// Wallet native-value cap: checked BEFORE the approval is consumed so a
+		// blocked swap does not burn the single-use approval.
+		const capBlock = await enforceAgentNativeCap(c, agent, agentIdentifier, orgId, outcome.freshQuote, outcome.isSolana)
+		if (capBlock) {
+			await releaseApprovalReserve(outcome.reserve)
+			await refundSwapExecuteCharge(c, agent, 'wallet native-value cap')
+			return capBlock
+		}
+
 		// Unlike POST /swap (which only returns an UNSIGNED tx from "build" — no
 		// funds move, so it's safe to consume the approval after build), this
 		// route's "build" step immediately signs AND broadcasts through the
@@ -3066,6 +3138,12 @@ agentRoutes.post('/swap/execute', async (c) => {
 		if (gateResponse) {
 			await refundSwapExecuteCharge(c, agent, 'blocked or deferred by org policy')
 			return gateResponse
+		}
+
+		const capBlock = await enforceAgentNativeCap(c, agent, agentIdentifier, orgId, cached.quote, !!cached.isSolana)
+		if (capBlock) {
+			await refundSwapExecuteCharge(c, agent, 'wallet native-value cap')
+			return capBlock
 		}
 
 		quote = cached.quote
@@ -3714,6 +3792,8 @@ agentRoutes.post('/wallet/policy', async (c) => {
 		})
 	)
 
+	invalidateCachedCap(subOrgId)
+
 	if (Either.isLeft(result)) {
 		const msg = result.left.message
 		// Map Turnkey rejections to 4xx; only genuine upstream failures stay 5xx.
@@ -3781,6 +3861,9 @@ agentRoutes.delete('/wallet/policy/:policyId', async (c) => {
 			return yield* turnkeyService.deletePolicy(subOrgId, policyId)
 		})
 	)
+
+	// Drop the cached cap whether or not the delete succeeded (cheap, safe).
+	invalidateCachedCap(subOrgId)
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
