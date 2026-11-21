@@ -60,6 +60,10 @@ class DepositFlow(BaseWhatsAppFlow):
                 f"• {', '.join(tokens)} on {', '.join(_display(c) for c in chains)}"
                 for chains, tokens in creditable_matrix()
             )
+            # Empty when no creditable token carries a floor; omit the sentence
+            # rather than assert "Minimum  per deposit".
+            floors = min_deposit_summary()
+            floor_line = f"Minimum {floors} per deposit — less is not credited.\n" if floors else ""
 
             # QR code via public API
             qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=250x250&data={address}"
@@ -72,8 +76,7 @@ class DepositFlow(BaseWhatsAppFlow):
                     f"is yours, so deposits to it credit your custodial balance "
                     f"automatically.\n\n"
                     f"*Credited:*\n{accepted}\n"
-                    f"Minimum {min_deposit_summary()} per deposit — less is not "
-                    f"credited.\n\n"
+                    f"{floor_line}\n"
                     f"⚠️ Send only those tokens, on those networks. Native coins "
                     f"(ETH, BNB, POL) and Solana are *not* credited yet — anything "
                     f"else sent here will not show up in your balance."

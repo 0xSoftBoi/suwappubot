@@ -167,7 +167,10 @@ def _deposit_lines(deposit_address: Optional[str]) -> list:
 async def custodial_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /custodial command - show custodial wallet overview."""
     if not _is_private(update):
-        await update.message.reply_text(_DM_ONLY)
+        # effective_message, not message: a channel post arrives as
+        # channel_post and leaves `update.message` None, so replying through it
+        # would raise instead of refusing.
+        await update.effective_message.reply_text(_DM_ONLY)
         return
 
     user = update.effective_user
@@ -392,7 +395,10 @@ async def deposit_qr_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
 
-    if not update.effective_user or int(owner) != update.effective_user.id:
+    # Compare as strings. `str.isdigit()` is true for digit-valued characters
+    # that `int()` rejects (e.g. "²"), and treats Arabic-Indic digits as equal
+    # to ASCII ones, so neither parses nor authorizes reliably as an int.
+    if not update.effective_user or owner != str(update.effective_user.id):
         await query.answer("This isn't your deposit screen.", show_alert=True)
         return
     await query.answer()
@@ -434,7 +440,12 @@ async def deposit_qr_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     display_name = info.display_name if info else chain.title()
     tokens = ", ".join(creditable_tokens(chain))
     confirmations = CONFIRMATIONS[chain]
+    # min_deposit_summary is empty when no creditable token on this chain has a
+    # floor, so the clause is built conditionally rather than interpolated —
+    # otherwise the copy asserts "minimum ." and misstates the rule.
     floors = _md2(min_deposit_summary(chain))
+    floor_clause = f", minimum {floors}" if floors else ""
+    floor_bullet = f"• Minimum {floors} per deposit, less is not credited\n" if floors else ""
 
     # Generate QR code
     try:
@@ -444,7 +455,7 @@ async def deposit_qr_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.edit_message_text(
             f"{emoji} *{display_name} Deposit*\n\n"
             f"`{address}`\n\n"
-            f"Send *{tokens}* on *{display_name}* only, minimum {floors}\\.\n"
+            f"Send *{tokens}* on *{display_name}* only{floor_clause}\\.\n"
             f"⚠️ Native coins and other tokens sent here are *not* credited\\.",
             parse_mode="MarkdownV2",
             reply_markup=back_only,
@@ -463,7 +474,7 @@ async def deposit_qr_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         f"• Scan QR or copy address above\n"
         f"• This address is yours alone, so deposits credit automatically\n"
         f"• Credited after {confirmations} confirmations\n"
-        f"• Minimum {floors} per deposit, less is not credited\n"
+        f"{floor_bullet}"
         f"⚠️ Native coins \\(ETH, BNB, POL\\) and other tokens sent here are "
         f"*not* credited"
     )
@@ -485,6 +496,15 @@ async def deposit_qr_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def withdraw_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start withdrawal flow."""
     query = update.callback_query
+
+    # Same rule as the deposit surfaces, and the same reason: 📤 Withdraw sits
+    # on the same inline keyboard as 📥 Deposit, so every custodial menu already
+    # posted into a group is a live entry point. Without this, Bob tapping it on
+    # Alice's old group message publishes Bob's balances to the group and then
+    # takes his destination address and amount in public.
+    if not _is_private(update):
+        await query.answer(_DM_ONLY, show_alert=True)
+        return ConversationHandler.END
     await query.answer()
 
     user = update.effective_user
