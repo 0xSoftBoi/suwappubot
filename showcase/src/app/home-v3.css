@@ -195,3 +195,11 @@
 .hv3-close .v3-head__lead { margin-inline: auto; }
 .hv3-close .home-actions { margin-top: 2.2rem; }
 .hv3-close .home-close__telegram { color: var(--v3-faint); }
+
+/* Traders: portfolio facts (moved from the old cream band) and the audience-split close */
+.hv3-portfolio { margin-top: clamp(2.5rem, 5vw, 4rem); max-width: 46rem; }
+.hv3-portfolio__title { margin: 0; font-family: var(--type-display-font, var(--font-serif)); font-size: clamp(1.4rem, 1.1rem + 1vw, 2rem); font-weight: 400; color: var(--v3-ink); }
+.hv3-split-cta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: clamp(2rem, 4vw, 3rem) 0 1.5rem; }
+.hv3-split-cta > div { display: flex; flex-direction: column; align-items: center; gap: 1rem; padding: clamp(1.5rem, 3vw, 2.25rem) 1.25rem; border: 1px solid var(--v3-line); border-radius: 16px; }
+.hv3-split-cta .v3-kicker { justify-content: center; margin: 0; }
+@media (max-width: 640px) { .hv3-split-cta { grid-template-columns: minmax(0, 1fr); } }

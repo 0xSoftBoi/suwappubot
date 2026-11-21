@@ -268,7 +268,12 @@
       "eyebrow": "Choisissez le modèle d’autorité",
       "title": "Envoyez l’intention. Gardez l’autorité d’exécution explicite.",
       "lead": "Commencez avec l’interface adaptée à la personne ou au système qui doit vérifier, signer et diffuser.",
-      "telegram": "Ou tradez dans Telegram"
+      "telegram": "Ou tradez dans Telegram",
+      "tradersLead": "Swaps, bridges, perps, automatisation et copy trading, depuis un seul compte.",
+      "seeRouting": "Voir comment fonctionne le routage",
+      "tradeLabel": "Trader maintenant",
+      "buildLabel": "Construire avec",
+      "desks": "Parler à l'équipe (desks)"
     },
     "useCases": {
       "eyebrow": "Ce que vous pouvez faire",

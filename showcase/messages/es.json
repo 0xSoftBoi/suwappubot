@@ -268,7 +268,12 @@
       "eyebrow": "Elige el modelo de autoridad",
       "title": "Envía la intención. Mantén explícita la autoridad de ejecución.",
       "lead": "Empieza con la interfaz que corresponda a quien debe revisar, firmar y transmitir.",
-      "telegram": "O opera en Telegram"
+      "telegram": "O opera en Telegram",
+      "tradersLead": "Swaps, bridges, perps, automatización y copy trading, desde una sola cuenta.",
+      "seeRouting": "Ver cómo funciona el enrutamiento",
+      "tradeLabel": "Opera ahora",
+      "buildLabel": "Constrúyelo",
+      "desks": "Habla con el equipo (mesas)"
     },
     "useCases": {
       "eyebrow": "Qué puedes hacer",

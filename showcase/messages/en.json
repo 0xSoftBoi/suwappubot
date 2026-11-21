@@ -268,7 +268,12 @@
       "eyebrow": "Choose the authority model",
       "title": "Send intent. Keep execution authority explicit.",
       "lead": "Start with the interface that matches who should review, sign, and broadcast.",
-      "telegram": "Or trade in Telegram"
+      "telegram": "Or trade in Telegram",
+      "tradersLead": "Swap, bridge, trade perps, automate and copy, from one account.",
+      "seeRouting": "See how routing works",
+      "tradeLabel": "Trade now",
+      "buildLabel": "Build with it",
+      "desks": "Talk to the team (desks)"
     },
     "useCases": {
       "eyebrow": "What you can do",

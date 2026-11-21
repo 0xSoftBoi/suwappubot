@@ -268,7 +268,12 @@
       "eyebrow": "选择权限模型",
       "title": "提交意图，并让执行权限保持明确。",
       "lead": "选择与审核、签名和广播责任相匹配的接口。",
-      "telegram": "或在 Telegram 交易"
+      "telegram": "或在 Telegram 交易",
+      "tradersLead": "兑换、跨链、永续合约、自动化与跟单，一个账户即可。",
+      "seeRouting": "了解路由如何工作",
+      "tradeLabel": "立即交易",
+      "buildLabel": "用它来构建",
+      "desks": "联系团队（交易台）"
     },
     "useCases": {
       "eyebrow": "你能做什么",
