@@ -90,11 +90,12 @@ MIN_BLOCK_RANGE = 100
 # Deliberately NOT matched, because halving does nothing for them and they need
 # a different endpoint instead: bare "limit exceeded" and "-32005", which
 # providers also use for RATE limits ("Rate limit exceeded", "compute units
-# limit exceeded"); and "block range extends beyond current head", which means
-# the node is lagging, not that the range is too wide.
+# limit exceeded"); and "block range extends beyond / exceeds current head",
+# which means the node is lagging, not that the range is too wide.
 _RANGE_LIMIT_ERROR = re.compile(
     r"limited to \d+ block|"
-    r"block range (?:is )?(?:too|exceed|larger|greater)|"
+    r"block range (?:is )?(?:too|larger|greater)|"
+    r"block range exceeds? (?:the )?(?:max|limit|allowed)|"
     r"range (?:is )?too (?:large|wide|big)|"
     r"exceed(?:s|ed)? (?:the )?(?:max(?:imum)? )?(?:allowed )?(?:block )?range|"
     r"more than \d+ (?:results|logs|blocks)|query returned more|"
@@ -104,8 +105,14 @@ _RANGE_LIMIT_ERROR = re.compile(
 
 # How long an endpoint that failed a log query is skipped for log queries only.
 LOGS_ENDPOINT_COOLDOWN = 600
-# Endpoints tried per range before giving up for this pass.
+# Endpoints tried per range before giving up for this pass. Lagging endpoints
+# are skipped without counting, so a stale one cannot hide a caught-up one.
 MAX_LOG_ENDPOINTS = 3
+
+# Passes a single deposit may fail to book, while the database is otherwise
+# answering, before it is quarantined (logged CRITICAL for a manual credit) so
+# the cursor can move on. Without a bound, one poison log stalls the chain.
+MAX_CREDIT_ATTEMPTS = 10
 
 # Addresses per getLogs topic filter. The topic list goes in the URL-ish JSON
 # body and providers differ on how large a filter they accept.
@@ -117,7 +124,15 @@ class _RangeLimited(Exception):
 
 
 class _Lagging(Exception):
-    """A failover endpoint has not reached the end of the requested range."""
+    """A failover endpoint has not confirmed the end of the requested range.
+
+    ``confirmed`` is the highest block it has confirmed, so the caller can
+    re-read a shorter range that the endpoint can vouch for.
+    """
+
+    def __init__(self, message: str, confirmed: int):
+        super().__init__(message)
+        self.confirmed = confirmed
 
 
 # How far back to start when a chain has never been scanned. Deposits sent
@@ -150,6 +165,7 @@ class DepositWatcher:
         # (chain, url) -> monotonic time until which that endpoint is skipped
         # for log queries. Local on purpose; see RPCManager.web3_for_url.
         self._logs_cooldown: Dict[Tuple[str, str], float] = {}
+        self._credit_failures: Dict[str, int] = {}
 
     # --- cursor -----------------------------------------------------------
 
@@ -250,8 +266,10 @@ class DepositWatcher:
             # too, and reading that as "already credited" loses the deposit.
             # (SQLite's message also never names the index, so name-matching
             # cannot work on both backends.)
-            if self._already_credited(user_id, key):
+            done = self._already_credited(user_id, key)
+            if done:
                 logger.debug("Deposit %s already credited", key)
+                self._credit_failures.pop(key, None)
                 return False
             # Nothing was credited: the ledger row and the balance move rolled
             # back together. Raise rather than return, so scan_chain stops before
@@ -260,11 +278,45 @@ class DepositWatcher:
             # past a deposit that was never booked — a transient DB error was
             # enough to lose it for good. Re-crediting is idempotent; skipping
             # is permanent.
-            logger.error("Failed to credit deposit %s: %s", key, exc)
-            raise
+            if done is None:
+                # The database itself is unreachable: an outage, not this
+                # deposit. Retry for as long as it takes; never count it.
+                logger.error("Failed to credit deposit %s (database unreachable): %s", key, exc)
+                raise
+            failures = self._credit_failures.get(key, 0) + 1
+            if failures < MAX_CREDIT_ATTEMPTS:
+                self._credit_failures[key] = failures
+                logger.error(
+                    "Failed to credit deposit %s (attempt %d/%d): %s",
+                    key,
+                    failures,
+                    MAX_CREDIT_ATTEMPTS,
+                    exc,
+                )
+                raise
+            # The database answers but this one deposit will not book: a poison
+            # row. Holding the cursor on it would stall every deposit on the
+            # chain behind it, so quarantine it loudly (CRITICAL reaches Sentry)
+            # with everything needed to credit it by hand, and move on.
+            self._credit_failures.pop(key, None)
+            logger.critical(
+                "DEPOSIT QUARANTINED, manual credit required: key=%s user_id=%s "
+                "chain=%s token=%s amount=%s tx=%s log=%s block=%s to=%s error=%s",
+                key,
+                user_id,
+                chain,
+                token_symbol,
+                amount,
+                tx_hash,
+                log_index,
+                block_number,
+                to_address,
+                exc,
+            )
+            return False
 
-    def _already_credited(self, user_id: int, key: str) -> bool:
-        """Whether the ledger row for this deposit is committed."""
+    def _already_credited(self, user_id: int, key: str) -> Optional[bool]:
+        """Whether the ledger row for this deposit is committed; None if unknown."""
         try:
             with get_session() as session:
                 return (
@@ -277,9 +329,10 @@ class DepositWatcher:
                     is not None
                 )
         except Exception:
-            # Cannot tell, so assume not credited. The caller then aborts the
-            # pass and retries, which is safe; guessing "credited" is not.
-            return False
+            # Cannot tell (the database is not answering). The caller treats
+            # this as an outage and retries the pass, which is safe; guessing
+            # "credited" is not.
+            return None
 
     # --- scan -------------------------------------------------------------
 
@@ -359,17 +412,25 @@ class DepositWatcher:
                 )
                 break
             except _RangeLimited as exc:
-                if span <= MIN_BLOCK_RANGE:
-                    logger.warning(
-                        "get_logs on %s rejects even %d blocks (%s); retrying next pass",
-                        chain,
-                        span,
-                        exc,
-                    )
-                    return 0
+                # Only raised while span > MIN_BLOCK_RANGE (see allow_range_shrink).
                 span = max(MIN_BLOCK_RANGE, span // 2)
                 self._span[chain] = span
                 logger.info("get_logs range on %s halved to %d blocks: %s", chain, span, exc)
+            except _Lagging as exc:
+                # The primary failed and the best fallback has confirmed only
+                # part of the range. Read just that part; to_block strictly
+                # shrinks each time, so this terminates.
+                if from_block <= exc.confirmed < to_block:
+                    safe_head = exc.confirmed
+                    logger.info(
+                        "get_logs on %s: reading %s-%s via a fallback that confirms only that far",
+                        chain,
+                        from_block,
+                        safe_head,
+                    )
+                    continue
+                logger.warning("get_logs failed on %s %s-%s: %s", chain, from_block, to_block, exc)
+                return 0
             except Exception as exc:
                 # Do NOT advance the cursor past a range we failed to read —
                 # that is how a deposit goes missing permanently.
@@ -457,8 +518,13 @@ class DepositWatcher:
             candidates.append((primary_url, True))
 
         to_block = params["toBlock"]
+        confirmations = CONFIRMATIONS.get(chain, 12)
         last_exc: Optional[Exception] = None
-        for url, is_primary in candidates[:MAX_LOG_ENDPOINTS]:
+        best_lag: Optional[_Lagging] = None
+        attempts = 0
+        for url, is_primary in candidates:
+            if attempts >= MAX_LOG_ENDPOINTS:
+                break
             # Built lazily: most passes succeed on the primary and need none.
             client = primary if is_primary else rpc_manager.web3_for_url(chain, url)
 
@@ -466,25 +532,43 @@ class DepositWatcher:
                 # safe_head came from the PRIMARY. A failover endpoint behind it
                 # may answer a log query for blocks it has not reached with an
                 # empty list instead of an error, and trusting that would move
-                # the cursor past real deposits. So confirm it has reached the
-                # end of the range first.
+                # the cursor past real deposits. And reaching to_block is not
+                # enough: at its own tip the block may be on a fork the primary
+                # already abandoned, and a credit from an orphaned block is
+                # permanent. So require to_block to be as deeply confirmed on
+                # this endpoint as the primary required it to be.
                 if check_head:
                     head = c.eth.block_number
-                    if head < to_block:
-                        raise _Lagging(f"head {head} is behind block {to_block}")
+                    if head - confirmations < to_block:
+                        raise _Lagging(
+                            f"head {head} has not confirmed block {to_block} "
+                            f"({confirmations} confirmations)",
+                            head - confirmations,
+                        )
                 return c.eth.get_logs(params)
 
             try:
                 return await asyncio.to_thread(_read)
             except _Lagging as exc:
-                # Behind, not broken: skip it this time without a cooldown.
+                # Behind, not broken: skip it this time without a cooldown, and
+                # without spending one of the attempts on it.
                 last_exc = exc
+                if best_lag is None or exc.confirmed > best_lag.confirmed:
+                    best_lag = exc
             except Exception as exc:
+                attempts += 1
                 if allow_range_shrink and _RANGE_LIMIT_ERROR.search(str(exc)):
                     raise _RangeLimited(str(exc)[:160]) from exc
                 last_exc = exc
                 if url is not None:
                     self._logs_cooldown[(chain, url)] = time.monotonic() + LOGS_ENDPOINT_COOLDOWN
+        # If a fallback could vouch for part of the range, say so: the caller
+        # re-reads the confirmed part instead of losing the whole pass. A
+        # fallback a block or two behind the primary would otherwise never be
+        # usable once the primary breaks, since it can never confirm the
+        # primary's own safe head.
+        if best_lag is not None and best_lag.confirmed >= params["fromBlock"]:
+            raise best_lag
         assert last_exc is not None
         raise last_exc
 
