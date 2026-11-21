@@ -42,7 +42,7 @@ export default function ContactPage() {
           </div>
         </header></div>
 
-        <Reveal as="section" id="contact-form" className={`${styles.layout} sv3-contact`}>
+        <Reveal as="section" className={`${styles.layout} sv3-contact`}>
           <div className={`${styles.pitch} sv3-next v3-tone-dark`}>
             <div className="sv3-slab__art" aria-hidden="true"><BoundaryRings quiet /></div>
             <h2 className="mkt-h2">
@@ -65,7 +65,9 @@ export default function ContactPage() {
             </ul>
           </div>
 
-          <div className={`${styles.panel} sv3-formpanel`}>
+          {/* The hero's "Send a note" jumps HERE, to the form itself: on a phone the
+              pitch stacks above it, and an anchor on the section landed on the pitch. */}
+          <div id="contact-form" className={`${styles.panel} sv3-formpanel`}>
             <EnterpriseContactForm />
           </div>
         </Reveal>
