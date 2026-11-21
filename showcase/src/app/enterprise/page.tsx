@@ -39,7 +39,7 @@ const criteria = [
     label: 'Authority',
     title: 'Choose where signing authority lives.',
     body:
-      'Bring your own keys and receive unsigned transactions, or use managed wallets whose keys are held with Turnkey. Spending policies, chain/pair restrictions, 2FA and withdrawal allowlists constrain managed authority.',
+      'Bring your own keys and receive unsigned transactions, or use managed wallets whose keys are held with Turnkey. Org spend policies (USD caps, approvals, kill switch) are enforced server-side and set up with the team; a wallet-level native-token cap and 2FA also constrain managed authority.',
   },
   {
     label: 'Integration',

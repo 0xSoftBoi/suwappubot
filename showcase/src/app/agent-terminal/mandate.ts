@@ -11,8 +11,9 @@
  *   - it governs what this page will put in front of you and how loudly;
  *   - it forces an out-of-envelope trade through a visible, separate
  *     negotiation (`request_override`) instead of a quiet Approve click.
- * Binding enforcement lives server-side in Suwappu's wallet spending policies
- * (`POST /v1/agent/wallet/policy`), which gate managed execution. The mandate
+ * The only binding server-side limit is Suwappu's wallet spending_limit
+ * (`POST /v1/agent/wallet/policy`): a cap on native-token value per transaction,
+ * checked at managed execution. The compiled whitelist is recorded, not enforced. The mandate
  * here is the browser-side sibling of that idea, not a replacement for it.
  */
 
@@ -216,8 +217,8 @@ export function describeMandate(mandate: Mandate, spentTodayUsd: number) {
       'rule it breaks, and Approve stays locked until they either edit the mandate or grant a one-time override. ' +
       'To ask for that override, call request_override; it only exists while a blocked proposal is on the desk.',
     notEnforcement:
-      'The desk does not execute trades, so this cannot physically cap spending. Binding limits live in Suwappu ' +
-      'wallet spending policies server-side. Treat this as the human’s stated intent, and respect it.',
+      'The desk does not execute trades, so this cannot physically cap spending. The only binding limit is Suwappu’s ' +
+      'per-transaction native-token cap, enforced at managed execution; allowlists are recorded, not enforced. Treat this as the human’s stated intent, and respect it.',
   };
 }
 
@@ -342,7 +343,7 @@ export function compileToWalletPolicies(
     // BNB Chain, Polygon or Avalanche, so no cap is compiled for such a mandate.
     const other = mandate.allowedChains.filter((c) => !ETH_NATIVE_CHAINS.has(c.toLowerCase()));
     notes.push(
-      `No per-transaction wallet cap was compiled: the mandate allows ${other.join(', ')}, whose native token is not ETH. The wallet policy is a single wei value applied on every chain, so an ETH-priced cap would be wrong there. Restrict the mandate to ETH-native chains (${[...ETH_NATIVE_CHAINS].join(', ')}) to compile one; until then the per-trade cap (${mandate.perTradeUsdCap} USD) is enforced by the desk only.`,
+      `No per-transaction wallet cap was compiled: the mandate allows ${other.join(', ')}, whose native token is not ETH. The wallet policy is a single wei value applied on every chain, so an ETH-priced cap would be wrong there. Restrict the mandate to ETH-native chains (${[...ETH_NATIVE_CHAINS].join(', ')}) to compile one; until then the per-trade cap (${mandate.perTradeUsdCap} USD) is enforced by the desk only. The native-value cap does not limit ERC-20 amounts, and the same agent key can delete it.`,
     );
   } else {
     // Turnkey conditions are denominated in wei against the native asset, so a
@@ -361,6 +362,7 @@ export function compileToWalletPolicies(
   }
 
   if (tokenAddresses.length > 0) {
+    notes.push('The token allowlist is recorded by the API but not enforced (it reports enforced: false); the desk is the only place it applies.');
     policies.push({
       type: 'whitelist',
       mandateVersion: mandate.version,

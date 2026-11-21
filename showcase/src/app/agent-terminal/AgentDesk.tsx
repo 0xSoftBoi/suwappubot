@@ -1826,7 +1826,7 @@ export default function AgentDesk() {
                 type="button"
                 className={styles.primary}
                 onClick={async () => {
-                  log('human', 'Compile mandate', 'to Suwappu wallet spending policies');
+                  log('human', 'Compile mandate', 'to Suwappu wallet policies (native cap enforced; allowlist recorded)');
                   await controller.compileMandateToPolicy({ download: true });
                 }}
               >
@@ -1946,7 +1946,8 @@ export default function AgentDesk() {
           <p className={styles.finePrint}>
             This desk never executes, so the mandate cannot physically cap spending. It governs
             what the page will put in front of you and what the agent is told before it asks.
-            Binding limits live in Suwappu’s server-side wallet spending policies. Stored in this
+            The only binding limit is Suwappu’s per-transaction native-token cap, enforced at
+            managed execution; compiled allowlists are recorded, not enforced. Stored in this
             browser only.
           </p>
         </section>

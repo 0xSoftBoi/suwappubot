@@ -1356,7 +1356,7 @@ Yes on /swap/execute, scoped to your agent and the request contents. A new key i
 
 ### Can I cap what an agent spends?
 
-Yes. Wallet-level policies are self-serve; org-wide caps and approvals are set with the team. See spend-policies.
+Partly. A wallet spending limit caps the native-token value of each managed transaction; org-wide caps and approvals are set with the team. See spend-policies.
 
 ### What is logged?
 
@@ -1408,7 +1408,7 @@ If your client only speaks stdio, install the @suwappu/mcp-server package. It is
 - Perps reads and quotes. perps_markets, perps_quote and perps_positions. There is no perps order tool; perps is quote and read only.
 - Prediction market data. predict_markets, predict_market, predict_book, predict_price and predict_trades read markets, order books, prices and trades.
 - Lending reads. lend_markets and lend_market are read-only. No lending execution.
-- Policy visibility. list_wallet_policies lets the agent see the wallet limits it is operating under before it tries a swap.
+- Policy visibility. list_wallet_policies lets the agent read the wallet policies on record, including each one's enforced flag, before it tries a swap.
 - Stdio bridge. npx @suwappu/mcp-server with SUWAPPU_API_KEY and optional SUWAPPU_API_URL (default https://api.suwappu.bot).
 
 
@@ -1480,7 +1480,7 @@ It returns an error in the result. A policy block or a required approval looks t
 
 ### Can I stop the model spending too much?
 
-Yes. Wallet policies cap per-transaction size and restrict addresses. Org-wide caps and approvals are set with the team.
+Partly. A wallet spending limit caps the native-token value of each managed transaction. An address allowlist can be recorded but is not enforced yet. Org-wide caps and approvals are set with the team.
 
 ### Which tools are read-only?
 
@@ -1620,7 +1620,7 @@ The SDK logs nothing for you. Server-side approval and policy events are in the 
 
 # Managed Wallets: A wallet your agent can use, within limits.
 
-> Create a managed wallet through the API, fund it, and let the agent execute from it. Cap each transaction and restrict destinations with self-serve policies.
+> Create a managed wallet through the API, fund it, and let the agent execute from it. Cap the native-token value of each managed transaction with a self-serve policy.
 
 Source: https://suwappu.bot/products/managed-wallets (last updated 2026-11-21)
 
@@ -1630,7 +1630,7 @@ Source: https://suwappu.bot/products/managed-wallets (last updated 2026-11-21)
 
 A managed wallet is an address Suwappu holds and signs for, so your agent can call POST /swap/execute without ever touching a private key. You create it with POST /v1/agent/wallets and fund it yourself. Solana wallets are created with chain_type solana.
 
-Policies attach to the wallet. A spending limit caps each transaction, in wei, and an address allowlist restricts where funds can go. You manage them over the API. Organisation-wide caps are a separate layer, covered under spend policies.
+Policies attach to the wallet. A spending limit caps the native-token value of each transaction, in wei, and is enforced by the Suwappu API at managed execution. An address allowlist can be recorded but is not enforced yet. You manage policies over the API. Organisation-wide caps are a separate layer, covered under spend policies.
 
 ## How it works
 
@@ -1644,8 +1644,8 @@ Policies attach to the wallet. A spending limit caps each transaction, in wei, a
 
 - Server-side signing. The agent never holds a private key. Execution happens through /swap/execute.
 - EVM and Solana. Create either; Solana via chain_type solana.
-- Per-transaction limit. A spending_limit in wei applies to each transaction, not per day.
-- Address allowlist. Restrict which addresses the wallet may send to.
+- Per-transaction limit. A spending_limit in wei caps the native-token value of each transaction, not per day. If you set several, the lowest applies. If the check cannot run, the request is refused.
+- Address allowlist. Recorded, not enforced yet. The API returns enforced: false for it.
 - Scoped access. Wallet listing needs the trade:read scope.
 - Portfolio read. GET /v1/agent/portfolio returns balances; it is metered and needs trade:read.
 - Policy visibility for models. The MCP tool list_wallet_policies shows an agent its own limits.
@@ -1672,7 +1672,7 @@ curl -s https://api.suwappu.bot/v1/agent/wallet/policies \
 
 - Create: POST /v1/agent/wallets
 - Chains: EVM and Solana
-- Policy types (self-serve): Per-transaction limit (wei), address allowlist
+- Policy types (self-serve): Per-transaction native-token limit (wei) enforced; address allowlist recorded only
 - Scope required: trade:read for wallets and portfolio
 - Signing: Server-side, via /swap/execute
 - Funding: You send funds in; nothing is funded for you
@@ -1685,9 +1685,9 @@ Metered calls draw prepaid credits: a quote or dry run costs 1, a swap costs 5, 
 
 ## What it does not do
 
-- Self-serve wallet policies are a per-transaction limit and an address allowlist only.
-- The limit is per transaction in wei. It is not a daily cap.
-- You fund the wallet yourself, and any value in it is exposed to your agent up to those limits.
+- Self-serve wallet policies are a per-transaction native-token limit (enforced) and an address allowlist (recorded, not enforced).
+- The limit is on native-token value per transaction, in wei. It does not limit ERC-20 amounts (an ERC-20 swap carries zero native value) and it is not a daily or aggregate cap; timeWindowSeconds is rejected with 400.
+- You fund the wallet yourself, and any value in it is exposed to your agent beyond those limits. The key that creates a wallet policy can also delete it, so it guards against mistakes and runaway logic, not a compromised key.
 - Portfolio response fields are documented in the OpenAPI spec; check it before parsing.
 
 ## FAQ
@@ -1698,7 +1698,7 @@ Suwappu signs from the managed wallet on your agent's request. Your agent only h
 
 ### What if a policy blocks a swap?
 
-You get an error with error_code POLICY_VIOLATION. Nothing is sent. Adjust the swap or the policy.
+A transaction above the native-token cap is refused and nothing is sent. If the check cannot be performed the request is also refused. Adjust the swap or the policy.
 
 ### Is execution idempotent?
 
@@ -1706,7 +1706,7 @@ Yes, with an Idempotency-Key on /swap/execute.
 
 ### Who can change policies?
 
-Wallet policies are managed through the same agent API, so do not assume an agent cannot loosen its own limits. Org-wide caps, approvals and the kill switch have no public create route; the team sets them.
+The same agent key that creates a wallet policy can delete it, so a wallet policy does not protect against a compromised key. Org-wide caps, approvals and the kill switch have no public create route; the team sets them.
 
 ### What is logged?
 
@@ -1728,9 +1728,9 @@ Approval and policy gate events are written to the audit log.
 
 ---
 
-# Spend Policies: Limits that sit outside the agent's control.
+# Spend Policies: Two layers of limits, with different strength.
 
-> Wallet limits are self-serve. Org-wide daily caps, hourly caps, velocity limits and approval rules are set with the team, and there is no public route to create them.
+> The wallet limit is self-serve and caps native-token value per transaction. Org-wide USD caps, approval rules and the kill switch are set with the team; there is no public route to create them.
 
 Source: https://suwappu.bot/products/spend-policies (last updated 2026-11-21)
 
@@ -1738,22 +1738,22 @@ Source: https://suwappu.bot/products/spend-policies (last updated 2026-11-21)
 
 ## What it is
 
-There are two layers. Wallet policies belong to a managed wallet: a per-transaction limit in wei and an address allowlist, created with POST /v1/agent/wallet/policy. They are self-serve and take effect on that wallet.
+There are two layers. Wallet policies belong to a managed wallet and are created with POST /v1/agent/wallet/policy. One is enforced: a spending_limit, a cap on the native-token value (wei of the chain's gas token) of each transaction, checked by the Suwappu API at POST /v1/agent/swap/execute. If several exist the lowest applies, and if the check cannot be performed the request is refused. The address allowlist is recorded only; the API reports it as enforced: false. The same agent key that creates a wallet policy can delete it, so it guards against runaway logic or mistakes, not a compromised key.
 
-Organisation policies sit above them. They evaluate a daily cap in USD, a session cap per hour window and a maximum number of transactions per hour, and can route a swap into an approval. Organisation-level policy creation is not a public route; we configure it with your team.
+Organisation policies are a separate layer, enforced server-side and fail closed. They evaluate USD caps, can route a swap into an approval and include a kill switch. There is no self-serve create route; we configure them with your team.
 
 ## How it works
 
 1. Agent requests a swap. The call arrives at /swap or /swap/execute with a quote bound to a wallet.
-2. Wallet policy check. The per-transaction limit and address allowlist on the wallet apply to the swap.
+2. Wallet policy check. At managed execution the API compares the transaction's native value with the wallet's lowest spending_limit. The allowlist is not checked.
 3. Org policy check. Daily cap, session cap and velocity are evaluated for the org.
 4. Allow, block or hold. A violation returns POLICY_VIOLATION. If approval is required, /swap returns HTTP 202 with status pending, approval_id and expires_at.
 5. Override with the kill switch. An org key with the admin scope can set the org kill switch through POST /v1/agent/killswitch.
 
 ## What you can do
 
-- Per-transaction limit. Self-serve on the wallet, expressed in wei.
-- Address allowlist. Self-serve. Restricts where a wallet can send.
+- Per-transaction limit. Self-serve and enforced. Caps native-token value per transaction, in wei. Response shows enforced: true, scope native_value_per_transaction.
+- Address allowlist. Recorded, not enforced yet. The API reports enforced: false.
 - Daily cap. Org policy field dailyCapUsd, in USD. Set with the team.
 - Session cap. Org policy field sessionCapUsd, applied over a one-hour window.
 - Velocity. Org policy field maxTxPerHour limits how many transactions run in an hour.
@@ -1770,17 +1770,21 @@ Organisation policies sit above them. They evaluate a daily cap in USD, a sessio
 - POST /v1/agent/killswitch: Set the org kill switch. Org key with admin scope.
 - GET /v1/agent/killswitch: Read kill switch state.
 
-### Read the org kill switch state
+### Create a wallet spending limit
 
 ```bash
-# Needs an org API key that carries the admin scope
-curl -s https://api.suwappu.bot/v1/agent/killswitch \
-  -H "Authorization: Bearer $SUWAPPU_ORG_KEY"
+curl -s -X POST https://api.suwappu.bot/v1/agent/wallet/policy \
+  -H "Authorization: Bearer $SUWAPPU_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"spending_limit","params":{"maxAmountWei":"100000000000000000"}}'
+
+# The response includes enforced: true and
+# scope: "native_value_per_transaction" (0.1 of the chain's gas token).
 ```
 
 ## The hard facts
 
-- Wallet layer: Per-transaction limit (wei), address allowlist; self-serve
+- Wallet layer: Native-token value per transaction (wei), enforced at managed execution; allowlist recorded only; self-serve
 - Org layer: Daily cap USD, session cap USD (hourly window), max transactions per hour; set with the team
 - Approval window: 15 minutes
 - Kill switch auth: Org API key with admin scope
@@ -1795,24 +1799,27 @@ A swap costs 5 credits and 1 credit is about $0.001; fees are 0.8% EVM and 0.3% 
 
 ## What it does not do
 
+- The allowlist (whitelist) is recorded only. The API reports enforced: false and does not check it.
+- ERC-20 amounts are not limited: an ERC-20 swap carries zero native value, so the native cap does not apply to it.
+- There is no daily, time-window or aggregate wallet limit. The API rejects timeWindowSeconds with 400.
+- The same agent key that creates a wallet policy can delete it. It is not a guard against a compromised key.
 - Org-wide policies have no public create route. You cannot self-configure them.
 - The kill switch halts one org, not every agent. Global scope is not available through the API.
 - Agent-scope kill switch is valid in the schema but returns 403 for org keys.
-- Where the kill switch is enforced inside the swap path has not been confirmed here; test it on your own org before relying on it.
 
 ## FAQ
 
 ### Who holds the keys?
 
-Managed wallets sign on the server; policies are evaluated before that signing. If you sign yourself with /swap, policies still apply to the unsigned transaction request.
+Managed wallets sign on the server; the native-value cap is checked by the Suwappu API before signing. Policies are stored with Turnkey, but Turnkey does not evaluate them for platform-signed transactions today.
 
 ### What happens when a swap breaks a cap?
 
-The call is refused with POLICY_VIOLATION and nothing is sent. If the rule is an approval, you get a 202 pending response instead.
+A transaction above the wallet's native cap, or an org USD cap, is refused and nothing is sent. If an org rule requires approval, you get a 202 pending response instead.
 
 ### Can the agent edit org policies?
 
-No public route creates them, so no agent call can. Wallet policies are different and are managed over the agent API.
+No public route creates them, so no agent call can. Wallet policies are different: the same agent key that creates one can delete it.
 
 ### Who can flip the kill switch?
 
@@ -2160,7 +2167,7 @@ Validation failures are refunded. If the outcome is unknown, the charge is held 
 
 ### Who can spend my credits?
 
-Any holder of your key. Use scoped org keys and wallet limits to bound it.
+Any holder of your key. Use scoped org keys and keep balances small to bound it; a wallet spending limit caps native-token value per transaction only.
 
 ### What is logged?
 
@@ -2553,7 +2560,7 @@ curl -s -X POST https://api.suwappu.bot/v1/agent/swap/simulate \
 
 ## What this does not do
 
-- Managed-wallet execution is only as safe as the caps on it. Spend policies are enforced for org API keys; see the desk pages.
+- Managed-wallet execution is only as safe as the caps on it. Org spend policies are enforced for org API keys. A self-serve wallet cap limits native-token value per transaction only; see the desk pages.
 - MCP execute_swap only prepares an unsigned transaction. It never signs or broadcasts.
 - Starknet swaps are not handled by the Agent API.
 - Suwappu does not guarantee a fill price; amount_out_min is the floor you set through slippage.
@@ -3684,7 +3691,7 @@ The tier with the lowest total of fee plus subscription at your volume.
 
 # How do I put spending limits on an AI agent's wallet?
 
-> Suwappu's policy engine can cap USD per trade, per day and per session, trades per hour, slippage and gas, and allowlist chains, tokens, destinations and contracts. It is enforced on execution for org API key requests. There is no self-serve policy endpoint today; talk to the team.
+> Two layers exist. Self-serve: a wallet spending_limit caps the native-token value of each managed transaction (POST /v1/agent/wallet/policy), enforced by the Suwappu API at managed execution. It does not limit ERC-20 amounts, has no daily or time-window form, and the same agent key can delete it. Org-level USD caps, approvals and a kill switch are enforced server-side and set with the team; there is no self-serve route for them.
 
 Source: https://suwappu.bot/solve/spending-limits-ai-agent-wallet (last updated 2026-11-21)
 
@@ -3694,11 +3701,12 @@ An agent with a funded wallet and no ceiling is one bad loop from an expensive a
 
 ## How to do it
 
-1. Define the ceiling. Pick per-trade, daily and session USD caps and an hourly trade count.
-2. Narrow the surface. Allowlist chains, tokens, destination addresses and router contracts.
-3. Choose approval mode. always_ask, autonomous, or require approval above a USD threshold.
-4. Run through an org key. Policies evaluate on swap and swap/execute for org keys and MCP agents with an organization.
-5. Test with a quote and simulate. A blocked intent returns a policy error, not a fill.
+1. Set a wallet cap yourself. POST a spending_limit with maxAmountWei. It caps native-token value per transaction; the response shows enforced: true.
+2. Define the ceiling. Pick per-trade, daily and session USD caps and an hourly trade count.
+3. Narrow the surface (org layer). Org policies can restrict chains, tokens and destinations; the team sets them. A wallet-level address allowlist is recorded but not enforced yet.
+4. Choose approval mode. always_ask, autonomous, or require approval above a USD threshold.
+5. Run through an org key. Policies evaluate on swap and swap/execute for org keys and MCP agents with an organization.
+6. Test with a quote and simulate. A blocked intent returns a policy error, not a fill.
 
 ### Policy fields the engine evaluates (reference, not an API body)
 
@@ -3719,6 +3727,9 @@ An agent with a funded wallet and no ceiling is one bad loop from an expensive a
 
 ## What this does not do
 
+- A wallet spending_limit caps native-token value per transaction only. ERC-20 amounts are not limited, and there is no daily or time-window wallet limit (timeWindowSeconds is rejected with 400).
+- The wallet address allowlist is recorded and reported as enforced: false.
+- The agent key that creates a wallet policy can delete it, so it guards against mistakes, not a compromised key.
 - No public endpoint creates org spend policies; they are set with the team.
 - Enforcement is hard for Suwappu-held keys and the managed wallet path, advisory for a self-signing wallet that builds and signs entirely client-side.
 - Policies are not enforced for plain agent keys with no org.
@@ -3736,11 +3747,11 @@ No. Only execution is gated; quotes and portfolio reads are not.
 
 ### Can the agent remove the cap?
 
-The delete endpoint distinguishes agent-created policies from admin ones; agents cannot remove admin caps.
+A wallet policy: yes. The same agent key that created it can delete it. Org policies have no public route, so an agent call cannot change them.
 
 ### What happens at the cap?
 
-The call is blocked with a policy error.
+The call is refused and nothing is sent. If a wallet cap check cannot be performed, the request is refused too (fail closed).
 
 
 ---
@@ -6132,11 +6143,11 @@ If no wallet exists yet, `wallets` is an empty array with a hint to create one.
 
 ## Wallet policies
 
-Attach Turnkey policies to constrain what your managed wallet can do — spending limits and address whitelists — using these endpoints:
+Record wallet policies using these endpoints. Only `spending_limit` is enforced, by the API, as a per-transaction cap on native token value (wei); it does not cap ERC-20 amounts, is not a time-window limit, and your agent key can delete it. `whitelist` policies are stored but NOT enforced yet.
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/v1/agent/wallet/policy` | POST | Create a `spending_limit` or `whitelist` policy |
+| `/v1/agent/wallet/policy` | POST | Create a `spending_limit` (enforced: per-tx native wei only) or `whitelist` (recorded only, not enforced) policy |
 | `/v1/agent/wallet/policies` | GET | List policies on your wallet |
 | `/v1/agent/wallet/policy/:policyId` | DELETE | Delete an agent-created policy |
 

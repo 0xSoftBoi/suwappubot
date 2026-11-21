@@ -20,6 +20,16 @@ function ethToWei(v: string): string | null {
   return (BigInt(m[1]) * 10n ** 18n + BigInt((m[2] ?? '').padEnd(18, '0'))).toString();
 }
 
+/** Pulls { type, enforced, scope } out of the GET /policies response without assuming its exact shape. */
+function enforcedRows(data: unknown): { type: string; enforced?: boolean; scope?: string }[] {
+  const list = (data as { policies?: unknown[] } | null)?.policies;
+  if (!Array.isArray(list)) return [];
+  return list.map((p) => {
+    const o = (p ?? {}) as { type?: unknown; enforced?: unknown; scope?: unknown };
+    return { type: String(o.type ?? 'policy'), enforced: typeof o.enforced === 'boolean' ? o.enforced : undefined, scope: typeof o.scope === 'string' ? o.scope : undefined };
+  });
+}
+
 /**
  * Builds the exact body for POST /v1/agent/wallet/policy (OpenAPI CreatePolicyRequest) and shows it.
  * It never POSTs: creating a policy changes a wallet's rules, so that runs from the visitor's own code.
@@ -80,20 +90,21 @@ export default function PolicyBuilder() {
         <div className="lv-grid lv-grid--2">
           <div className="lv-field"><label className="lv-label" htmlFor="lv-pk">Policy type</label>
             <select id="lv-pk" className="lv-select" value={kind} onChange={(e) => setKind(e.target.value as typeof kind)}>
-              <option value="spending_limit">Spending limit (per transaction)</option>
-              <option value="whitelist">Address allowlist</option>
+              <option value="spending_limit">Spending limit (enforced, native value per transaction)</option>
+              <option value="whitelist">Address allowlist (recorded, not enforced yet)</option>
             </select></div>
           {kind === 'spending_limit' ? (
             <>
               <div className="lv-field"><label className="lv-label" htmlFor="lv-pl">Limit (native token)</label>
                 <input id="lv-pl" className="lv-input" inputMode="decimal" value={eth} onChange={(e) => setEth(e.target.value)} /></div>
-              <p className="lv-hint" style={{ alignSelf: 'end' }}>Applies to each transaction. The API does not enforce a per-hour, per-day or per-week total on wallet policies.</p>
+              <p className="lv-hint" style={{ alignSelf: 'end' }}>Enforced by the Suwappu API at managed execution: caps the native-token value of each transaction (scope native_value_per_transaction). The lowest limit wins, and if the check cannot run the request is refused. It does not limit ERC-20 amounts, and there is no daily or time-window limit.</p>
             </>
           ) : (
             <div className="lv-field" style={{ gridColumn: '1 / -1' }}><label className="lv-label" htmlFor="lv-pa">Allowed addresses (one per line)</label>
               <textarea id="lv-pa" className="lv-input" style={{ minHeight: '6rem', padding: '.6rem .8rem', fontFamily: 'var(--v3-font-mono)' }} value={addrs} onChange={(e) => setAddrs(e.target.value)} placeholder="0x…" spellCheck={false} /></div>
           )}
         </div>
+        {kind === 'whitelist' && <p className="lv-hint" style={{ marginTop: '.75rem' }}>Recorded only. The API reports this policy as enforced: false and does not check it. The agent key that creates a policy can also delete it.</p>}
         {'err' in built && built.err && <p className="lv-error-line" role="alert" style={{ marginTop: '.75rem' }}>{built.err}</p>}
         {'body' in built && built.body && (
           <div style={{ marginTop: '1rem' }}>
@@ -117,7 +128,7 @@ export default function PolicyBuilder() {
         {noWallet && !busy && <p className="lv-empty" style={{ marginTop: '1rem' }}>Create a managed wallet first (from your own code). This key has none yet, so there are no policies to read and no policy call was made.</p>}
         {!res && !noWallet && !busy && <p className="lv-empty" style={{ marginTop: '1rem' }}>Not read yet. This is a real call: it first checks, for free, that your key has a managed wallet.</p>}
         {busy && <div className="lv-loading" style={{ marginTop: '1rem' }}><i /><i /><i /></div>}
-        {res && !busy && (<div style={{ marginTop: '1rem' }}>{res.ok ? <ResultMeta r={res} /> : <ErrorBox r={res} onRetry={read} />}{res.data != null && <Json data={res.data} open label="Response" />}</div>)}
+        {res && !busy && (<div style={{ marginTop: '1rem' }}>{res.ok ? <ResultMeta r={res} /> : <ErrorBox r={res} onRetry={read} />}{res.ok && enforcedRows(res.data).length > 0 && (<ul className="lv-hint" style={{ margin: '.75rem 0 0', paddingLeft: '1.1rem' }}>{enforcedRows(res.data).map((p, i) => (<li key={i}><code>{p.type}</code>: {p.enforced === true ? `enforced${p.scope ? ` (${p.scope})` : ''}` : p.enforced === false ? 'recorded, not enforced' : 'enforcement not reported'}</li>))}</ul>)}{res.data != null && <Json data={res.data} open label="Response" />}</div>)}
       </section>
     </div>
   );
