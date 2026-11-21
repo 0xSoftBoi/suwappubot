@@ -233,8 +233,8 @@ const faqs = [
     a: 'Credits are the Agent API’s prepaid unit: 1 credit ≈ $0.001. Metered reads such as quotes, simulation, prices, and portfolio cost 1 credit; chain/token discovery is free; transaction preparation and managed execution cost 5. Top up with USDC on Base when needed.',
   },
   {
-    q: 'x402 pay-per-call vs a subscription, which should my agent use?',
-    a: 'x402 is the zero-setup path: pay per request over HTTP 402 with no signup and no API key, ideal for one-off or low-volume calls. A Pro/Premium/Enterprise window is worth considering when the higher rate limit and unmetered calls beat pay-per-call costs. Agent-surface swap fees are route/configuration-specific, so evaluate them from the live quote rather than assuming a tier discount.',
+    q: 'Prepaid credits vs a subscription, which should my agent use?',
+    a: 'Prepaid credits are the pay-per-call path: no subscription, but an API key is still required, and the API returns HTTP 402 when credits run out. It suits one-off or low-volume calls. On-chain per-request payment (x402 header) is built but not enabled yet. A Pro/Premium/Enterprise window is worth considering when the higher rate limit and unmetered calls beat pay-per-call costs. Agent-surface swap fees are route/configuration-specific, so evaluate them from the live quote rather than assuming a tier discount.',
   },
   {
     q: 'What are the Agent API rate limits?',
@@ -259,8 +259,8 @@ const agentTiers: { tier: string; rateLimit: string; swapFee: string }[] = [
 
 const agentPaymentModes = [
   {
-    title: 'x402 pay-per-call',
-    body: 'Pay per request over HTTP 402: no signup, no API key, no subscription. Fund a wallet and call the endpoint; you’re charged for exactly what you use.',
+    title: 'Prepaid pay-per-call',
+    body: 'Pay per call with prepaid credits: no subscription, an API key is still required. The API returns HTTP 402 when credits run out; top up with a USDC transaction hash.',
   },
   {
     title: 'Prepaid credits',
@@ -501,7 +501,7 @@ export default function PricingPage() {
           <h2 className="compare__title">Three ways for an agent to pay.</h2>
           <p className="mkt-hero__lead" style={{ margin: '0 0 1.5rem', textAlign: 'left' }}>
             No human sign-up required. Register at{' '}
-            <code>POST /v1/agent/register</code> (<a href="/start">get a key in one call</a>) and start on pay-per-call, or add credits or a
+            <code>POST /v1/agent/register</code> (<a href="/start">get a key in one call</a>) and start with 100 starter credits, or add credits or a
             subscription when your agent needs a higher rate limit.
           </p>
 

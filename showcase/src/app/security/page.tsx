@@ -43,7 +43,7 @@ const buckets = [
   },
   {
     title: 'Rate limits & agent metering',
-    body: 'Every key is rate-limited by a sliding-window limiter scoped to your tier, so no single caller can starve the API. Pay-per-call (x402) credit balances are metered per agent and deducted atomically: one agent’s usage or balance can never draw against another’s.',
+    body: 'Every key is rate-limited by a sliding-window limiter scoped to your tier, so no single caller can starve the API. Prepaid credit balances are metered per agent and deducted atomically: one agent’s usage or balance can never draw against another’s.',
   },
 ];
 

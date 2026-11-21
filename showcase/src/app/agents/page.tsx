@@ -14,7 +14,7 @@ import '../product-v3.css';
 export const metadata: Metadata = {
   title: { absolute: 'Agents: API, MCP & A2A for AI agents | Suwappu' },
   description:
-    `Onchain execution for AI agents: a REST API, an MCP server, and the A2A protocol for quotes, swaps, managed wallets, and portfolio across ${stats.agentApiChains} chains. Self-serve registration, pay-per-call with x402, no signup required.`,
+    `Onchain execution for AI agents: a REST API, an MCP server, and the A2A protocol for quotes, swaps, managed wallets, and portfolio across ${stats.agentApiChains} chains. Self-serve registration, prepaid-credit pay-per-call, API key required.`,
 };
 
 // ── b. Capability grid ──────────────────────────────────────────────
@@ -64,14 +64,14 @@ const MATRIX_ROWS: { label: string; cells: Record<string, Cell> }[] = [
   { label: 'Managed wallets & policies', cells: { rest: 'yes', mcp: 'partial', a2a: 'no', sdk: 'yes' } },
   { label: 'Streaming / webhooks', cells: { rest: 'yes', mcp: 'no', a2a: 'no', sdk: 'yes' } },
   { label: 'Self-registration (no signup)', cells: { rest: 'yes', mcp: 'no', a2a: 'no', sdk: 'yes' } },
-  { label: 'Pay-per-call (x402)', cells: { rest: 'yes', mcp: 'yes', a2a: 'no', sdk: 'no' } },
+  { label: 'Pay-per-call (prepaid credits)', cells: { rest: 'yes', mcp: 'yes', a2a: 'no', sdk: 'no' } },
 ];
 
 // ── e. Agentic payments ─────────────────────────────────────────────
 const PAYMENT_MODES = [
   {
-    title: 'Pay-per-call (x402)',
-    body: 'Pay per request over HTTP 402: no signup, no subscription, no API key handshake. Fund a wallet, call the endpoint, get charged for exactly what you use.',
+    title: 'Pay-per-call (prepaid credits)',
+    body: 'Pay per call with prepaid credits: no subscription, an API key is still required. The API returns HTTP 402 when credits run out. On-chain per-request payment (x402 header) is built but not enabled yet.',
   },
   {
     title: 'Prepaid credits',
@@ -103,7 +103,7 @@ const FAQS = [
   },
   {
     q: 'What does it cost?',
-    a: 'Use pay-per-call over HTTP 402 (x402), prepaid credits (1 credit ≈ $0.001; metered reads are typically 1 and transaction preparation/execution is 5), or a 30-day Pro/Premium/Enterprise window that raises the rate limit and bypasses per-call metering. Agent-surface swap fees are route/configuration-specific rather than subscription-tier discounts; inspect the live quote.',
+    a: 'Use pay-per-call with prepaid credits, which need an API key; the API answers HTTP 402 when they run out (1 credit ≈ $0.001; metered reads are typically 1 and transaction preparation/execution is 5), or a 30-day Pro/Premium/Enterprise window that raises the rate limit and bypasses per-call metering. Agent-surface swap fees are route/configuration-specific rather than subscription-tier discounts; inspect the live quote.',
   },
   {
     q: 'How do managed wallets work?',
@@ -204,7 +204,7 @@ const STACK: { name: string; what: string; limit: string; href: string; cta: str
 const WHEN: { doing: string; use: string; why: string; href: string; cta: string }[] = [
   { doing: 'Give an LLM tools', use: 'MCP', why: `${stats.mcpToolCount} discoverable tools; the host lists them at runtime.`, href: '/docs/quick-start/mcp-clients', cta: 'MCP clients' },
   { doing: 'Call from your backend', use: 'REST or SDK', why: 'Full surface, including managed execution and webhooks.', href: '/docs/quick-start/first-swap', cta: 'First swap' },
-  { doing: 'Pay per call, no subscription', use: 'Prepaid credits', why: 'Top up credits on a key; metered calls draw them down and return HTTP 402 when empty.', href: '/solve/x402-pay-per-call-api', cta: 'x402 guide' },
+  { doing: 'Pay per call, no subscription', use: 'Prepaid credits', why: 'Top up credits on a key; metered calls draw them down and return HTTP 402 when empty.', href: '/solve/x402-pay-per-call-api', cta: 'Credits guide' },
   { doing: 'Discover or price from another agent', use: 'A2A', why: 'Quotes and discovery between agents; it never executes.', href: '/docs/protocols/a2a', cta: 'A2A protocol' },
   { doing: 'Let a browser agent act with a mandate', use: 'Agent Desk', why: 'WebMCP tools in the page, bounded by the mandate.', href: '/agent-terminal', cta: 'Agent Desk' },
   { doing: 'Cap an agent fleet', use: 'Spend policies', why: 'Per-tx, daily and session caps with approvals and a kill switch.', href: '/solve/spending-limits-ai-agent-wallet', cta: 'Spending limits' },
@@ -266,7 +266,7 @@ export default function AgentsPage() {
             ))}
           </ul>
           <div className="sv3-stage sv3-stage--dark pv3-authority">
-            <AuthorityFlow lanes={[['Agent', 'Mandate', 'Chain'], ['Agent', 'x402', 'Service']]} caption="How an agent pays and acts" />
+            <AuthorityFlow lanes={[['Agent', 'Mandate', 'Chain'], ['Agent', 'Credits', 'Service']]} caption="How an agent pays and acts" />
           </div>
         </section></Reveal>
 

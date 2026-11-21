@@ -170,7 +170,7 @@ const AGENT_GROUPS: { category: string; rows: { label: string; cells: Record<str
         cells: { suwappu: 'yes', dune: 'unclear', agentkit: 'unclear', bankr: 'unclear', onefi: 'unclear' },
       },
       {
-        label: 'x402 pay-per-call',
+        label: 'Prepaid pay-per-call credits',
         cells: { suwappu: 'yes', dune: 'unclear', agentkit: 'partial', bankr: 'unclear', onefi: 'unclear' },
       },
       {
@@ -335,7 +335,7 @@ export default function ComparePage() {
           <p className="mkt-hero__lead" style={{ margin: '0 0 1.5rem', textAlign: 'left' }}>
             Analytics platforms, wallet frameworks, and single-purpose swap MCPs each cover part
             of what an onchain agent needs. Suwappu is the only one that pairs execution: swaps,
-            perps, predictions, lending, with managed wallets, MCP, A2A, and x402 in one API.
+            perps, predictions, lending, with managed wallets, MCP, A2A, and prepaid-credit billing in one API.
           </p>
           <div className="compare__scroll" role="region" aria-label="Agent infrastructure comparison table" tabIndex={0}>
             <table className="compare-table">

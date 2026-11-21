@@ -26,7 +26,7 @@ Read tools answer freely; anything that costs money is a proposal a human must a
 - Errors return a JSON envelope with an error code and message; rate-limited requests return HTTP 429. Always read the error body and back off on 429.
 - Do not hardcode chains or token symbols — call `GET /chains` and `GET /tokens?chain=...` for the authoritative lists.
 - Machine-readable contracts: OpenAPI 3.1 at https://api.suwappu.bot/v1/agent/openapi, A2A agent card at https://api.suwappu.bot/.well-known/agent-card.json.
-- Payment without a key: pay-per-call over HTTP 402 (x402) is available for reads and swaps — see https://suwappu.bot/pricing#agent-api for credit costs, rate limits, and subscription tiers before assuming a subscription is required.
+- Pay per call: metered calls draw prepaid credits (quote or dry run 1, swap 5; 1 credit is about $0.001), an API key is still required, and HTTP 402 means credits ran out (top up via POST /v1/agent/billing/topup). On-chain per-request x402 payment is built but not enabled. See https://suwappu.bot/pricing#agent-api for credit costs, rate limits, and subscription tiers before assuming a subscription is required.
 - Agent-surface swap fees are route/configuration-specific rather than subscription-tier discounts. Inspect the live quote; do not hardcode an EVM/Solana fee into strategy economics.
 - Every docs page is available as clean Markdown by appending `.md` to its URL (or sending `Accept: text/markdown`).
 
@@ -49,7 +49,7 @@ Each page names a problem, answers it directly and links the product that solves
 - [Is there an MCP server my agent can use for crypto swaps?](https://suwappu.bot/solve/mcp-server-for-crypto-swaps.md): Yes.
 - [Which API quotes a cross-chain swap in one call?](https://suwappu.bot/solve/cross-chain-swap-api.md): POST /v1/agent/quote with from_chain and to_chain.
 - [How do I simulate a swap before signing it?](https://suwappu.bot/solve/simulate-swap-before-signing.md): POST /v1/agent/swap/simulate with a quote_id and your wallet_address.
-- [How do agents pay per call for a swap API with x402?](https://suwappu.bot/solve/x402-pay-per-call-api.md): When a free-tier agent runs out of credits, Suwappu answers HTTP 402 with an x402 challenge: USDC on Base, an amount and a payTo address.
+- [How do agents pay per call for a swap API?](https://suwappu.bot/solve/x402-pay-per-call-api.md): Metered calls draw prepaid credits, so there is no subscription, but an API key is still required.
 - [Is there a swap quote API I can call without signing up?](https://suwappu.bot/solve/free-swap-quote-api.md): Yes.
 - [Is there a TypeScript or Python SDK for DEX swaps?](https://suwappu.bot/solve/typescript-python-sdk-dex-swaps.md): Yes.
 - [How do I give Claude access to crypto without giving it my keys?](https://suwappu.bot/solve/give-claude-crypto-wallet-safely.md): Connect Claude to https://api.suwappu.bot/mcp.

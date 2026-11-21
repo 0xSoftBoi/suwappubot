@@ -290,7 +290,7 @@
       "item06Title": "预测市场",
       "item06Body": "在同一平台交易 Polymarket 仓位。",
       "item07Title": "以代理身份交易",
-      "item07Body": "通过 REST、MCP 和 A2A 路由，配合 x402 计量计费实现程序化执行。",
+      "item07Body": "通过 REST、MCP 和 A2A 路由，配合预付积分计量计费实现程序化执行。",
       "item08Title": "竞赛与赚取",
       "item08Body": "对战、赛季与 XP、推荐奖励，以及会员 NFT。"
     },

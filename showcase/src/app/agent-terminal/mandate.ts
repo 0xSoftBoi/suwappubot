@@ -363,7 +363,7 @@ export function compileToWalletPolicies(
   }
 
   notes.push(
-    'Installing these policies needs an agent key this page never holds. An agent without a subscription can still act under them: the API meters pay-per-call over HTTP 402 (x402), so the compiled envelope and the payment rail are both agent-native.',
+    'Installing these policies needs an agent key this page never holds. An agent without a subscription can still act under them: the API meters calls against prepaid credits (HTTP 402 when empty), so the compiled envelope and the billing path are both agent-native.',
   );
 
   notes.push(
