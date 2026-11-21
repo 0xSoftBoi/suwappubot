@@ -86,7 +86,11 @@
       "label": "Main",
       "open": "Open menu",
       "close": "Close menu",
-      "mobileTitle": "Menu"
+      "mobileTitle": "Menu",
+      "startTitle": "Get an API key",
+      "startDesc": "One call, no form",
+      "solveTitle": "Problems solved",
+      "solveDesc": "Exact steps for real tasks"
     }
   },
   "hero": {

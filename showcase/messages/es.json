@@ -86,7 +86,11 @@
       "label": "Principal",
       "open": "Abrir menú",
       "close": "Cerrar menú",
-      "mobileTitle": "Menú"
+      "mobileTitle": "Menú",
+      "startTitle": "Obtener una clave API",
+      "startDesc": "Una llamada, sin formulario",
+      "solveTitle": "Problemas resueltos",
+      "solveDesc": "Los pasos exactos para tareas reales"
     }
   },
   "hero": {
