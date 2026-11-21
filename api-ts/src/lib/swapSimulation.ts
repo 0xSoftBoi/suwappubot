@@ -461,16 +461,16 @@ async function checkEvmAllowanceSufficient(
 		return { name: 'allowance_sufficient', status: 'pass', detail: 'Native token — no ERC-20 allowance required' }
 	}
 	if (!input.fromAddress) {
-		return { name: 'allowance_sufficient', status: 'warn', detail: 'unavailable: no fromAddress provided, skipping allowance check' }
+		return { name: 'allowance_sufficient', status: 'warn', unverified: true, detail: 'unavailable: no fromAddress provided, skipping allowance check' }
 	}
 	if (!input.spender) {
-		return { name: 'allowance_sufficient', status: 'warn', detail: 'unavailable: quote did not include a spender/router address' }
+		return { name: 'allowance_sufficient', status: 'warn', unverified: true, detail: 'unavailable: quote did not include a spender/router address' }
 	}
 	try {
 		const data = `0xdd62ed3e${padAddress(input.fromAddress)}${padAddress(input.spender)}`
 		const res = await rpcCall<string>(rpc, 'eth_call', [{ to: input.fromTokenAddress, data }, 'latest'])
 		if (!res.ok || res.result === undefined) {
-			return { name: 'allowance_sufficient', status: 'warn', ...(res.transport ? { unverified: true } : {}), detail: res.transport ? `${transportUnverifiedDetail(res.error)} (spender: ${input.spender})` : `unavailable: ${res.error ?? 'no result'} (spender: ${input.spender})` }
+			return { name: 'allowance_sufficient', status: 'warn', unverified: true, detail: res.transport ? `${transportUnverifiedDetail(res.error)} (spender: ${input.spender})` : `unavailable: ${res.error ?? 'no result'} (spender: ${input.spender})` }
 		}
 		const allowance = BigInt(res.result)
 		const required = BigInt(input.fromAmount)
@@ -478,7 +478,7 @@ async function checkEvmAllowanceSufficient(
 			? { name: 'allowance_sufficient', status: 'pass', detail: `Allowance ${allowance.toString()} >= required ${required.toString()} (spender: ${input.spender})` }
 			: { name: 'allowance_sufficient', status: 'warn', detail: `Allowance ${allowance.toString()} < required ${required.toString()} — an approval tx will be needed before swap (spender: ${input.spender})` }
 	} catch (e) {
-		return { name: 'allowance_sufficient', status: 'warn', detail: `unavailable: ${classifyRpcError(e)} (spender: ${input.spender})` }
+		return { name: 'allowance_sufficient', status: 'warn', unverified: true, detail: `unavailable: ${classifyRpcError(e)} (spender: ${input.spender})` }
 	}
 }
 

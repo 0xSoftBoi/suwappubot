@@ -239,6 +239,9 @@ export function getRpcUrl(chainId: number): string | null {
 // verified to answer eth_chainId are listed; chains without one have no
 // fallback (polygon-rpc.com currently answers 403 "tenant disabled", so the
 // Polygon fallback is PublicNode instead).
+// These are deliberately fixed constants, NOT env-configurable: a fallback is
+// only trusted after an eth_chainId match, and keeping it out of env avoids a
+// second operator-supplied URL (SSRF surface) beyond the primary overrides.
 const RPC_FALLBACK_ENDPOINTS: Record<string, string> = {
 	ethereum: 'https://ethereum-rpc.publicnode.com',
 	arbitrum: 'https://arb1.arbitrum.io/rpc',
