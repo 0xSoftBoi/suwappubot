@@ -28,7 +28,9 @@ _configured = False
 # python-telegram-bot includes the token verbatim ("The token `…` was rejected
 # by the server"), and that went straight to Railway logs. Redact it from every
 # formatted line — message and traceback — whatever logger emitted it.
-_TELEGRAM_TOKEN_RE = re.compile(r"\b\d{6,12}:[A-Za-z0-9_-]{30,}\b")
+# No \b: a "bot" prefix ("bot123:…", "/bot123:…/" in API URLs) has no word
+# boundary before the digits, so \b let the most common forms through.
+_TELEGRAM_TOKEN_RE = re.compile(r"(?<![0-9])[0-9]{6,12}:[A-Za-z0-9_-]{30,}")
 
 
 class _RedactingFormatter(logging.Formatter):
