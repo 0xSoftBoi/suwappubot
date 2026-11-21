@@ -11,7 +11,9 @@ import type {
   AutopilotDecision,
   AutopilotPosition,
 } from './types';
+import { Reveal, AuthorityFlow } from '@/components/v3';
 import styles from './autopilot.module.css';
+import '../product-v3.css';
 
 export const metadata: Metadata = {
   title: { absolute: 'Autopilot: the Suwappu autonomous trading agent | Suwappu' },
@@ -86,6 +88,13 @@ export default async function AutopilotPage() {
             </span>
           </header>
 
+          <Reveal className="v3-tone-dark pv3-panel pv3-authority pv3-inpage">
+            <div className="pv3-panel__bar"><i /><i /><i /><span>Hash first, trade second, every refusal published</span></div>
+            <div className="pv3-stagebox">
+              <AuthorityFlow lanes={[['Thesis', 'Hash published', 'Trade'], ['Gate fails', 'Refusal published', 'No trade']]} />
+            </div>
+          </Reveal>
+
           {!agent ? (
             <p className={styles.empty}>
               No agent is running right now.
@@ -147,7 +156,7 @@ export default async function AutopilotPage() {
             </>
           )}
 
-          <section className={styles.explain}>
+          <Reveal><section className={styles.explain}>
             <div className={styles.explainItem}>
               <h3>Why the order matters</h3>
               <p>
@@ -172,7 +181,7 @@ export default async function AutopilotPage() {
                 rule-by-rule verdict. What an agent declines to buy says more than what it buys.
               </p>
             </div>
-          </section>
+          </section></Reveal>
         </div>
       </main>
       <SummerFooter />

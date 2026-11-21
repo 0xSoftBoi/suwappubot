@@ -6,7 +6,10 @@ import AgentQuickstart from './AgentQuickstart';
 import { ENTERPRISE_CONTACT_PATH } from '@/lib/links';
 import DemoCallCta from '@/components/DemoCallCta';
 import stats from '@/data/stats.generated.json';
+import { Reveal, Backdrop, ToolOrbit, AuthorityFlow, CountUp } from '@/components/v3';
 import styles from './agents.module.css';
+import '../sales-v3.css';
+import '../product-v3.css';
 
 export const metadata: Metadata = {
   title: { absolute: 'Agents: API, MCP & A2A for AI agents | Suwappu' },
@@ -118,12 +121,16 @@ const FAQS = [
 
 export default function AgentsPage() {
   return (
-    <div className="summer-page docs-shell institutional-page">
+    <div className="summer-page docs-shell institutional-page v3-tone-light">
       <SummerNav />
       <main id="main-content">
       <div className="summer-shell mkt-page">
         {/* ── a. HERO ── */}
-        <header className="mkt-hero mkt-hero--center agents-hero">
+        <div className="pv3-heroband">
+          <Backdrop kind="mesh" />
+          <Backdrop kind="grid" />
+          <div className="pv3-hero__grid">
+        <header className="mkt-hero agents-hero pv3-herotext">
           <h1>Onchain execution for AI agents.</h1>
           <p className="mkt-hero__lead">
             Quote, swap, and manage a portfolio across {stats.agentApiChains} chains from a REST API, an MCP
@@ -139,9 +146,19 @@ export default function AgentsPage() {
             </a>
           </div>
         </header>
+            <Reveal className="pv3-hero__art" delay={120}>
+              <ToolOrbit count={stats.mcpToolCount}>
+                <span className="v3-kicker"><CountUp value={stats.mcpToolCount} /> MCP</span>
+              </ToolOrbit>
+            </Reveal>
+          </div>
+        </div>
+        <Reveal className="sv3-stage sv3-stage--dark pv3-authority">
+          <AuthorityFlow lanes={[['Agent', 'Mandate', 'Chain'], ['Agent', 'x402', 'Service']]} />
+        </Reveal>
 
         {/* ── b. CAPABILITIES ── */}
-        <section className={`agents-caps ${styles.capsPrimary}`} aria-label="Capabilities">
+        <Reveal><section className={`agents-caps ${styles.capsPrimary}`} aria-label="Capabilities">
           <h2 className="mkt-h2">Everything your agent needs to transact onchain.</h2>
           <div className="agents-caps__grid">
             {CAPABILITIES.map((cap) => (
@@ -151,10 +168,10 @@ export default function AgentsPage() {
               </article>
             ))}
           </div>
-        </section>
+        </section></Reveal>
 
         {/* ── c. GET STARTED IN MINUTES ── */}
-        <section className="agent-steps" aria-label="Get started in minutes">
+        <Reveal><section className="agent-steps" aria-label="Get started in minutes">
           <p className="summer-kicker">Get started in minutes</p>
           <h2 className="mkt-h2">Three calls from zero to a settled swap.</h2>
 
@@ -225,10 +242,10 @@ curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \\
               </div>
             </article>
           </div>
-        </section>
+        </section></Reveal>
 
         {/* ── d. INTEGRATION COMPARISON MATRIX ── */}
-        <section className="compare" aria-labelledby="agents-matrix">
+        <Reveal><section className="compare" aria-labelledby="agents-matrix">
           <h2 id="agents-matrix" className="compare__title">
             Pick your surface. Same execution engine underneath.
           </h2>
@@ -293,10 +310,10 @@ curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \\
             </a>
             .
           </p>
-        </section>
+        </section></Reveal>
 
         {/* ── e. AGENTIC PAYMENTS ── */}
-        <section className="agents-caps" aria-label="Agentic payments">
+        <Reveal><section className="agents-caps" aria-label="Agentic payments">
           <h2 className="mkt-h2">Pay however your agent transacts.</h2>
           <div className="agents-caps__grid">
             {PAYMENT_MODES.map((p) => (
@@ -310,16 +327,16 @@ curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \\
             Full credit costs, rate limits, and agent-surface fee notes are on the{' '}
             <a href="/pricing#agent-api">Agent API pricing</a> section.
           </p>
-        </section>
+        </section></Reveal>
 
         {/* ── f. FAQ ── */}
-        <section className="mkt-faq" aria-label="Frequently asked questions">
+        <Reveal><section className="mkt-faq" aria-label="Frequently asked questions">
           <h2 className="mkt-h2">Agent API FAQ</h2>
           <FaqAccordion items={FAQS} />
-        </section>
+        </section></Reveal>
 
         {/* ── g. ENTERPRISE CTA BAND ── */}
-        <section className="mkt-callout mkt-callout--enterprise" aria-label="Enterprise">
+        <Reveal><section className="mkt-callout mkt-callout--enterprise" aria-label="Enterprise">
           <p className="mkt-callout__eyebrow">Enterprise</p>
           <p className="mkt-callout__body">
             Running an agent fleet or a trading desk at volume? Enterprise adds multi-user org
@@ -334,7 +351,7 @@ curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \\
               Or send us a note
             </a>
           </div>
-        </section>
+        </section></Reveal>
       </div>
       </main>
       <SummerFooter />
