@@ -57,6 +57,17 @@ function fromPreview(pair: string, route: DemoRoute, d: Record<string, any>): Re
   const impact = str(d.priceImpact);
   const gas = str(d.estimatedGasUsd);
   const toChain = route.toChain ?? route.chain;
+  // The preview lists Suwappu's own fee as a `feeCollection` hop. It is a cost,
+  // not a venue: keep it out of the route label and state it next to the total
+  // price impact (which includes it) instead of hiding it there.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const hops: any[] = Array.isArray(d.hops) ? d.hops : [];
+  const venues = hops
+    .filter((h) => h?.tool !== 'feeCollection' && typeof h?.toolName === 'string')
+    .map((h) => h.toolName as string);
+  const feeNum = Number(hops.find((h) => h?.tool === 'feeCollection')?.feeUsd);
+  const fee = Number.isFinite(feeNum) && feeNum > 0 ? feeNum.toFixed(2) : null;
+  const impactLabel = impact ? impact + '%' + (fee ? ' incl. $' + fee + ' fee' : '') : null;
   return {
     pair,
     indicative: d.executable === false,
@@ -68,9 +79,9 @@ function fromPreview(pair: string, route: DemoRoute, d: Record<string, any>): Re
     bridgeFeeUsd: str(d.bridgeFeeUsd),
     etaSeconds: typeof d.estimatedDurationSeconds === 'number' ? d.estimatedDurationSeconds : null,
     rate: str(d.exchangeRate) ?? undefined,
-    priceImpact: impact ? `${impact}%` : null,
+    priceImpact: impactLabel,
     gasUsd: gas ? `$${gas}` : null,
-    route: str(d.route),
+    route: venues.length ? venues.join(' → ') : str(d.route),
     dex: null,
     fetchedAt: Date.now(),
   };
