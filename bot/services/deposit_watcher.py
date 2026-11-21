@@ -168,6 +168,13 @@ class _NoHistory(Exception):
 
 
 _URL_IN_TEXT = re.compile(r"https?://[^\s'\"<>]+")
+# urllib3 names the failing request by its relative target, with no host:
+# "Max retries exceeded with url: /v2/<key> (Caused by ...)".
+_RELATIVE_URL = re.compile(r"(\burl:\s*)/[^\s'\"<>]*", re.IGNORECASE)
+# A key passed as a query parameter, wherever it appears in the text.
+_KEY_PARAM = re.compile(
+    r"([?&;](?:api[-_]?key|apikey|key|token|access[-_]?token|auth)=)[^&\s'\"<>]+", re.IGNORECASE
+)
 
 
 def _scrub(err) -> str:
@@ -187,7 +194,9 @@ def _scrub(err) -> str:
         except Exception:
             return "<url>"
 
-    return _URL_IN_TEXT.sub(_cut, str(err))
+    text = _URL_IN_TEXT.sub(_cut, str(err))
+    text = _RELATIVE_URL.sub(r"\1/***", text)
+    return _KEY_PARAM.sub(r"\1***", text)
 
 
 def _check_history(client, params: dict) -> None:
