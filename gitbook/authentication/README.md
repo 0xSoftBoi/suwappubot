@@ -78,6 +78,6 @@ If you prefer self-custody, use [`POST /v1/agent/swap`](../api-reference/swap.md
 
 - **Treat your key like a password.** Anyone with it can swap from your managed wallet. Store it in a secret manager, never in source control.
 - **Use HTTPS only.** All requests must go to `https://api.suwappu.bot`.
-- **Scope wallet permissions.** Attach Turnkey spending-limit and address-whitelist policies to your managed wallet via `POST /v1/agent/wallet/policy` to cap what a compromised key can do.
+- **Cap runaway transactions.** Add a spending limit to your managed wallet via `POST /v1/agent/wallet/policy`. The API enforces it at managed swap execution as a cap on the native-token value of each transaction. It does not limit ERC-20 amounts or daily totals, address allowlists are recorded but not enforced, and the same key can delete the policy, so it guards against runaway logic rather than a compromised key. Rotate a key you suspect is exposed.
 - **Webhook payloads are signed.** Verify the `X-Suwappu-Signature` HMAC (keyed with the SHA-256 of your API key) on every webhook before trusting it. See [Webhooks](../api-reference/webhooks.md).
 - See [Rate Limits](rate-limits.md) for per-tier request quotas.

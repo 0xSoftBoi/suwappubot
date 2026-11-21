@@ -118,7 +118,7 @@
       "predictionsTitle": "Predictions",
       "predictionsDesc": "Prediction markets in the Terminal",
       "spendPoliciesTitle": "Spend policies",
-      "spendPoliciesDesc": "Limits on what an agent can spend"
+      "spendPoliciesDesc": "Caps on what an agent can spend"
     }
   },
   "hero": {
@@ -169,6 +169,8 @@
       "networkFee": "Network fee",
       "priceImpact": "Price impact",
       "quoteExpires": "Quote expires",
+      "quoteType": "Quote type",
+      "indicative": "Indicative, not executable",
       "expired": "expired",
       "seconds": "{seconds}s",
       "freshQuote": "Get a fresh quote",
@@ -254,7 +256,7 @@
       "managedTitle": "Managed signing",
       "managedBody": "Managed execution signs through KMS envelope encryption (kms_aesgcm_v2), Turnkey-held keys (opt-in per wallet), or an MPC signer, depending on the wallet path.",
       "policiesTitle": "Server-side policies",
-      "policiesBody": "2FA, spending limits, circuit breakers, and social recovery are enforced at the server boundary; approval monitoring auto-revokes what it flags.",
+      "policiesBody": "2FA, per-transaction spending caps on native value (checked at managed execution), circuit breakers, and social recovery are enforced at the server boundary; approval monitoring auto-revokes what it flags.",
       "boundaryTitle": "Current assurance boundary",
       "boundaryBody": "This page does not claim SOC 2 certification or a completed public third-party protocol audit. The security page documents current controls and limitations."
     },

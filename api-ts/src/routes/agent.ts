@@ -4,6 +4,7 @@ import { and, desc, eq, gte, isNull, or, sql } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
 import { Hono, type Context } from 'hono'
 import { z } from 'zod'
+import { getAddress, isAddress } from 'viem'
 import openApiSpec from '../../openapi-agent.json'
 import { isStarknet } from '../config/chains'
 import { EnvService } from '../config/EnvService'
@@ -27,6 +28,16 @@ import { DatabaseError, ForbiddenError, mapErrorToResponse, NotFoundError, Valid
 import { describeError } from '../lib/errors'
 import { STEP_UP_REJECTED_PREFIX } from '../services/ApprovalService'
 import { agentError } from '../lib/agentError'
+import {
+	checkNativeValue,
+	deriveNativeCap,
+	evmNativeValue,
+	getCachedCap,
+	invalidateCachedCap,
+	MAX_WEI_DIGITS,
+	setCachedCap,
+	weiFitsTurnkey,
+} from '../lib/agentWalletCap'
 import { agentBearerAuth, agentBearerAuthAllowInactive, scanForThreatsObserveOnly } from '../middleware'
 import { agentFlexAuth } from '../middleware/agentFlexAuth'
 // flexAuth is still used by the owner-facing audit reads that landed on main
@@ -118,6 +129,10 @@ export function stopAgentCleanup() {}
 // otherwise any agent can claim ownership of an arbitrary address and bypass
 // checkEvmWalletOwnership. See sanitizeUserMetadata below.
 const RESERVED_METADATA_KEYS = new Set([
+	// Legacy camelCase aliases once read by routes/predict.ts for signing. Never
+	// user-settable, so a stale value can't be planted or trusted again.
+	'walletAddress',
+	'subOrgId',
 	'wallet_address',
 	'wallet_sub_org_id',
 	'wallet_id',
@@ -1311,6 +1326,79 @@ function policyUnavailableResponse(
 		},
 		503,
 	)
+}
+
+/**
+ * MONEY-PATH. Per-transaction NATIVE-VALUE cap from the agent's own wallet
+ * policies (see lib/agentWalletCap.ts for why this is enforced here and not by
+ * Turnkey). Runs before anything is handed to the signer on POST /swap/execute
+ * (the route that signs managed-wallet SWAPS; signing itself happens in
+ * python-api). It covers managed SWAP execution only: routes/predict.ts also
+ * signs Polymarket EIP-712 orders via signRawPayload, which this cap does not
+ * touch (those move USDC, not native value). Scope: caps the native token value
+ * (wei) of each swap transaction only — NOT ERC-20 amounts, not a time-window
+ * limit, and the same agent key can delete the policy, so it guards runaway
+ * logic, not a compromised key. Policies live on the EVM sub-org; if the agent
+ * HAS a cap and the quote's native amount is not an EVM-style `value` (Solana,
+ * Tron `call_value`, any non-EVM transactionRequest) the cap cannot be evaluated
+ * and the request is refused (fail closed). With no cap, behaviour is unchanged.
+ * Chains reaching managed execution: EVM (LI.FI quotes) and Solana (Jupiter);
+ * Starknet is rejected at quote time.
+ *
+ * Returns a Response to send (403 POLICY_VIOLATION / 503 POLICY_CHECK_UNAVAILABLE)
+ * or null to proceed. Runs on every call, including idempotent replays.
+ */
+async function enforceAgentNativeCap(
+	c: Context,
+	agent: Agent,
+	agentIdentifier: string,
+	orgId: string | null,
+	quote: any,
+	isSolana: boolean,
+): Promise<Response | null> {
+	const subOrgId = ((agent.metadata || {}) as Record<string, unknown>).wallet_sub_org_id as string | undefined
+	if (!subOrgId) return null
+
+	let cap = getCachedCap(subOrgId)
+	if (!cap) {
+		const listed = await runEffectEither(
+			Effect.gen(function* () {
+				const turnkeyService = yield* TurnkeyService
+				return yield* turnkeyService.listPolicies(subOrgId)
+			}),
+		)
+		if (Either.isLeft(listed)) {
+			return policyUnavailableResponse(c, { orgId, agentId: agentIdentifier, stage: 'wallet_native_cap', error: listed.left })
+		}
+		cap = deriveNativeCap(listed.right)
+		setCachedCap(subOrgId, cap)
+	}
+
+	if (cap.kind === 'none') return null
+
+	let verdict: ReturnType<typeof checkNativeValue>
+	const nv = isSolana ? ({ evm: false } as const) : evmNativeValue(quote?.transactionRequest)
+	if (cap.kind === 'cap' && !nv.evm) {
+		verdict = {
+			ok: false,
+			reason: 'unparseable_value',
+			message:
+				'The wallet native-value spending limit cannot be evaluated for this chain/transaction shape (non-EVM or no EVM value field), so the swap was blocked.',
+		}
+	} else {
+		verdict = checkNativeValue(cap, nv.evm ? nv.value : undefined)
+	}
+	if (verdict.ok) return null
+	writeAuditLog({
+		userId: 0,
+		orgId,
+		agentId: agentIdentifier,
+		eventType: 'policy.wallet_native_cap_blocked',
+		details: { reason: verdict.reason },
+	})
+	return agentError(c, 403, 'POLICY_VIOLATION', verdict.message, {
+		hint: 'Lower the swap amount, or delete/recreate the wallet spending_limit policy. Applies to native-token value per transaction only.',
+	})
 }
 
 /**
@@ -3000,6 +3088,15 @@ agentRoutes.post('/swap/execute', async (c) => {
 			return outcome.response
 		}
 
+		// Wallet native-value cap: checked BEFORE the approval is consumed so a
+		// blocked swap does not burn the single-use approval.
+		const capBlock = await enforceAgentNativeCap(c, agent, agentIdentifier, orgId, outcome.freshQuote, outcome.isSolana)
+		if (capBlock) {
+			await releaseApprovalReserve(outcome.reserve)
+			await refundSwapExecuteCharge(c, agent, 'wallet native-value cap')
+			return capBlock
+		}
+
 		// Unlike POST /swap (which only returns an UNSIGNED tx from "build" — no
 		// funds move, so it's safe to consume the approval after build), this
 		// route's "build" step immediately signs AND broadcasts through the
@@ -3066,6 +3163,12 @@ agentRoutes.post('/swap/execute', async (c) => {
 		if (gateResponse) {
 			await refundSwapExecuteCharge(c, agent, 'blocked or deferred by org policy')
 			return gateResponse
+		}
+
+		const capBlock = await enforceAgentNativeCap(c, agent, agentIdentifier, orgId, cached.quote, !!cached.isSolana)
+		if (capBlock) {
+			await refundSwapExecuteCharge(c, agent, 'wallet native-value cap')
+			return capBlock
 		}
 
 		quote = cached.quote
@@ -3642,6 +3745,21 @@ agentRoutes.get('/wallets', async (c) => {
 // them from admin/guardrail policies (spending caps, whitelists) that an agent must
 // not be able to remove.
 const AGENT_POLICY_PREFIX = 'agent-'
+const MAX_AGENT_POLICIES = 20
+const MAX_POLICY_ADDRESSES = 50
+
+const POLICY_LIMITS_NOTE =
+	'Limits: caps only the native-token value (wei) of each transaction; does not cap ERC-20 amounts, is not a time-window limit, and the same agent key can delete it, so it guards against runaway logic, not a compromised key.'
+
+/** Truthful enforcement metadata attached to created/listed policies. */
+function policyTruth(kind: 'spending_limit' | 'whitelist') {
+	return kind === 'spending_limit'
+		? { enforced: true, scope: 'native_value_per_transaction', note: POLICY_LIMITS_NOTE }
+		: {
+				enforced: false,
+				note: 'Recorded only: address whitelists are stored but not enforced yet (tx.to is the router/approval target, not the bought token).',
+			}
+}
 
 // POST /v1/agent/wallet/policy - Create a Turnkey policy for agent wallet
 agentRoutes.post('/wallet/policy', async (c) => {
@@ -3660,35 +3778,113 @@ agentRoutes.post('/wallet/policy', async (c) => {
 
 	const { type, params } = parsed.data
 
+	// MONEY-PATH: the Turnkey condition below is a PER-TRANSACTION cap
+	// (eth.value <= N). Nothing sums spend across a window, so accepting
+	// timeWindowSeconds would give a false sense of safety. Reject it.
+	if (params.timeWindowSeconds !== undefined) {
+		return agentError(
+			c,
+			400,
+			'VALIDATION_ERROR',
+			'timeWindowSeconds is not supported: spending_limit is a per-transaction cap only (native value in wei). Aggregate per-window limits are not enforced.',
+			{ hint: 'Omit timeWindowSeconds and set maxAmountWei as the per-transaction maximum.' },
+		)
+	}
+	if (type === 'spending_limit' && !params.maxAmountWei) {
+		return agentError(c, 400, 'VALIDATION_ERROR', 'maxAmountWei is required for spending_limit')
+	}
+	// Turnkey ints are i128 (~1.7e38): reject anything that cannot be stored.
+	if (type === 'spending_limit' && !weiFitsTurnkey(params.maxAmountWei!)) {
+		return agentError(
+			c,
+			400,
+			'VALIDATION_ERROR',
+			`maxAmountWei must be a decimal integer of 1-${MAX_WEI_DIGITS} digits and at most 2^127-1`,
+		)
+	}
+	if (type === 'whitelist' && (!params.allowedAddresses || params.allowedAddresses.length === 0)) {
+		return agentError(c, 400, 'VALIDATION_ERROR', 'allowedAddresses is required for whitelist')
+	}
+	if (type === 'whitelist' && params.allowedAddresses!.length > MAX_POLICY_ADDRESSES) {
+		return agentError(c, 400, 'VALIDATION_ERROR', `allowedAddresses accepts at most ${MAX_POLICY_ADDRESSES} entries`)
+	}
+	// Stored EIP-55 checksummed (Turnkey compares addresses case-sensitively).
+	// isAddress(strict:false) validates 20-byte hex regardless of input casing.
+	let checksummed: string[] = []
+	if (type === 'whitelist') {
+		if (!params.allowedAddresses!.every((a) => isAddress(a, { strict: false }))) {
+			return agentError(c, 400, 'VALIDATION_ERROR', 'allowedAddresses must be valid 20-byte hex EVM addresses')
+		}
+		checksummed = [...new Set(params.allowedAddresses!.map((a) => getAddress(a)))]
+	}
+
+	// Turnkey policy names are labels that must be unique within the sub-org, so
+	// every created policy gets a unique, readable name. Both the list and delete
+	// endpoints match on AGENT_POLICY_PREFIX only, so this stays compatible.
+	// Semantics: each call ADDS a policy. spending_limit policies are EFFECT_DENY
+	// conditions, so all of them are enforced and the strictest cap wins.
+	// whitelist policies are EFFECT_ALLOW, so multiple whitelists union.
+	const uniq = randomBytes(3).toString('hex')
+	// Type/name collision guard: only spending_limit may carry the spending-limit
+	// name prefix (the cap is derived from it + stored condition); a whitelist can
+	// never be named so it is read as a cap.
+	const generatedName =
+		type === 'spending_limit'
+			? `${AGENT_POLICY_PREFIX}spending-limit-${params.maxAmountWei}-${uniq}`
+			: `${AGENT_POLICY_PREFIX}whitelist-${checksummed.length}-${uniq}`
+	if ((type === 'spending_limit') !== generatedName.startsWith(`${AGENT_POLICY_PREFIX}spending-limit`)) {
+		return agentError(c, 500, 'INTERNAL', 'Policy name collision; request rejected')
+	}
+
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const turnkeyService = yield* TurnkeyService
 
+			const existing = yield* turnkeyService.listPolicies(subOrgId)
+			if (existing.filter((p) => p.policyName.startsWith(AGENT_POLICY_PREFIX)).length >= MAX_AGENT_POLICIES) {
+				return { limitReached: true as const }
+			}
+
 			if (type === 'spending_limit') {
-				const condition = `eth.value <= ${params.maxAmountWei}`
+				// DENY when value exceeds N (the correct polarity for a cap). NOTE:
+				// Turnkey does not evaluate this today (root quorum); the API enforces
+				// the cap itself — see enforceAgentNativeCap.
+				const condition = `eth.tx.value > ${params.maxAmountWei}`
 				const policyId = yield* turnkeyService.createPolicy(
 					subOrgId,
-					`${AGENT_POLICY_PREFIX}spending-limit-${params.timeWindowSeconds}s`,
+					`${AGENT_POLICY_PREFIX}spending-limit-${params.maxAmountWei}-${uniq}`,
 					'EFFECT_DENY',
 					condition,
 				)
-				return { policyId, type, condition }
+				return { policyId, type, condition, ...policyTruth('spending_limit') }
 			} else {
-				const addresses = params.allowedAddresses!.map(a => `"${a.toLowerCase()}"`).join(', ')
+				const addresses = checksummed.map((a) => `"${a}"`).join(', ')
 				const condition = `eth.tx.to in [${addresses}]`
 				const policyId = yield* turnkeyService.createPolicy(
 					subOrgId,
-					`${AGENT_POLICY_PREFIX}whitelist-${params.allowedAddresses!.length}`,
+					`${AGENT_POLICY_PREFIX}whitelist-${checksummed.length}-${uniq}`,
 					'EFFECT_ALLOW',
 					condition,
 				)
-				return { policyId, type, condition }
+				return { policyId, type, condition, ...policyTruth('whitelist') }
 			}
 		})
 	)
 
+	invalidateCachedCap(subOrgId)
+
 	if (Either.isLeft(result)) {
-		return agentError(c, 500, 'INTERNAL', result.left.message)
+		// Log upstream detail server-side only; never echo it to the caller.
+		logger.error({ event: 'wallet_policy_create_failed', agentId: agentIdentifierOf(agent), error: result.left.message }, '[policy] create failed')
+		const code = (result.left.cause as { code?: unknown } | undefined)?.code
+		// Turnkey exposes a gRPC status code (TurnkeyRequestError.code): 6 = ALREADY_EXISTS.
+		if (code === 6) {
+			return agentError(c, 409, 'VALIDATION_ERROR', 'A policy with this name already exists. Retry the request.')
+		}
+		return agentError(c, 502, 'UPSTREAM_ERROR', 'Wallet policy service error. Please retry later.')
+	}
+	if ('limitReached' in result.right) {
+		return agentError(c, 400, 'VALIDATION_ERROR', `At most ${MAX_AGENT_POLICIES} policies per wallet. Delete one first.`)
 	}
 
 	return c.json({ success: true, policy: result.right })
@@ -3711,10 +3907,16 @@ agentRoutes.get('/wallet/policies', async (c) => {
 	)
 
 	if (Either.isLeft(result)) {
-		return agentError(c, 500, 'INTERNAL', result.left.message)
+		logger.error({ event: 'wallet_policy_list_failed', agentId: agentIdentifierOf(agent), error: result.left.message }, '[policy] list failed')
+		return agentError(c, 502, 'UPSTREAM_ERROR', 'Wallet policy service error. Please retry later.')
 	}
 
-	return c.json({ success: true, policies: result.right })
+	const policies = result.right.map((p) => {
+		const isCap = p.policyName.startsWith(`${AGENT_POLICY_PREFIX}spending-limit`)
+		const isWl = p.policyName.startsWith(`${AGENT_POLICY_PREFIX}whitelist`)
+		return isCap ? { ...p, ...policyTruth('spending_limit') } : isWl ? { ...p, ...policyTruth('whitelist') } : p
+	})
+	return c.json({ success: true, policies })
 })
 
 // DELETE /v1/agent/wallet/policy/:policyId - Delete a policy
@@ -3746,6 +3948,9 @@ agentRoutes.delete('/wallet/policy/:policyId', async (c) => {
 			return yield* turnkeyService.deletePolicy(subOrgId, policyId)
 		})
 	)
+
+	// Drop the cached cap whether or not the delete succeeded (cheap, safe).
+	invalidateCachedCap(subOrgId)
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)

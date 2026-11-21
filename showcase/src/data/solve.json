@@ -190,7 +190,7 @@
         }
       ],
       "limits": [
-        "Managed-wallet execution is only as safe as the caps on it. Spend policies are enforced for org API keys; see the desk pages.",
+        "Managed-wallet execution is only as safe as the caps on it. Org spend policies are enforced for org API keys. A self-serve wallet cap limits native-token value per transaction only; see the desk pages.",
         "MCP execute_swap only prepares an unsigned transaction. It never signs or broadcasts.",
         "Starknet swaps are not handled by the Agent API.",
         "Suwappu does not guarantee a fill price; amount_out_min is the floor you set through slippage."
@@ -2326,18 +2326,22 @@
       "asker": "both",
       "intent": "commercial",
       "title": "Spending limits for an AI agent wallet",
-      "metaDescription": "Policies cap USD per trade, day and session and allowlist chains, tokens and contracts. Enforced for org API keys; set up with the team.",
+      "metaDescription": "Org USD caps, approvals and a kill switch are set with the team. The self-serve wallet cap limits native-token value per transaction only.",
       "h1": "How do I put spending limits on an AI agent's wallet?",
-      "answer": "Suwappu's policy engine can cap USD per trade, per day and per session, trades per hour, slippage and gas, and allowlist chains, tokens, destinations and contracts. It is enforced on execution for org API key requests. There is no self-serve policy endpoint today; talk to the team.",
+      "answer": "Two layers exist. Self-serve: a wallet spending_limit caps the native-token value of each managed transaction (POST /v1/agent/wallet/policy), enforced by the Suwappu API at managed execution. It does not limit ERC-20 amounts, has no daily or time-window form, and the same agent key can delete it. Org-level USD caps, approvals and a kill switch are enforced server-side and set with the team; there is no self-serve route for them.",
       "problem": "An agent with a funded wallet and no ceiling is one bad loop from an expensive afternoon.",
       "steps": [
+        {
+          "title": "Set a wallet cap yourself",
+          "detail": "POST a spending_limit with maxAmountWei. It caps native-token value per transaction; the response shows enforced: true."
+        },
         {
           "title": "Define the ceiling",
           "detail": "Pick per-trade, daily and session USD caps and an hourly trade count."
         },
         {
-          "title": "Narrow the surface",
-          "detail": "Allowlist chains, tokens, destination addresses and router contracts."
+          "title": "Narrow the surface (org layer)",
+          "detail": "Org policies can restrict chains, tokens and destinations; the team sets them. A wallet-level address allowlist is recorded but not enforced yet."
         },
         {
           "title": "Choose approval mode",
@@ -2388,6 +2392,9 @@
         }
       ],
       "limits": [
+        "A wallet spending_limit caps native-token value per transaction only. ERC-20 amounts are not limited, and there is no daily or time-window wallet limit (timeWindowSeconds is rejected with 400).",
+        "The wallet address allowlist is recorded and reported as enforced: false.",
+        "The agent key that creates a wallet policy can delete it, so it guards against mistakes, not a compromised key.",
         "No public endpoint creates org spend policies; they are set with the team.",
         "Enforcement is hard for Suwappu-held keys and the managed wallet path, advisory for a self-signing wallet that builds and signs entirely client-side.",
         "Policies are not enforced for plain agent keys with no org.",
@@ -2404,11 +2411,11 @@
         },
         {
           "q": "Can the agent remove the cap?",
-          "a": "The delete endpoint distinguishes agent-created policies from admin ones; agents cannot remove admin caps."
+          "a": "A wallet policy: yes. The same agent key that created it can delete it. Org policies have no public route, so an agent call cannot change them."
         },
         {
           "q": "What happens at the cap?",
-          "a": "The call is blocked with a policy error."
+          "a": "The call is refused and nothing is sent. If a wallet cap check cannot be performed, the request is refused too (fail closed)."
         }
       ],
       "related": [

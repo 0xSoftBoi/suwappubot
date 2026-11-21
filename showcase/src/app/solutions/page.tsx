@@ -42,8 +42,8 @@ const solutions: {
     id: 'trading',
     eyebrow: 'For autonomous strategies',
     title: 'Trading agents',
-    body: `Give a strategy: human-written or fully autonomous: the ability to quote and execute swaps across ${stats.agentApiChains} chains, inside spend and slippage limits you set. The same two calls whether it runs once a day or once a second.`,
-    flow: ['Register agent', 'Set spend policy', 'Request a quote', 'Execute the swap'],
+    body: `Give a strategy: human-written or fully autonomous: the ability to quote and execute swaps across ${stats.agentApiChains} chains, inside slippage limits you set and a per-transaction native-token cap on its managed wallet. The same two calls whether it runs once a day or once a second.`,
+    flow: ['Register agent', 'Set wallet cap', 'Request a quote', 'Execute the swap'],
     file: 'trading-agent.ts',
     code: `import { Suwappu } from "@suwappu/sdk";
 

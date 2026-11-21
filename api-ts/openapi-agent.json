@@ -1398,7 +1398,7 @@
       "post": {
         "summary": "Create wallet policy",
         "operationId": "createWalletPolicy",
-        "description": "Create a Turnkey policy (spending limit or address whitelist) on the agent's managed wallet sub-org. Requires a wallet created via POST /wallets. Rate-limited by tier.",
+        "description": "Create a wallet policy (per-transaction spending limit or address whitelist), stored in the agent's managed wallet sub-org. Scope: spending_limit is ENFORCED by the API before any managed-wallet SWAP is signed (POST /swap/execute only; prediction-market orders are not covered), as a per-transaction cap on the NATIVE token value (wei of the chain's gas token). It does NOT cap ERC-20 amounts (value 0), is not a time-window or aggregate limit, and because the same agent key can delete the policy it guards against runaway logic, not a compromised key. whitelist policies are recorded only (enforced: false). Max 20 policies per wallet; maxAmountWei 1-39 digits; allowedAddresses max 50. timeWindowSeconds is rejected with 400. Requires a wallet created via POST /wallets. Rate-limited by tier.",
         "requestBody": {
           "required": true,
           "content": {
@@ -1409,8 +1409,7 @@
               "example": {
                 "type": "spending_limit",
                 "params": {
-                  "maxAmountWei": "1000000000000000000",
-                  "timeWindowSeconds": 86400
+                  "maxAmountWei": "1000000000000000000"
                 }
               }
             }
@@ -1437,7 +1436,9 @@
                   "policy": {
                     "policyId": "a1b2c3d4-5678-90ab-cdef-1234567890ab",
                     "type": "spending_limit",
-                    "condition": "eth.value <= 1000000000000000000"
+                    "condition": "eth.tx.value > 1000000000000000000",
+                    "enforced": true,
+                    "scope": "native_value_per_transaction"
                   }
                 }
               }
@@ -1473,7 +1474,7 @@
       "get": {
         "summary": "List wallet policies",
         "operationId": "listWalletPolicies",
-        "description": "List the Turnkey policies on the agent's managed wallet sub-org. Requires a wallet created via POST /wallets. Rate-limited by tier.",
+        "description": "List the policies on the agent's managed wallet sub-org. Each spending_limit entry reports enforced: true and scope native_value_per_transaction (native wei per transaction only; not ERC-20, not a time window); each whitelist entry reports enforced: false (recorded only). Requires a wallet created via POST /wallets. Rate-limited by tier.",
         "responses": {
           "200": {
             "description": "Wallet policies",
@@ -1498,7 +1499,7 @@
                   "policies": [
                     {
                       "policyId": "a1b2c3d4-5678-90ab-cdef-1234567890ab",
-                      "policyName": "agent-spending-limit-86400s"
+                      "policyName": "agent-spending-limit-1000000000000000000-a1b2c3"
                     }
                   ]
                 }
@@ -2739,7 +2740,7 @@
       "get": {
         "summary": "List prediction market positions",
         "operationId": "listPredictionPositions",
-        "description": "List the agent's Polymarket positions, enriched with the current midpoint price and unrealized PnL. Requires existing CLOB credentials (place an order first to initialize them). Authenticated and rate-limited by tier.",
+        "description": "List the agent's Polymarket positions, enriched with the current midpoint price and unrealized PnL. Returns an empty list when the agent has no Polymarket account yet. Authenticated and rate-limited by tier.",
         "responses": {
           "200": {
             "description": "Positions with current price and unrealized PnL (empty array if none)",
@@ -2771,25 +2772,21 @@
               }
             }
           },
-          "400": {
-            "description": "No Polymarket credentials found (place an order first to initialize)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "example": {
-                  "error": "Validation Error",
-                  "message": "No Polymarket credentials found. Place an order first to initialize."
-                }
-              }
-            }
-          },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
           "429": {
             "$ref": "#/components/responses/RateLimited"
+          },
+          "502": {
+            "description": "Polymarket credential lookup failed (generic message; detail is logged server-side)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
@@ -4499,11 +4496,7 @@
               "maxAmountWei": {
                 "type": "string",
                 "pattern": "^\\d+$",
-                "description": "Required for spending_limit. Max value in wei."
-              },
-              "timeWindowSeconds": {
-                "type": "number",
-                "description": "Time window for spending_limit."
+                "description": "Required for spending_limit. Per-transaction max NATIVE value in wei, 1-39 digits (not ERC-20, not an aggregate)."
               },
               "allowedAddresses": {
                 "type": "array",
@@ -4511,7 +4504,7 @@
                   "type": "string",
                   "pattern": "^0x[0-9a-fA-F]{40}$"
                 },
-                "description": "Required for whitelist."
+                "description": "Required for whitelist. Max 50 addresses. Recorded only; not enforced."
               }
             }
           }
@@ -4539,6 +4532,17 @@
             ]
           },
           "condition": {
+            "type": "string"
+          },
+          "enforced": {
+            "type": "boolean",
+            "description": "true for spending_limit (enforced by the API); false for whitelist (recorded only)."
+          },
+          "scope": {
+            "type": "string",
+            "example": "native_value_per_transaction"
+          },
+          "note": {
             "type": "string"
           }
         }

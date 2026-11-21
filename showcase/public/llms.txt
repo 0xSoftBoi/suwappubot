@@ -59,7 +59,7 @@ One page per product with how it works, commands or endpoints, hard facts, limit
 - [MCP Server](https://suwappu.bot/products/mcp-server.md): Give your agent 23 market tools over MCP.
 - [TypeScript and Python SDKs](https://suwappu.bot/products/sdks.md): Typed clients for the Agent API.
 - [Managed Wallets](https://suwappu.bot/products/managed-wallets.md): A wallet your agent can use, within limits.
-- [Spend Policies](https://suwappu.bot/products/spend-policies.md): Limits that sit outside the agent's control.
+- [Spend Policies](https://suwappu.bot/products/spend-policies.md): Two layers of limits, with different strength.
 - [Approvals and Audit](https://suwappu.bot/products/approvals-audit.md): A human decides. Every step is recorded.
 - [Organisations](https://suwappu.bot/products/organisations.md): One org, scoped keys, clear roles.
 - [Billing and Credits](https://suwappu.bot/products/billing-credits.md): Prepaid credits. Costs you can add up.
@@ -90,7 +90,7 @@ Each page names a problem, answers it directly and links the product that solves
 - [Why is my cross-chain swap stuck or pending?](https://suwappu.bot/solve/why-is-my-cross-chain-swap-stuck.md): Most pending swaps are waiting on a bridge leg, not lost.
 - [How much slippage should I set on a swap?](https://suwappu.bot/solve/how-much-slippage-cross-chain-swap.md): Slippage is the largest price drop you will accept before the swap fails.
 - [Is Suwappu Pro worth it for the lower swap fee?](https://suwappu.bot/solve/swap-fee-tiers-break-even.md): Pro lowers the swap fee from 1.0% to 0.5% for $9.99 per 30 days.
-- [How do I put spending limits on an AI agent's wallet?](https://suwappu.bot/solve/spending-limits-ai-agent-wallet.md): Suwappu's policy engine can cap USD per trade, per day and per session, trades per hour, slippage and gas, and allowlist chains, tokens, destinations and contracts.
+- [How do I put spending limits on an AI agent's wallet?](https://suwappu.bot/solve/spending-limits-ai-agent-wallet.md): Two layers exist.
 - [How do I require human approval for an agent's on-chain trades?](https://suwappu.bot/solve/approval-workflow-onchain-trades.md): Set an approval threshold on the org policy.
 - [Is there an audit log for what my trading agents did?](https://suwappu.bot/solve/audit-log-for-trading-agents.md): Yes.
 - [How do I stop all my agents trading immediately?](https://suwappu.bot/solve/agent-kill-switch-for-trading-agents.md): With an org API key, POST /v1/agent/killswitch {scope:"org", active:true, reason}.

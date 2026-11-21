@@ -195,7 +195,7 @@ const comparison: { category: string; rows: { label: string; values: string[] }[
     category: 'Security & Support',
     rows: [
       { label: 'KMS-backed key management', values: ['✓', '✓', '✓', '✓'] },
-      { label: 'Spending limits, 2FA, withdrawal allowlist', values: ['✓', '✓', '✓', '✓'] },
+      { label: 'Per-transaction native-token wallet cap, 2FA', values: ['✓', '✓', '✓', '✓'] },
       { label: 'Support', values: ['Community', 'Community', 'Email', 'Dedicated'] },
     ],
   },

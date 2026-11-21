@@ -13,6 +13,101 @@ import { DEMO_QUOTE_PAIRS, getDemoQuotePair } from '@/lib/demoQuotePairs';
 const UPSTREAM = 'https://api.suwappu.bot/v1/agent/quote';
 
 /**
+ * Preferred source: the keyless public preview route. It spends no credits but
+ * has no server-side cache, so everything below (per-pair TTL, in-flight
+ * dedupe, failure cooldown, stale-while-error) still protects it. The demo-key
+ * route above is only the fallback when the preview is unavailable.
+ */
+const PUBLIC_PREVIEW = 'https://api.suwappu.bot/public/swap/preview';
+/** An indicative preview has no validity window of its own, so the proxy sets one. */
+const PUBLIC_TTL_MS = 30_000;
+
+type DemoRoute = NonNullable<ReturnType<typeof getDemoQuotePair>>;
+
+/** Demo pair -> preview query. The ONLY place that knows the preview's param names. */
+function previewParams(route: DemoRoute): URLSearchParams {
+  return new URLSearchParams({
+    fromChain: route.chain,
+    toChain: route.toChain ?? route.chain,
+    fromToken: route.from,
+    toToken: route.to,
+    fromAmount: route.amount,
+  });
+}
+
+/**
+ * Preview response -> the body LiveQuote renders. The ONLY place that knows the
+ * preview's response field names. Absent fields are omitted (null), never
+ * invented: in particular there is no expiresIn (the preview is not executable)
+ * and no quote id.
+ */
+/** 18-decimal base-unit strings do not fit the ticket: show 8 significant digits (display only). */
+function display(v: unknown): string {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return String(v);
+  return String(Number(n.toPrecision(8)));
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function fromPreview(pair: string, route: DemoRoute, d: Record<string, any>): Record<string, unknown> | null {
+  if (d?.toAmount == null) return null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sym = (t: any, fallback: string) => (typeof t?.symbol === 'string' ? t.symbol : fallback);
+  const str = (v: unknown) => (v == null || v === '' ? null : String(v));
+  const impact = str(d.priceImpact);
+  const gas = str(d.estimatedGasUsd);
+  const toChain = route.toChain ?? route.chain;
+  // The preview lists Suwappu's own fee as a `feeCollection` hop. It is a cost,
+  // not a venue: keep it out of the route label and state it next to the total
+  // price impact (which includes it) instead of hiding it there.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const hops: any[] = Array.isArray(d.hops) ? d.hops : [];
+  const venues = hops
+    .filter((h) => h?.tool !== 'feeCollection' && typeof h?.toolName === 'string')
+    .map((h) => h.toolName as string);
+  // Every fee the route charges, from whichever hop reports one (Suwappu's
+  // feeCollection hop, a bridge, a venue), so no fee is left out of the label.
+  const feeNum = hops.reduce((sum, h) => {
+    const v = Number(h?.feeUsd);
+    return Number.isFinite(v) && v > 0 ? sum + v : sum;
+  }, 0);
+  const fee = feeNum > 0 ? feeNum.toFixed(2) : null;
+  const impactLabel = impact ? impact + '%' + (fee ? ' incl. $' + fee + ' fees' : '') : null;
+  return {
+    pair,
+    indicative: d.executable === false,
+    from: { symbol: sym(d.fromToken, route.from), amount: String(d.fromAmount ?? route.amount) },
+    to: { symbol: sym(d.toToken, route.to), amount: display(d.toAmount) },
+    chain: route.chain,
+    toChain,
+    crossChain: toChain !== route.chain,
+    bridgeFeeUsd: str(d.bridgeFeeUsd),
+    etaSeconds: typeof d.estimatedDurationSeconds === 'number' ? d.estimatedDurationSeconds : null,
+    rate: str(d.exchangeRate) ?? undefined,
+    priceImpact: impactLabel,
+    gasUsd: gas ? `$${gas}` : null,
+    route: venues.length ? venues.join(' → ') : str(d.route),
+    dex: null,
+    fetchedAt: Date.now(),
+  };
+}
+
+async function fetchPublic(pair: string, route: DemoRoute): Promise<FetchResult> {
+  try {
+    const res = await fetch(`${PUBLIC_PREVIEW}?${previewParams(route)}`, {
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return { ok: false, status: res.status, detail: null };
+    const body = fromPreview(pair, route, await res.json());
+    if (!body) return { ok: false, status: 502, detail: 'unexpected_shape' };
+    lastGood.set(pair, { body, at: Date.now() });
+    return { ok: true, body };
+  } catch {
+    return { ok: false, status: 502, detail: 'unreachable' };
+  }
+}
+
+/**
  * Last known good quote per pair, held in module memory.
  *
  * The hero calls this on every page view and each call spends a credit on the
@@ -45,9 +140,20 @@ const FAIL_COOLDOWN_MS = 20_000;
 
 export const dynamic = 'force-dynamic';
 
+/** Public preview first; the metered demo-key path only when it is unavailable. */
+async function fetchPreferred(pair: string, route: DemoRoute, key: string | undefined): Promise<FetchResult> {
+  const pub = await fetchPublic(pair, route);
+  if (pub.ok) return pub;
+  if (!key) {
+    lastFail.set(pair, Date.now());
+    return pub;
+  }
+  return fetchQuote(pair, route, key);
+}
+
 async function fetchQuote(
   pair: string,
-  route: NonNullable<ReturnType<typeof getDemoQuotePair>>,
+  route: DemoRoute,
   key: string
 ): Promise<FetchResult> {
   try {
@@ -113,13 +219,8 @@ function staleOr502(pair: string, status: number, detail: unknown): NextResponse
 }
 
 export async function GET(req: Request) {
-  const key = process.env.SUWAPPU_DEMO_KEY;
-  if (!key) {
-    return NextResponse.json(
-      { error: 'demo_key_missing', hint: 'Set SUWAPPU_DEMO_KEY to enable the live quote.' },
-      { status: 503 }
-    );
-  }
+  // Optional now: the keyless preview is tried first; the key only powers the fallback.
+  const key = process.env.SUWAPPU_DEMO_KEY || undefined;
 
   const pair = new URL(req.url).searchParams.get('pair') ?? DEMO_QUOTE_PAIRS[0].id;
   const route = getDemoQuotePair(pair);
@@ -133,8 +234,8 @@ export async function GET(req: Request) {
   // validity can never make us serve a dead quote as fresh.
   const fresh = lastGood.get(pair);
   if (fresh) {
-    const ttlSeconds = typeof fresh.body.expiresIn === 'number' ? fresh.body.expiresIn : 60;
-    if (Date.now() - fresh.at < ttlSeconds * 1000) {
+    const ttlMs = typeof fresh.body.expiresIn === 'number' ? fresh.body.expiresIn * 1000 : PUBLIC_TTL_MS;
+    if (Date.now() - fresh.at < ttlMs) {
       return NextResponse.json(fresh.body);
     }
   }
@@ -148,7 +249,7 @@ export async function GET(req: Request) {
   // Collapse concurrent misses into one upstream call (one credit).
   let pending = inflight.get(pair);
   if (!pending) {
-    pending = fetchQuote(pair, route, key);
+    pending = fetchPreferred(pair, route, key);
     inflight.set(pair, pending);
     void pending.finally(() => inflight.delete(pair));
   }

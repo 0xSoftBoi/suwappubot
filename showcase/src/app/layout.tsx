@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import stats from '@/data/stats.generated.json';
-import { Archivo, Newsreader, JetBrains_Mono } from 'next/font/google';
+import localFont from 'next/font/local';
 import { NextIntlClientProvider } from 'next-intl';
 import { getLocale, getMessages } from 'next-intl/server';
 import Analytics from '@/components/Analytics';
@@ -17,16 +17,22 @@ import './foundation.css';
 // in the round-3 sans A/B — see docs/design/serif-decision.md), JetBrains Mono
 // is rationed to numerals, kickers, and code. Archivo is loaded ONCE
 // as --font-sans (display type uses --type-display-font, the serif).
-const bodySans = Archivo({
-  subsets: ['latin'],
-  style: ['normal', 'italic'],
+//
+// All three families are self-hosted (src/fonts/, see README there) via
+// next/font/local so `next build` never fetches Google Fonts — a flaky fetch
+// there failed a production deploy.
+const bodySans = localFont({
+  src: [
+    { path: '../fonts/Archivo-normal.woff2', weight: '100 900', style: 'normal' },
+    { path: '../fonts/Archivo-italic.woff2', weight: '100 900', style: 'italic' },
+  ],
   variable: '--font-sans',
   display: 'swap',
+  adjustFontFallback: 'Arial',
 });
 
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ['latin'],
-  weight: ['400', '500'],
+const jetbrainsMono = localFont({
+  src: [{ path: '../fonts/JetBrainsMono-normal.woff2', weight: '100 800', style: 'normal' }],
   variable: '--font-mono',
   display: 'swap',
 });
@@ -39,12 +45,14 @@ const jetbrainsMono = JetBrains_Mono({
 // register the brand wants, where Garamond read bookish and light. Variable
 // weight + true italics + an optical-size axis (opsz), so display sizes get
 // the tighter high-contrast display cut automatically.
-const displaySerif = Newsreader({
-  subsets: ['latin'],
-  style: ['normal', 'italic'],
-  axes: ['opsz'],
+const displaySerif = localFont({
+  src: [
+    { path: '../fonts/Newsreader-normal.woff2', weight: '200 800', style: 'normal' },
+    { path: '../fonts/Newsreader-italic.woff2', weight: '200 800', style: 'italic' },
+  ],
   variable: '--font-serif',
   display: 'swap',
+  adjustFontFallback: 'Times New Roman',
 });
 
 // Browser chrome matches the page canvas (light pages are the warm canvas;

@@ -57,7 +57,7 @@ const NODES: FlowNode[] = [
 
   { id: 'handoff', col: 4, label: 'Signing handoff', sub: 'Terminal or bot; no key here', tool: 'open_signing_handoff', gated: true },
   { id: 'amended', col: 4, label: 'Mandate, amended', sub: 'persists, governs the next check' },
-  { id: 'policy', col: 4, label: 'Turnkey wallet policy', sub: 'binds server-side' },
+  { id: 'policy', col: 4, label: 'Turnkey wallet policy', sub: 'native cap enforced; allowlist recorded' },
   { id: 'receipt', col: 4, label: 'The receipt', sub: 'every argument, on the record', tool: 'export_receipt' },
 ];
 

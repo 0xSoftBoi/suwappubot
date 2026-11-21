@@ -118,7 +118,7 @@
       "predictionsTitle": "预测市场",
       "predictionsDesc": "终端中的预测市场",
       "spendPoliciesTitle": "支出策略",
-      "spendPoliciesDesc": "限制智能体的支出"
+      "spendPoliciesDesc": "限制智能体的支出上限"
     }
   },
   "hero": {
@@ -169,6 +169,8 @@
       "networkFee": "网络费用",
       "priceImpact": "价格影响",
       "quoteExpires": "报价有效期",
+      "quoteType": "报价类型",
+      "indicative": "仅供参考，不可执行",
       "expired": "已过期",
       "seconds": "{seconds} 秒",
       "freshQuote": "获取新报价",
@@ -254,7 +256,7 @@
       "managedTitle": "托管签名",
       "managedBody": "托管执行通过 KMS 信封加密（kms_aesgcm_v2）、由 Turnkey 托管密钥（每个钱包可选）或 MPC 签名器完成签名，具体取决于所用的钱包路径。",
       "policiesTitle": "服务端策略",
-      "policiesBody": "2FA、消费限额、熔断机制和社交恢复均在服务端边界强制执行；授权监控会自动撤销被标记的授权。",
+      "policiesBody": "2FA、按单笔交易的原生代币价值消费上限（托管执行时校验）、熔断机制和社交恢复均在服务端边界强制执行；授权监控会自动撤销被标记的授权。",
       "boundaryTitle": "当前保障边界",
       "boundaryBody": "本页面不声称已获得 SOC 2 认证或已完成公开的第三方协议审计。安全页面记录当前控制措施与限制。"
     },

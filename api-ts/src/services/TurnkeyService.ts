@@ -478,7 +478,9 @@ export const TurnkeyServiceLive = Layer.effect(
 						})
 						return response
 					},
-					catch: (err) => new Error(`Failed to create policy: ${err}`),
+					// Keep the original error as `cause` so callers can branch on the
+					// upstream status code (TurnkeyRequestError.code, a gRPC status).
+					catch: (err) => new Error(`Failed to create policy: ${err}`, { cause: err }),
 				})
 
 				return result.policyId

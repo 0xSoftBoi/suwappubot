@@ -30,8 +30,8 @@ const CAPABILITIES = [
     body: 'Quote and execute in two calls. Routing across 21 venues, unsigned-tx mode for self-custody, or managed-wallet mode for zero key handling.',
   },
   {
-    title: 'Managed wallets & spending policies',
-    body: 'Server-side wallets signed via Turnkey: your agent never touches a private key. Set per-key spend limits and allowed chains/pairs.',
+    title: 'Managed wallets & spending limit',
+    body: 'Server-side wallets signed via Turnkey: your agent never touches a private key. Add a per-transaction native-token spending limit, enforced by the API at managed execution.',
   },
   {
     title: 'Real-time prices & portfolio',
@@ -109,7 +109,7 @@ const FAQS = [
   },
   {
     q: 'How do managed wallets work?',
-    a: 'Create a managed wallet with POST /v1/agent/wallets and Suwappu provisions a server-side wallet signed via Turnkey: your agent sends a quote_id, never a private key. Set spending policies (per-key limits, allowed chains and pairs) so an autonomous agent can never move more than you allow. You can also bring your own keys and request an unsigned transaction instead.',
+    a: 'Create a managed wallet with POST /v1/agent/wallets and Suwappu provisions a server-side wallet signed via Turnkey: your agent sends a quote_id, never a private key. Add a wallet spending limit that caps the native-token value of each managed transaction (it does not limit ERC-20 amounts, and the same key can delete it), so a runaway loop cannot move more than you allow. You can also bring your own keys and request an unsigned transaction instead.',
   },
   {
     q: 'Do I need an account?',
@@ -168,7 +168,7 @@ const STACK: { name: string; what: string; limit: string; href: string; cta: str
   {
     name: 'Spend policies',
     what: 'Per-transaction, daily and session caps, approvals and a kill switch.',
-    limit: 'Org-wide caps, approvals and kill switches are set with the team. An agent can add its own per-transaction limit or address allowlist on its managed wallet (POST /v1/agent/wallet/policy).',
+    limit: 'Org-wide caps, approvals and kill switches are set with the team. An agent can add a per-transaction native-token limit on its managed wallet (POST /v1/agent/wallet/policy); the API enforces it at managed execution. An address allowlist can be recorded but is not enforced yet.',
     href: '/solve/spending-limits-ai-agent-wallet',
     cta: 'Spending limits',
   },

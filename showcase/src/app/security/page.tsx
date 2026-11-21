@@ -13,7 +13,7 @@ const bucketKinds: MiniKind[] = ['tee', 'custody', 'cipher', 'gate', 'simulate',
 export const metadata: Metadata = {
   title: 'Security',
   description:
-    'How Suwappu protects keys and funds: KMS envelope encryption, Turnkey-held managed-wallet keys, self-custody options, spending limits, MEV-resistant routes, and responsible disclosure.',
+    'How Suwappu protects keys and funds: KMS envelope encryption, Turnkey-held managed-wallet keys, self-custody options, per-transaction spending caps, MEV-resistant routes, and responsible disclosure.',
 };
 
 const buckets = [
@@ -31,7 +31,7 @@ const buckets = [
   },
   {
     title: 'Account controls',
-    body: 'Per-key and per-account guardrails: spending limits, allowed chains and pairs, withdrawal allowlists, and TOTP two-factor authentication, so autonomous agents act strictly inside the rails you define.',
+    body: 'Per-key and per-account guardrails: a per-transaction native-token cap on managed wallets (enforced by the Suwappu API; allowlists are recorded, not enforced), org-level USD caps set with the team, and TOTP two-factor authentication, so autonomous agents act strictly inside the rails you define.',
   },
   {
     title: 'Execution safety',
@@ -112,7 +112,7 @@ export default function SecurityPage() {
           <div className={styles.honesty}>
             <h3>What we claim, and what we don&apos;t</h3>
             <ul>
-              <li><b>Real today:</b> Turnkey-held managed-wallet keys, KMS envelope encryption, self-custody option, spending limits, 2FA, per-tier rate limits, per-agent metering isolation, independent red-team review.</li>
+              <li><b>Real today:</b> Turnkey-held managed-wallet keys, KMS envelope encryption, self-custody option, a per-transaction native-token cap on managed wallets (API-enforced, not a defence against a compromised key), org spend policies, 2FA, per-tier rate limits, per-agent metering isolation, independent red-team review.</li>
               <li><b>On the roadmap:</b> SOC 2, public smart-contract / protocol audit reports, a self-serve trust portal.</li>
               <li>We&apos;d rather state status plainly than display certifications we haven&apos;t earned.</li>
             </ul>

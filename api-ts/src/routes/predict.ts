@@ -4,6 +4,7 @@ import { Hono } from 'hono'
 import type { Agent } from '../db'
 import { ExternalServiceError, mapErrorToResponse, ValidationError } from '../errors'
 import { buildClobAuthMessage, buildOrderTypedData, hashEip712Order, resolveBuilderCode, ZERO_BYTES32, type ClobOrderData } from '../lib/polymarket-eip712'
+import { logger } from '../lib/logger'
 import { agentBearerAuth, regionGate } from '../middleware'
 import { runEffectEither } from '../runtime'
 import { PolymarketService } from '../services/PolymarketService'
@@ -18,6 +19,22 @@ type AgentContext = {
 }
 
 const predictRoutes = new Hono<AgentContext>()
+
+// SECURITY: sign and read only with the wallet the SERVER provisioned for this
+// agent (POST /v1/agent/wallets writes `wallet_address` / `wallet_sub_org_id`,
+// which are reserved keys an agent cannot set). These routes used to read the
+// camelCase `walletAddress` / `subOrgId`, which nothing server-side writes and
+// which any agent could set through its own metadata — letting it name another
+// tenant's sub-organisation and address for the platform key to sign with.
+function managedWalletAddress(agent: { metadata?: unknown }): string | undefined {
+	const v = ((agent.metadata ?? {}) as Record<string, unknown>).wallet_address
+	return typeof v === 'string' && v ? v : undefined
+}
+function managedSubOrgId(agent: { metadata?: unknown }): string | undefined {
+	const v = ((agent.metadata ?? {}) as Record<string, unknown>).wallet_sub_org_id
+	return typeof v === 'string' && v ? v : undefined
+}
+
 
 // Compliance: block restricted regions (default US) from all predict endpoints.
 predictRoutes.use('*', regionGate())
@@ -223,18 +240,18 @@ predictRoutes.post('/order', agentBearerAuth(), regionGate(), async (c) => {
 			const turnkey = yield* TurnkeyService
 
 			// Step 1: Get or lazy-init CLOB API credentials
-			let credentials = yield* credService.getCredentials(agentId)
+			let credentials = yield* credService.getCredentials(agentId, managedWalletAddress(agent))
 
 			if (!credentials) {
 				// Need to create CLOB API credentials via wallet signature
-				const walletAddress = (agent.metadata as Record<string, string> | null)?.walletAddress
+				const walletAddress = managedWalletAddress(agent)
 				if (!walletAddress) {
 					return yield* Effect.fail(
 						new ValidationError({ message: 'Agent has no wallet address configured for Polymarket trading' }),
 					)
 				}
 
-				const subOrgId = (agent.metadata as Record<string, string> | null)?.subOrgId
+				const subOrgId = managedSubOrgId(agent)
 				if (!subOrgId) {
 					return yield* Effect.fail(
 						new ValidationError({ message: 'Agent has no Turnkey sub-org configured' }),
@@ -280,8 +297,8 @@ predictRoutes.post('/order', agentBearerAuth(), regionGate(), async (c) => {
 			// into the order's `builder` field — mirrors _BUILDER_CODE_RE in
 			// bot/services/polymarket_api.py.
 			const salt = BigInt('0x' + randomBytes(8).toString('hex')).toString()
-			const walletAddress = (agent.metadata as Record<string, string> | null)?.walletAddress || ''
-			const subOrgId = (agent.metadata as Record<string, string> | null)?.subOrgId || ''
+			const walletAddress = managedWalletAddress(agent) || ''
+			const subOrgId = managedSubOrgId(agent) || ''
 			const builderCode = resolveBuilderCode(process.env.POLYMARKET_BUILDER_CODE)
 
 			// CLOB amount math (6-decimal base units for both collateral and shares).
@@ -377,14 +394,14 @@ predictRoutes.delete('/order/:id', agentBearerAuth(), regionGate(), async (c) =>
 		return c.json({ error: 'Validation Error', message: 'Invalid order ID' }, 400)
 	}
 	const agentId = String(agent.id)
-	const walletAddress = (agent.metadata as Record<string, string> | null)?.walletAddress || ''
+	const walletAddress = managedWalletAddress(agent) || ''
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const pm = yield* PolymarketService
 			const credService = yield* PolymarketCredentialService
 
-			const credentials = yield* credService.getCredentials(agentId)
+			const credentials = yield* credService.getCredentials(agentId, managedWalletAddress(agent))
 			if (!credentials) {
 				return yield* Effect.fail(
 					new ValidationError({ message: 'No Polymarket credentials found. Place an order first to initialize.' }),
@@ -414,19 +431,22 @@ predictRoutes.delete('/order/:id', agentBearerAuth(), regionGate(), async (c) =>
 predictRoutes.get('/positions', agentBearerAuth(), regionGate(), async (c) => {
 	const agent = c.get('agent')
 	const agentId = String(agent.id)
-	const walletAddress = (agent.metadata as Record<string, string> | null)?.walletAddress || ''
+	const walletAddress = managedWalletAddress(agent) || ''
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const pm = yield* PolymarketService
 			const credService = yield* PolymarketCredentialService
 
-			const credentials = yield* credService.getCredentials(agentId)
-			if (!credentials) {
-				return yield* Effect.fail(
-					new ValidationError({ message: 'No Polymarket credentials found. Place an order first to initialize.' }),
-				)
-			}
+			const credentials = yield* credService.getCredentials(agentId, managedWalletAddress(agent)).pipe(
+				Effect.tapError((e) => Effect.sync(() => logger.error({ err: e.message, agentId }, '[Predict] credential lookup failed'))),
+				Effect.mapError(() => new ExternalServiceError({
+					message: 'Polymarket credential lookup failed',
+					service: 'polymarket-credentials',
+				})),
+			)
+			// Agent has never traded on Polymarket: no positions, not an error.
+			if (!credentials) return []
 
 			const positions = yield* pm.getPositions(credentials, walletAddress).pipe(
 				Effect.mapError((e) => new ExternalServiceError({
@@ -478,14 +498,14 @@ predictRoutes.get('/orders', agentBearerAuth(), regionGate(), async (c) => {
 	const agent = c.get('agent')
 	const agentId = String(agent.id)
 	const status = c.req.query('status')
-	const walletAddress = (agent.metadata as Record<string, string> | null)?.walletAddress || ''
+	const walletAddress = managedWalletAddress(agent) || ''
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const pm = yield* PolymarketService
 			const credService = yield* PolymarketCredentialService
 
-			const credentials = yield* credService.getCredentials(agentId)
+			const credentials = yield* credService.getCredentials(agentId, managedWalletAddress(agent))
 			if (!credentials) {
 				return yield* Effect.fail(
 					new ValidationError({ message: 'No Polymarket credentials found. Place an order first to initialize.' }),

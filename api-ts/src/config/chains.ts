@@ -3,12 +3,12 @@
 const alchemyKey = process.env.ALCHEMY_API_KEY || ''
 
 export const RPC_ENDPOINTS: Record<string, string> = {
-	ethereum: process.env.ETH_RPC_URL || (alchemyKey ? `https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://eth.llamarpc.com'),
-	arbitrum: process.env.ARBITRUM_RPC_URL || (alchemyKey ? `https://arb-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://arbitrum.llamarpc.com'),
-	optimism: process.env.OPTIMISM_RPC_URL || (alchemyKey ? `https://opt-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://optimism.llamarpc.com'),
-	polygon: process.env.POLYGON_RPC_URL || (alchemyKey ? `https://polygon-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://polygon.llamarpc.com'),
-	base: process.env.BASE_RPC_URL || (alchemyKey ? `https://base-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://base.llamarpc.com'),
-	bsc: process.env.BSC_RPC_URL || 'https://bsc.llamarpc.com',
+	ethereum: process.env.ETH_RPC_URL || (alchemyKey ? `https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://ethereum-rpc.publicnode.com'),
+	arbitrum: process.env.ARBITRUM_RPC_URL || (alchemyKey ? `https://arb-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://arb1.arbitrum.io/rpc'),
+	optimism: process.env.OPTIMISM_RPC_URL || (alchemyKey ? `https://opt-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://mainnet.optimism.io'),
+	polygon: process.env.POLYGON_RPC_URL || (alchemyKey ? `https://polygon-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://polygon-bor-rpc.publicnode.com'),
+	base: process.env.BASE_RPC_URL || (alchemyKey ? `https://base-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://mainnet.base.org'),
+	bsc: process.env.BSC_RPC_URL || 'https://bsc-dataseed.bnbchain.org',
 	solana: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
 	tempo: process.env.TEMPO_RPC_URL || 'https://tempo-mainnet.drpc.org',
 	plasma: process.env.PLASMA_RPC_URL || 'https://rpc.plasma.to/',
@@ -22,7 +22,7 @@ export const RPC_ENDPOINTS: Record<string, string> = {
 			? `https://robinhood-mainnet.g.alchemy.com/v2/${alchemyKey}`
 			: 'https://rpc.mainnet.chain.robinhood.com'),
 	// Read-only: Starknet signing/broadcast is owned by the Python bot backend
-	starknet: process.env.STARKNET_RPC_URL || 'https://rpc.starknet.lava.build',
+	starknet: process.env.STARKNET_RPC_URL || 'https://starknet-rpc.publicnode.com',
 	// GOAT Network — plain EVM chain (chain id 2345), native token is BTC
 	goat: process.env.GOAT_RPC_URL || 'https://rpc.goat.network',
 
@@ -243,11 +243,13 @@ export function getRpcUrl(chainId: number): string | null {
 // only trusted after an eth_chainId match, and keeping it out of env avoids a
 // second operator-supplied URL (SSRF surface) beyond the primary overrides.
 const RPC_FALLBACK_ENDPOINTS: Record<string, string> = {
-	ethereum: 'https://ethereum-rpc.publicnode.com',
-	arbitrum: 'https://arb1.arbitrum.io/rpc',
-	optimism: 'https://mainnet.optimism.io',
-	polygon: 'https://polygon-bor-rpc.publicnode.com',
-	base: 'https://mainnet.base.org',
+	// cloudflare-eth.com answers eth_chainId but rejects eth_getBalance / eth_gasPrice / eth_call.
+	ethereum: 'https://eth.drpc.org',
+	arbitrum: 'https://arbitrum-one-rpc.publicnode.com',
+	optimism: 'https://optimism-rpc.publicnode.com',
+	polygon: 'https://polygon.drpc.org',
+	base: 'https://base-rpc.publicnode.com',
+	bsc: 'https://bsc-rpc.publicnode.com',
 }
 
 export function getRpcFallbackUrl(chainId: number): string | null {

@@ -118,7 +118,7 @@
       "predictionsTitle": "Predicciones",
       "predictionsDesc": "Mercados de predicción en la Terminal",
       "spendPoliciesTitle": "Políticas de gasto",
-      "spendPoliciesDesc": "Límites de gasto de un agente"
+      "spendPoliciesDesc": "Topes de gasto de un agente"
     }
   },
   "hero": {
@@ -169,6 +169,8 @@
       "networkFee": "Comisión de red",
       "priceImpact": "Impacto en precio",
       "quoteExpires": "La cotización vence",
+      "quoteType": "Tipo de cotización",
+      "indicative": "Indicativa, no ejecutable",
       "expired": "vencida",
       "seconds": "{seconds}s",
       "freshQuote": "Obtener nueva cotización",
@@ -254,7 +256,7 @@
       "managedTitle": "Firma gestionada",
       "managedBody": "La ejecución gestionada firma mediante cifrado de sobre KMS (kms_aesgcm_v2), claves custodiadas en Turnkey (opcional por billetera), o un firmante MPC, según la ruta de la billetera.",
       "policiesTitle": "Políticas del servidor",
-      "policiesBody": "2FA, límites de gasto, disyuntores de circuito y recuperación social se aplican en el límite del servidor; el monitoreo de aprobaciones revoca automáticamente lo que detecta.",
+      "policiesBody": "2FA, topes de gasto por transacción sobre el valor nativo (verificados en la ejecución gestionada), disyuntores de circuito y recuperación social se aplican en el límite del servidor; el monitoreo de aprobaciones revoca automáticamente lo que detecta.",
       "boundaryTitle": "Límite de garantías actual",
       "boundaryBody": "Esta página no afirma certificación SOC 2 ni una auditoría pública completa del protocolo por terceros. La página de seguridad documenta los controles y límites actuales."
     },

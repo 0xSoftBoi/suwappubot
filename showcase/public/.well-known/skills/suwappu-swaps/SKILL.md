@@ -11,7 +11,7 @@ Docs: https://suwappu.bot/docs. Problem-by-problem answers: https://suwappu.bot/
 
 ## Scope
 
-This skill does not grant wallet access or move funds on its own. It describes how to call Suwappu. Whatever your agent can do is bounded by the API key you supply and by any spend policy set on it. Never paste a private key or API key into a prompt, a log or a public repo.
+This skill does not grant wallet access or move funds on its own. It describes how to call Suwappu. Whatever your agent can do is bounded by the API key you supply and by any spend policy set on it. Wallet policies guard against mistakes, not a compromised key. Never paste a private key or API key into a prompt, a log or a public repo.
 
 ## When to use it
 
@@ -28,7 +28,7 @@ Always: get_quote, then simulate_swap, then execute_swap.
 
 1. get_quote: pass the `wallet_address` that will sign. Returns a `quote_id`, `amount_out_min` and the route. A quote is valid for 60 seconds and is BOUND to that wallet: a quote requested without `wallet_address` is built for a placeholder address and cannot be turned into a transaction.
 2. simulate_swap: dry-run the `quote_id` with the SAME `wallet_address`. No signing, no broadcast, no funds move. Proceed only if `would_execute` is true.
-3. execute_swap (MCP): returns an UNSIGNED transaction. It never signs or broadcasts. Org spend policy (per-transaction, daily and session caps, approvals, kill switch) gates it. Org-wide policies are set with the Suwappu team. An agent can add its own per-transaction limit or address allowlist on its managed wallet with `POST /v1/agent/wallet/policy`.
+3. execute_swap (MCP): returns an UNSIGNED transaction. It never signs or broadcasts. Org spend policy (per-transaction, daily and session caps, approvals, kill switch) gates it. Org-wide policies are set with the Suwappu team. An agent can add a per-transaction native-token limit on its managed wallet with `POST /v1/agent/wallet/policy` (type spending_limit, params.maxAmountWei); the API enforces it at managed execution (lowest limit wins, fail closed). It does not limit ERC-20 amounts, an address allowlist is recorded but not enforced, there is no daily or time-window limit, and the same key can delete the policy.
 
 Over REST, step 3 is a choice: `POST /v1/agent/swap` returns an unsigned transaction you sign, and `POST /v1/agent/swap/execute` signs from the agent's managed wallet.
 

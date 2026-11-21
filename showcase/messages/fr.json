@@ -118,7 +118,7 @@
       "predictionsTitle": "Prédictions",
       "predictionsDesc": "Marchés de prédiction dans le Terminal",
       "spendPoliciesTitle": "Politiques de dépense",
-      "spendPoliciesDesc": "Limites de dépense d’un agent"
+      "spendPoliciesDesc": "Plafonds de dépense d’un agent"
     }
   },
   "hero": {
@@ -169,6 +169,8 @@
       "networkFee": "Frais réseau",
       "priceImpact": "Impact sur le prix",
       "quoteExpires": "Expiration",
+      "quoteType": "Type de cotation",
+      "indicative": "Indicative, non exécutable",
       "expired": "expirée",
       "seconds": "{seconds}s",
       "freshQuote": "Obtenir une nouvelle cotation",
@@ -254,7 +256,7 @@
       "managedTitle": "Signature gérée",
       "managedBody": "L’exécution gérée signe via le chiffrement enveloppe KMS (kms_aesgcm_v2), des clés détenues chez Turnkey (en option par wallet), ou un signataire MPC, selon le chemin du wallet.",
       "policiesTitle": "Règles côté serveur",
-      "policiesBody": "La 2FA, les limites de dépense, les coupe-circuits et la récupération sociale sont appliqués à la frontière serveur ; la surveillance des approbations révoque automatiquement ce qu’elle signale.",
+      "policiesBody": "La 2FA, les plafonds de dépense par transaction sur la valeur native (vérifiés à l’exécution gérée), les coupe-circuits et la récupération sociale sont appliqués à la frontière serveur ; la surveillance des approbations révoque automatiquement ce qu’elle signale.",
       "boundaryTitle": "Périmètre d’assurance actuel",
       "boundaryBody": "Cette page ne revendique ni certification SOC 2 ni audit public complet du protocole par un tiers. La page Sécurité documente les contrôles et limites actuels."
     },

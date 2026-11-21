@@ -283,7 +283,7 @@ const TOOLS = [
 	},
 	{
 		name: 'list_wallet_policies',
-		description: "List the Turnkey spending and whitelist policies on the agent's managed wallet. Read-only. Use to understand what the wallet may spend before attempting swaps. Always reports the authenticated agent's own managed wallet; errors if none exists.",
+		description: "List the policies on the agent's managed wallet. Read-only. spending_limit entries are enforced by the API on managed swap execution only, as a per-transaction cap on NATIVE token value (wei) (not prediction orders); they do not cap ERC-20 amounts, are not time-window limits, and the agent key can delete them. whitelist entries are recorded only (enforced: false). Always reports the authenticated agent's own managed wallet; errors if none exists.",
 		inputSchema: LIST_WALLET_POLICIES_INPUT,
 	},
 	{

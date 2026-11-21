@@ -27,7 +27,9 @@ type Quote = {
   gasUsd?: string | null;
   route?: string | null;
   dex?: string | null;
-  expiresIn: number;
+  /** Absent on indicative previews: they are not executable and have no validity window. */
+  expiresIn?: number;
+  indicative?: boolean;
   fetchedAt?: number;
 };
 
@@ -45,12 +47,16 @@ export default function LiveQuote({ variant = 'dark' }: { variant?: 'dark' | 'wa
     'usdc-base-eth-arbitrum': t('pairs.baseArbitrum'),
   };
 
-  const load = useCallback(async (p: DemoQuotePairId) => {
+  // `silent` refreshes an on-screen quote in place: no loading flash, and a
+  // failed refresh keeps the last quote rather than replacing it with an error.
+  const load = useCallback(async (p: DemoQuotePairId, silent = false) => {
     activeRequest.current?.abort();
     const controller = new AbortController();
     activeRequest.current = controller;
-    setState('loading');
-    setQuote(null);
+    if (!silent) {
+      setState('loading');
+      setQuote(null);
+    }
 
     try {
       const response = await fetch(`/api/quote?pair=${encodeURIComponent(p)}`, {
@@ -64,10 +70,10 @@ export default function LiveQuote({ variant = 'dark' }: { variant?: 'dark' | 'wa
       const ageSeconds = Math.max(0, Math.floor((Date.now() - fetchedAt) / 1000));
       const remaining = Math.max(0, (nextQuote.expiresIn ?? 60) - ageSeconds);
       setQuote(nextQuote);
-      setLeft(nextQuote.stale ? 0 : remaining);
+      setLeft(nextQuote.stale || nextQuote.indicative ? 0 : remaining);
       setState('idle');
     } catch {
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted || silent) return;
       setQuote(null);
       setLeft(0);
       setState('error');
@@ -81,13 +87,23 @@ export default function LiveQuote({ variant = 'dark' }: { variant?: 'dark' | 'wa
     return () => activeRequest.current?.abort();
   }, [pair, load]);
 
+  // An indicative preview never expires on its own, so keep it current: refresh
+  // once a minute while the tab is visible, and when the visitor comes back.
+  useEffect(() => {
+    if (state !== 'idle' || !quote?.indicative) return;
+    const refresh = () => { if (document.visibilityState === 'visible') void load(pair, true); };
+    const timer = setInterval(refresh, 60_000);
+    document.addEventListener('visibilitychange', refresh);
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', refresh); };
+  }, [state, quote?.indicative, pair, load]);
+
   useEffect(() => {
     if (state !== 'idle' || !quote || quote.stale || left <= 0) return;
     const timer = setTimeout(() => setLeft((seconds) => Math.max(0, seconds - 1)), 1000);
     return () => clearTimeout(timer);
   }, [left, quote, state]);
 
-  const expired = Boolean(state === 'idle' && quote && !quote.stale && left <= 0);
+  const expired = Boolean(state === 'idle' && quote && !quote.stale && !quote.indicative && left <= 0);
   const statusKind =
     state === 'loading'
       ? 'loading'
@@ -117,7 +133,7 @@ export default function LiveQuote({ variant = 'dark' }: { variant?: 'dark' | 'wa
         <span className={`lq__title lq__title--${statusKind}`} aria-live="polite">
           {statusLabel}
         </span>
-        <span className="lq__src">api.suwappu.bot/v1/agent/quote</span>
+        <span className="lq__src">{quote?.indicative ? '/public/swap/preview' : 'api.suwappu.bot/v1/agent/quote'}</span>
       </div>
 
       <div className="lq__pairs" role="group" aria-label={t('presetLabel')}>
@@ -176,9 +192,9 @@ export default function LiveQuote({ variant = 'dark' }: { variant?: 'dark' | 'wa
             <div><dt>{t('networkFee')}</dt><dd>{quote.gasUsd || '—'}</dd></div>
             <div><dt>{t('priceImpact')}</dt><dd>{quote.priceImpact || '—'}</dd></div>
             <div>
-              <dt>{t('quoteExpires')}</dt>
-              <dd className={!quote.stale && left <= 10 ? 'lq__warn' : undefined}>
-                {quote.stale ? '—' : expired ? t('expired') : t('seconds', { seconds: left })}
+              <dt>{quote.indicative ? t('quoteType') : t('quoteExpires')}</dt>
+              <dd className={!quote.stale && !quote.indicative && left <= 10 ? 'lq__warn' : undefined}>
+                {quote.indicative ? t('indicative') : quote.stale ? '—' : expired ? t('expired') : t('seconds', { seconds: left })}
               </dd>
             </div>
           </dl>

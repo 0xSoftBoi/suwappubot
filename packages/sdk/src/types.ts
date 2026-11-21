@@ -395,6 +395,7 @@ export interface CreatePolicyArgs {
   type: "spending_limit" | "whitelist";
   params: {
     maxAmountWei?: string;
+    /** @deprecated Rejected with 400: only per-transaction limits are supported. */
     timeWindowSeconds?: number;
     allowedAddresses?: string[];
   };
