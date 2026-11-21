@@ -140,6 +140,18 @@ def _git(*args, stdin=None):
     )
 
 
+def _has_unpushed_real_work(rel):
+    """True if HEAD has an unpushed commit that is not a journal-only commit."""
+    ahead = _git("rev-list", "@{u}..HEAD")
+    if ahead.returncode != 0:
+        return False  # no upstream yet: don't create commits that need a push
+    for sha in ahead.stdout.split():
+        files = _git("show", "--name-only", "--format=", sha).stdout.split()
+        if files and files != [rel]:
+            return True
+    return False
+
+
 def _commit_shard_in_cloud(shard, content):
     """Cloud sessions only: commit (never push) the record so the tree never looks dirty.
 
@@ -172,6 +184,15 @@ def _commit_shard_in_cloud(shard, content):
     if _git("diff", "--cached", "--quiet").returncode != 0:
         return  # someone else's staged work: don't sweep it into our commit
     rel = os.path.relpath(shard, root)
+    tracked = bool(_git("rev-parse", "-q", "--verify", f"HEAD:{rel}").stdout.strip())
+    if tracked:
+        # Hide every rewrite from `git status`; nothing to commit for that.
+        _git("update-index", "--skip-worktree", rel)
+        # The cloud check ALSO flags unpushed commits, and a journal-only push
+        # mid-PR leaves the PR head without CI checks. So only record when
+        # there is already unpushed REAL work to ride along with.
+        if not _has_unpushed_real_work(rel):
+            return
     blob = _git("hash-object", "-w", "--stdin", stdin=content).stdout.strip()
     if not blob or _git("rev-parse", "-q", "--verify", f"HEAD:{rel}").stdout.strip() == blob:
         return  # write failed, or record unchanged
