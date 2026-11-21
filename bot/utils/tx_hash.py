@@ -80,7 +80,14 @@ form must win for swap/CCTP/explorer paths and the fail-closed form for the
 nonce guard; that likely means two differently-named functions, not one.
 """
 
+import logging
+import re
 from typing import Any, FrozenSet, Optional
+
+logger = logging.getLogger(__name__)
+
+# Must stay in lockstep with hexBody's regex in api-ts/src/lib/txHash.ts.
+_HEX_BODY_RE = re.compile(r"^[0-9a-fA-F]+$")
 
 __all__ = [
     "EVM_HASH_HEX_LEN",
@@ -166,9 +173,12 @@ def _hex_body(value: str) -> Optional[str]:
     body = value[2:] if value[:2].lower() == "0x" else value
     if not body:
         return None
-    try:
-        int(body, 16)
-    except ValueError:
+    # A strict regex, NOT int(body, 16): int() also accepts a leading sign and
+    # PEP 515 underscore separators, so "aa_bb" would be treated as hex here and
+    # canonicalized to "0xaa_bb", while the TypeScript hexBody (/^[0-9a-fA-F]+$/)
+    # would leave it alone. Both stacks write the same consumed_payments table,
+    # so that divergence would mean two different keys for one value.
+    if not _HEX_BODY_RE.match(body):
         return None
     return body.lower()
 
@@ -233,6 +243,19 @@ def canonical_tx_hash(value: Any, chain: Any = None) -> Any:
 
     # Bare hex on an unknown chain: could be EVM (needs 0x) or TRON (must not
     # get one). Refuse to guess -- read paths use tx_hash_variants() instead.
+    #
+    # Logged because this branch silently defeats the write-side chokepoint:
+    # get_chain_by_name is an exact lowercase lookup with no aliases, so an
+    # alias ("eth"), a numeric chain id or a provider-specific name resolves to
+    # None and leaves a bare EVM hash bare. Safe, but it means the single-write
+    # -chokepoint guarantee is conditional on the caller passing a canonical
+    # chain key, and without this line the drift would be invisible.
+    if len(body) == EVM_HASH_HEX_LEN:
+        logger.debug(
+            "canonical_tx_hash: refusing to prefix a bare 64-hex hash, chain %r "
+            "did not resolve to a known chain type",
+            chain,
+        )
     return trimmed
 
 

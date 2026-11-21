@@ -45,7 +45,24 @@ convention) are skipped by chain, never by shape.
                           belongs to is not recorded. Conservative on purpose.
 
 Idempotent: a second run finds nothing to do. Safe to interrupt -- it commits
-per batch, and re-running resumes.
+per batch, and re-running resumes from the next id.
+
+IT TOUCHES ONLY `swap_transactions`
+-----------------------------------
+Other tables hold the same hashes (notably
+`execution_child_placements.external_tx_hash`) and are NOT rewritten, so after
+a run the two can legitimately disagree on spelling AND on case -- this script
+folds `0xAbC...` to `0xabc...`, and rows recorded through `/swap/record` before
+canonicalization kept whatever case the client sent.
+
+Every cross-table comparison must therefore fold case on BOTH sides, not just
+match `tx_hash_variants` (which carries the incoming value's casing, not the
+one already stored in the other column). `_same_tx_identity` in
+`bot/services/legacy_swap_execution_adapter.py` does this; a money-path review
+found that without it this backfill would make that adapter's identity guard
+raise on every poll pass, before the commit, so the swap could never be written
+COMPLETED or FAILED. Before adding a new reader of any of these columns, check
+it against that helper.
 
 See bot/utils/tx_hash.py for why the column holds two spellings at all.
 """
@@ -177,61 +194,83 @@ def main() -> int:
     samples: List[str] = []
 
     with get_session() as session:
-        # Only rows where at least one hash column is missing the prefix.
-        query = (
-            session.query(
-                SwapTransaction.id,
-                SwapTransaction.from_chain,
-                SwapTransaction.to_chain,
-                SwapTransaction.tx_hash,
-                SwapTransaction.bridge_tx_hash,
-                SwapTransaction.destination_tx_hash,
-            )
-            .filter(
-                or_(
-                    SwapTransaction.tx_hash.isnot(None),
-                    SwapTransaction.bridge_tx_hash.isnot(None),
-                    SwapTransaction.destination_tx_hash.isnot(None),
-                )
-            )
-            .order_by(SwapTransaction.id)
-        )
-
+        # Keyset pagination on `id`, deliberately NOT Query.yield_per().
+        # On SQLAlchemy 2.x yield_per sets stream_results=True, which with
+        # psycopg2 is a named server-side cursor -- and the per-batch
+        # session.commit() in _flush() ends the transaction that cursor lives
+        # in, so the next fetch raises and the run dies after its first
+        # committed batch. Re-reading from `id > last_id` each round survives
+        # the commit and is what makes "resumable" actually true.
+        last_id = 0
         pending: List[Tuple[int, Dict[str, str]]] = []
-        for row in query.yield_per(args.batch_size):
-            examined += 1
-            if args.limit is not None and examined > args.limit:
-                examined -= 1
+        done = False
+
+        while not done:
+            batch = (
+                session.query(
+                    SwapTransaction.id,
+                    SwapTransaction.from_chain,
+                    SwapTransaction.to_chain,
+                    SwapTransaction.tx_hash,
+                    SwapTransaction.bridge_tx_hash,
+                    SwapTransaction.destination_tx_hash,
+                )
+                .filter(
+                    SwapTransaction.id > last_id,
+                    # Any row carrying at least one hash. Narrowing this in SQL
+                    # is not possible without the chain-awareness that lives in
+                    # Python (a bare 64-hex TRON txid looks exactly like a bare
+                    # EVM one), so the filtering decision is made in _plan_row.
+                    or_(
+                        SwapTransaction.tx_hash.isnot(None),
+                        SwapTransaction.bridge_tx_hash.isnot(None),
+                        SwapTransaction.destination_tx_hash.isnot(None),
+                    ),
+                )
+                .order_by(SwapTransaction.id)
+                .limit(args.batch_size)
+                .all()
+            )
+            if not batch:
                 break
 
-            row_dict = {
-                "from_chain": row.from_chain,
-                "to_chain": row.to_chain,
-                "tx_hash": row.tx_hash,
-                "bridge_tx_hash": row.bridge_tx_hash,
-                "destination_tx_hash": row.destination_tx_hash,
-            }
-            updates, skips = _plan_row(row_dict, hex_chains)
-            all_skips.update(skips)
-            if not updates:
-                continue
+            for row in batch:
+                last_id = row.id
+                examined += 1
+                if args.limit is not None and examined > args.limit:
+                    examined -= 1
+                    done = True
+                    break
 
-            planned_rows += 1
-            for column in updates:
-                per_column[column] += 1
-            if len(samples) < 10:
-                column = next(iter(updates))
-                samples.append(
-                    f"  id={row.id} {row.from_chain}->{row.to_chain} "
-                    f"{column}: {row_dict[column]} -> {updates[column]}"
-                )
+                row_dict = {
+                    "from_chain": row.from_chain,
+                    "to_chain": row.to_chain,
+                    "tx_hash": row.tx_hash,
+                    "bridge_tx_hash": row.bridge_tx_hash,
+                    "destination_tx_hash": row.destination_tx_hash,
+                }
+                updates, skips = _plan_row(row_dict, hex_chains)
+                all_skips.update(skips)
+                if not updates:
+                    continue
 
-            if args.apply:
-                pending.append((row.id, updates))
-                if len(pending) >= args.batch_size:
-                    _flush(session, pending)
-                    logger.info("  committed %d rows (examined %d)", len(pending), examined)
-                    pending.clear()
+                planned_rows += 1
+                for column in updates:
+                    per_column[column] += 1
+                if len(samples) < 10:
+                    column = next(iter(updates))
+                    samples.append(
+                        f"  id={row.id} {row.from_chain}->{row.to_chain} "
+                        f"{column}: {row_dict[column]} -> {updates[column]}"
+                    )
+
+                if args.apply:
+                    pending.append((row.id, updates))
+
+            if args.apply and pending:
+                _flush(session, pending)
+                logger.info("  committed %d rows (examined %d)", len(pending), examined)
+                pending.clear()
 
         if args.apply and pending:
             _flush(session, pending)

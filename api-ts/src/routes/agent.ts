@@ -4111,7 +4111,9 @@ agentRoutes.post('/billing/topup', async (c) => {
 	const { txHash: rawTxHash, chain, amount } = parsed.data
 	// Legacy rows may hold the bare / as-given spelling: CHECK against every variant,
 	// WRITE only the canonical (0x + lowercase) form. Strictly additive (lib/txHash.ts).
-	const txHashLookup = txHashVariants(rawTxHash)
+	// Lowercased on BOTH sides: the queries below fold lower() over the stored
+	// column, and txHashVariants carries the incoming value's own casing too.
+	const txHashLookup = [...new Set(txHashVariants(rawTxHash).map((v) => v.toLowerCase()))]
 	const txHash = ['solana', 'tron'].includes(chain.trim().toLowerCase()) ? rawTxHash.trim() : String(rpcTxHash(rawTxHash))
 	if (!Number.isFinite(amount) || amount <= 0) {
 		return c.json(
@@ -4131,7 +4133,15 @@ agentRoutes.post('/billing/topup', async (c) => {
 					db
 						.select()
 						.from(agentCreditTopups)
-						.where(inArray(agentCreditTopups.txHash, txHashLookup))
+						// lower() on the STORED column, not just on the variants:
+						// legacy rows were inserted with the client's own casing
+						// (the old code wrote txHash unmodified), so an agent
+						// holding a `0xAbC...` topup could resubmit `0xabc...`,
+						// miss this pre-check AND miss the unique-target conflict.
+						// Only consumed_payments currently stops that, which makes
+						// this guard decorative without the fold. Needs a
+						// lower(tx_hash) functional index to stay cheap.
+						.where(inArray(sql`lower(${agentCreditTopups.txHash})`, txHashLookup))
 						.limit(1),
 				catch: (e) => new Error(`Database error: ${e}`),
 			})
@@ -4319,7 +4329,9 @@ agentRoutes.post('/billing/subscribe', async (c) => {
 	const { txHash: rawTxHash, chain, amount, tier } = parsed.data
 	// Legacy rows may hold the bare / as-given spelling: CHECK against every variant,
 	// WRITE only the canonical (0x + lowercase) form. Strictly additive (lib/txHash.ts).
-	const txHashLookup = txHashVariants(rawTxHash)
+	// Lowercased on BOTH sides: the queries below fold lower() over the stored
+	// column, and txHashVariants carries the incoming value's own casing too.
+	const txHashLookup = [...new Set(txHashVariants(rawTxHash).map((v) => v.toLowerCase()))]
 	const txHash = ['solana', 'tron'].includes(chain.trim().toLowerCase()) ? rawTxHash.trim() : String(rpcTxHash(rawTxHash))
 	const price = TIER_PRICES_USD[tier]
 	if (price === undefined) {
@@ -4344,7 +4356,13 @@ agentRoutes.post('/billing/subscribe', async (c) => {
 			// 1) Fast idempotency pre-check on the funding tx.
 			const existing = yield* Effect.tryPromise({
 				try: () =>
-					db.select().from(agentSubscriptions).where(inArray(agentSubscriptions.txHash, txHashLookup)).limit(1),
+					// lower() on the stored column — see the agentCreditTopups
+					// pre-check above for why the fold is load-bearing.
+					db
+						.select()
+						.from(agentSubscriptions)
+						.where(inArray(sql`lower(${agentSubscriptions.txHash})`, txHashLookup))
+						.limit(1),
 				catch: (e) => new Error(`Database error: ${e}`),
 			})
 			if (existing[0]) {

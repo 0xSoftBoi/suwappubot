@@ -25,6 +25,29 @@ from bot.services.execution_store import ExecutionStore, ExecutionStoreError, ex
 from bot.utils.tx_hash import tx_hash_variants
 
 
+def _same_tx_identity(stored: Optional[str], swap_hash: str) -> bool:
+    """True when two spellings name the same transaction.
+
+    Case is folded on BOTH sides, which `tx_hash_variants` alone does not do:
+    it carries the *incoming* value's casing plus the lowercase spellings, so a
+    mixed-case value already sitting in the OTHER column is not covered.
+
+    That asymmetry is reachable and the consequence is severe. `/swap/record`
+    accepts a `0x`-prefixed hash in any case, so rows predating canonicalization
+    can hold `0xAbC...`. If `swap_transactions.tx_hash` is then folded to
+    `0xabc...` (which `scripts/backfill_tx_hash_prefix.py` does) while
+    `execution_child_placements.external_tx_hash` keeps `0xAbC...`, a
+    variants-membership test misses and this raises on EVERY poll pass. In
+    `tx_poller` that raise happens before the commit, so the swap could never be
+    written COMPLETED or FAILED and the user would never be notified -- a
+    permanently stuck money-path row produced by a backfill advertised as
+    cosmetic.
+    """
+    if not stored:
+        return False
+    return stored.strip().lower() in {v.lower() for v in tx_hash_variants(swap_hash)}
+
+
 class LegacySwapProjectionError(ExecutionStoreError):
     """Raised when a legacy swap cannot be projected without inventing facts."""
 
@@ -140,7 +163,7 @@ def _ensure_child(
         child.submitted_at = child.submitted_at or swap.updated_at or datetime.utcnow()
         child.state = "submitted"
         session.flush()
-    elif swap.tx_hash and child.external_tx_hash not in tx_hash_variants(swap.tx_hash):
+    elif swap.tx_hash and not _same_tx_identity(child.external_tx_hash, swap.tx_hash):
         # Compare across spellings, not with `==`. The same hash can be stored
         # bare (EVM executors persisted `HexBytes.hex()`, which has no `0x`
         # prefix from hexbytes 1.x on) or `0x`-prefixed (provider APIs, and

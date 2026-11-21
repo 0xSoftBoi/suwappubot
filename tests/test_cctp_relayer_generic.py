@@ -99,6 +99,14 @@ def test_record_burn_persists_and_is_idempotent():
         def filter_by(self, **kw):
             return self
 
+        # record_burn looks the row up with .filter(col.in_(tx_hash_variants(h)))
+        # rather than filter_by(burn_tx_hash=h), because the column holds both
+        # the 0x-prefixed and bare spellings of the same hash. Like filter_by
+        # above, this fake ignores the predicate and the test drives the outcome
+        # through `existing`.
+        def filter(self, *args):
+            return self
+
         def first(self):
             return self._existing
 
@@ -166,6 +174,13 @@ def test_mark_broadcast_promotes_pending_to_burned():
 
     class FakeQuery:
         def filter_by(self, **kw):
+            return self
+
+        # The relayer matches a burn hash across both spellings via
+        # .filter(col.in_(tx_hash_variants(h))), since the column holds
+        # 0x-prefixed and bare forms of the same hash. Predicate ignored here,
+        # as with filter_by; the test drives the outcome through `row`.
+        def filter(self, *args):
             return self
 
         def first(self):
@@ -301,6 +316,13 @@ async def test_submit_receive_raises_insufficient_gas_and_stays_retryable():
         def filter_by(self, **kw):
             return self
 
+        # The relayer matches a burn hash across both spellings via
+        # .filter(col.in_(tx_hash_variants(h))), since the column holds
+        # 0x-prefixed and bare forms of the same hash. Predicate ignored here,
+        # as with filter_by; the test drives the outcome through `row`.
+        def filter(self, *args):
+            return self
+
         def first(self):
             return row
 
@@ -389,6 +411,13 @@ def test_insufficient_gas_never_reaches_terminal_via_attempt_count():
         def filter_by(self, **kw):
             return self
 
+        # The relayer matches a burn hash across both spellings via
+        # .filter(col.in_(tx_hash_variants(h))), since the column holds
+        # 0x-prefixed and bare forms of the same hash. Predicate ignored here,
+        # as with filter_by; the test drives the outcome through `row`.
+        def filter(self, *args):
+            return self
+
         def first(self):
             return row
 
@@ -429,6 +458,13 @@ def test_stall_becomes_terminal_after_wall_clock_hours():
 
     class FakeQuery:
         def filter_by(self, **kw):
+            return self
+
+        # The relayer matches a burn hash across both spellings via
+        # .filter(col.in_(tx_hash_variants(h))), since the column holds
+        # 0x-prefixed and bare forms of the same hash. Predicate ignored here,
+        # as with filter_by; the test drives the outcome through `row`.
+        def filter(self, *args):
             return self
 
         def first(self):
@@ -647,6 +683,13 @@ def test_bump_error_marks_failed_and_alerts_after_max_attempts():
         def filter_by(self, **kw):
             return self
 
+        # The relayer matches a burn hash across both spellings via
+        # .filter(col.in_(tx_hash_variants(h))), since the column holds
+        # 0x-prefixed and bare forms of the same hash. Predicate ignored here,
+        # as with filter_by; the test drives the outcome through `row`.
+        def filter(self, *args):
+            return self
+
         def first(self):
             return row
 
@@ -684,6 +727,13 @@ def test_bump_error_does_not_alert_before_max_attempts():
 
     class FakeQuery:
         def filter_by(self, **kw):
+            return self
+
+        # The relayer matches a burn hash across both spellings via
+        # .filter(col.in_(tx_hash_variants(h))), since the column holds
+        # 0x-prefixed and bare forms of the same hash. Predicate ignored here,
+        # as with filter_by; the test drives the outcome through `row`.
+        def filter(self, *args):
             return self
 
         def first(self):

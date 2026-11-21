@@ -309,3 +309,29 @@ ADRs 0001–0005.
   matches TRON exactly. Telling EVM from TRON needs the chain registry, which
   is Python, not SQL. Reads are already tolerant, so the backfill is tidying,
   not a correctness fix — an operator runs it after reading the dry run.
+- **Deploy ordering matters for the payment ledgers** (found in money-path
+  review, no code fix possible): the commits that close the bare/prefixed
+  double-redeem switch the ledger **write** to the canonical form in the same
+  change that widens the **read**. During a rolling cutover — and separately
+  between `api-ts` and `python-api`, which deploy independently — an old
+  instance still doing `eq(tx_hash, 'abc…')` will miss the new instance's
+  `0xabc…` row and credit the same payment twice. `onConflictDoNothing` does not
+  catch it, because the two rows hold different strings. **Ship the tolerant
+  readers first and the canonical writers in a later deploy, or run
+  single-replica through the cutover.**
+- **Cross-table hash comparisons must fold case on BOTH sides.**
+  `tx_hash_variants()` carries the *incoming* value's casing plus the lowercase
+  spellings — it does **not** cover a mixed-case value already sitting in the
+  other column. `/swap/record` accepted any casing, so such rows exist. Review
+  found that `scripts/backfill_tx_hash_prefix.py` folding
+  `swap_transactions.tx_hash` to lowercase, while
+  `execution_child_placements.external_tx_hash` kept its casing, would make the
+  legacy-projection identity guard raise on **every** poll pass — before the
+  commit, so the swap could never be written COMPLETED or FAILED and the user
+  would never be notified. Use `_same_tx_identity()` in
+  `bot/services/legacy_swap_execution_adapter.py` as the pattern.
+- **Keep the Python and TypeScript hex checks identical.** `bot/utils/tx_hash.py`
+  originally used `int(body, 16)`, which also accepts a leading sign and PEP 515
+  underscore separators, while the TS `hexBody` used `/^[0-9a-fA-F]+$/`. Both
+  write the same `consumed_payments` table, so `aa_bb` would have been two
+  different keys for one value. Both now use the regex.
