@@ -820,7 +820,11 @@ def _human_min_received(quote) -> str:
         exp = math.log10(raw_to / to_human)
         decimals = round(exp)
         if abs(exp - decimals) < 0.01 and 0 <= decimals <= 36:
-            return format(Decimal(int(raw_min)).scaleb(-decimals).normalize(), "f")
+            # Build the Decimal with its exponent set and format without context
+            # arithmetic: scaleb()/normalize() round to the 28-digit default
+            # precision, which truncates 18-decimal tokens like PEPE.
+            human = format(Decimal(f"{int(raw_min)}e{-decimals}"), "f")
+            return human.rstrip("0").rstrip(".") if "." in human else human
         # Not a clean power of ten (unexpected): scale, then trim float noise.
         human = Decimal(str(to_human)) * Decimal(int(raw_min)) / Decimal(raw_to)
         return format(round(human, 12).normalize(), "f")
