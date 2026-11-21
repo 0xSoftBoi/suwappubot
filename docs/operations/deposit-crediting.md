@@ -140,6 +140,22 @@ finality rather than the standard threshold.
   advances past a range that failed to read.
 - `/terminal/wallet/summary` returns the user's own address plus
   `creditableTokens`, and the UI states what is and is not credited.
+- **All three deposit surfaces show the per-user address.** Telegram
+  (`bot/handlers/custodial.py`) and WhatsApp
+  (`bot/services/whatsapp_flows/custodial_flow.py`) each used to show something
+  the watcher does not watch — Telegram the shared omnibus via
+  `get_deposit_wallet()`, WhatsApp the user's own self-custody `Wallet.address`
+  — while both promised automatic crediting. Neither address is in
+  `list_user_deposit_wallets()`, so those deposits were never credited to
+  anyone. Both now call `get_or_create_user_deposit_wallet`. A deposit surface
+  that calls `get_deposit_wallet()` is a bug by construction; the omnibus is for
+  *withdrawals* (`terminal.py`, the Telegram withdraw path), not for receiving.
+- What each surface may offer is derived from `ALLOWLIST`, not restated:
+  `creditable_chains()`, `creditable_tokens()`, `is_chain_creditable()` and
+  `creditable_matrix()` in `deposit_watcher.py`. Adding a chain or token there
+  is what makes a surface offer it, so no surface can drift into offering a
+  chain nothing scans. Solana buttons and the "native coins work" implication
+  are gone from both surfaces accordingly.
 
 **Not built yet — and deliberately not offered in the UI:**
 

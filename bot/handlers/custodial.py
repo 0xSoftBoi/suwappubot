@@ -3,6 +3,7 @@
 import logging
 import uuid
 from decimal import Decimal
+from typing import Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ContextTypes,
@@ -71,6 +72,64 @@ def validate_withdraw_address(chain: str, address: str) -> bool:
     return True
 
 
+async def _user_deposit_address(user_id: int) -> Optional[str]:
+    """This user's OWN custodial deposit address, minted on first view.
+
+    Deliberately not ``get_deposit_wallet()``. That returns the shared omnibus,
+    and ``deposit_watcher`` only watches addresses carrying ``deposit_user_id``
+    (see ``list_user_deposit_wallets``). EVM has no memo field, so an inbound
+    transfer to a shared address says nothing about who sent it — the address
+    has to be the attribution. Showing the omnibus here meant deposits were
+    never credited to anyone, while the copy promised they were automatic.
+
+    Returns None rather than raising, so the wallet overview still renders its
+    balances if minting hits KMS or the DB, and the deposit screens say so
+    instead of falling back to an address nothing credits.
+    """
+    try:
+        wallet = await hot_wallet_service.get_or_create_user_deposit_wallet(int(user_id), "evm")
+        return wallet.address if wallet else None
+    except Exception as exc:
+        logger.error("Could not resolve deposit address for user %s: %s", user_id, exc)
+        return None
+
+
+def _accepted_lines() -> list:
+    """What the watcher actually credits, one line per token set.
+
+    Letters, commas and spaces only, so the same strings are safe under both
+    ``Markdown`` and ``MarkdownV2`` without separate escaping.
+    """
+    from bot.services.deposit_watcher import creditable_matrix
+
+    out = []
+    for chains, tokens in creditable_matrix():
+        names = []
+        for chain in chains:
+            info = get_chain_by_name(chain)
+            names.append(info.display_name if info else chain.upper())
+        out.append(f"{', '.join(tokens)} on {', '.join(names)}")
+    return out
+
+
+def _deposit_lines(deposit_address: Optional[str]) -> list:
+    """The deposit block for the wallet overview (legacy ``Markdown``)."""
+    if not deposit_address:
+        return [
+            "\n📥 *Your Deposit Address*",
+            "_Could not load your deposit address. Try again shortly._",
+        ]
+    lines = [
+        "\n📥 *Your Deposit Address*",
+        f"`{deposit_address}`",
+        "_Yours alone — deposits to it credit automatically._",
+        "\n*Credited:*",
+    ]
+    lines += [f"  • {line}" for line in _accepted_lines()]
+    lines.append("_Native coins (ETH, BNB, POL) and Solana are not credited yet._")
+    return lines
+
+
 @enforce_tos
 async def custodial_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /custodial command - show custodial wallet overview."""
@@ -88,9 +147,7 @@ async def custodial_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     # Get custodial balances
     balances = hot_wallet_service.get_all_custodial_balances(user_id)
 
-    # Get deposit addresses
-    evm_wallet = hot_wallet_service.get_deposit_wallet("evm")
-    sol_wallet = hot_wallet_service.get_deposit_wallet("solana")
+    deposit_address = await _user_deposit_address(user_id)
 
     lines = ["🏦 *Custodial Wallet*\n"]
     lines.append("Your balances managed by the bot:\n")
@@ -112,17 +169,7 @@ async def custodial_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     else:
         lines.append("_No custodial balances yet._\n")
 
-    # Deposit info
-    lines.append("📥 *Deposit Addresses*")
-    if evm_wallet:
-        lines.append("\n*EVM Chains* (ETH, BSC, etc.):")
-        lines.append(f"`{evm_wallet.address}`")
-    if sol_wallet:
-        lines.append("\n*SOL*:")
-        lines.append(f"`{sol_wallet.address}`")
-
-    if not evm_wallet and not sol_wallet:
-        lines.append("_No deposit wallets configured yet._")
+    lines.extend(_deposit_lines(deposit_address))
 
     lines.append("\n⚡ *Benefits:*")
     lines.append("• Gas fees sponsored by us")
@@ -166,8 +213,7 @@ async def custodial_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         user_id = db_user.id
 
     balances = hot_wallet_service.get_all_custodial_balances(user_id)
-    evm_wallet = hot_wallet_service.get_deposit_wallet("evm")
-    sol_wallet = hot_wallet_service.get_deposit_wallet("solana")
+    deposit_address = await _user_deposit_address(user_id)
 
     lines = ["🏦 *Custodial Wallet*\n"]
     lines.append("Your balances managed by the bot:\n")
@@ -186,13 +232,7 @@ async def custodial_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     else:
         lines.append("_No custodial balances yet._\n")
 
-    lines.append("\n📥 *Deposit Addresses*")
-    if evm_wallet:
-        lines.append("\n*EVM Chains*:")
-        lines.append(f"`{evm_wallet.address}`")
-    if sol_wallet:
-        lines.append("\n*SOL*:")
-        lines.append(f"`{sol_wallet.address}`")
+    lines.extend(_deposit_lines(deposit_address))
 
     keyboard = [
         [
@@ -226,43 +266,40 @@ async def deposit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     query = update.callback_query
     await query.answer()
 
-    evm_wallet = hot_wallet_service.get_deposit_wallet("evm")
-    sol_wallet = hot_wallet_service.get_deposit_wallet("solana")
+    from bot.services.deposit_watcher import creditable_chains
+
+    user = update.effective_user
+    with get_session() as session:
+        db_user = session.query(User).filter(User.telegram_id == user.id).first()
+        if not db_user:
+            await query.edit_message_text("❌ Please use /start first\\.", parse_mode="MarkdownV2")
+            return
+        user_id = db_user.id
+
+    deposit_address = await _user_deposit_address(user_id)
 
     lines = ["📥 *Deposit to Custodial Wallet*\n"]
-    lines.append("Select a network to view deposit address:\n")
 
     keyboard = []
-
-    if evm_wallet:
-        keyboard.append(
-            [
-                InlineKeyboardButton("🔷 Ethereum", callback_data="deposit_qr_ethereum"),
-                InlineKeyboardButton("🟣 Polygon", callback_data="deposit_qr_polygon"),
-            ]
-        )
-        keyboard.append(
-            [
-                InlineKeyboardButton("🟡 BSC", callback_data="deposit_qr_bsc"),
-                InlineKeyboardButton("🔵 Arbitrum", callback_data="deposit_qr_arbitrum"),
-            ]
-        )
-        keyboard.append(
-            [
-                InlineKeyboardButton("🔴 Optimism", callback_data="deposit_qr_optimism"),
-                InlineKeyboardButton("🔵 Base", callback_data="deposit_qr_base"),
-            ]
-        )
-
-    if sol_wallet:
-        keyboard.append(
-            [
-                InlineKeyboardButton("🟢 Solana", callback_data="deposit_qr_solana"),
-            ]
-        )
-
-    if not evm_wallet and not sol_wallet:
-        lines.append("❌ _Deposit wallets not configured\\. Contact admin\\._")
+    if deposit_address:
+        lines.append("Select a network to view deposit address:\n")
+        # Only chains the watcher scans. Solana is absent on purpose: there is
+        # no SPL scan yet, so an address shown for it would never credit.
+        row = []
+        for chain in creditable_chains():
+            info = get_chain_by_name(chain)
+            emoji = info.logo_emoji if info else "💎"
+            label = info.display_name if info else chain.title()
+            row.append(
+                InlineKeyboardButton(f"{emoji} {label}", callback_data=f"deposit_qr_{chain}")
+            )
+            if len(row) == 2:
+                keyboard.append(row)
+                row = []
+        if row:
+            keyboard.append(row)
+    else:
+        lines.append("❌ _Could not load your deposit address\\. Try again shortly\\._")
 
     keyboard.append([InlineKeyboardButton("« Back", callback_data="custodial_menu")])
 
@@ -278,45 +315,65 @@ async def deposit_qr_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     await query.answer()
 
+    from bot.services.deposit_watcher import (
+        CONFIRMATIONS,
+        creditable_tokens,
+        is_chain_creditable,
+    )
+
     # Extract chain from callback data
     chain = query.data.replace("deposit_qr_", "")
 
-    # Get appropriate wallet
-    if chain == "solana":
-        wallet = hot_wallet_service.get_deposit_wallet("solana")
-    else:
-        wallet = hot_wallet_service.get_deposit_wallet("evm")
+    back_only = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("« Back", callback_data="custodial_deposit")]]
+    )
 
-    if not wallet:
-        await query.edit_message_text("❌ Deposit wallet not configured.")
+    # The watcher credits allowlisted ERC-20s on scanned EVM chains only. Refuse
+    # anything else here too, not just in the menu: an older message's buttons
+    # stay tappable, and a Solana address we cannot credit must never be shown.
+    if not is_chain_creditable(chain):
+        await query.edit_message_text(
+            "❌ Deposits on that network are not supported yet\\.",
+            parse_mode="MarkdownV2",
+            reply_markup=back_only,
+        )
         return
 
-    # Chain display names and emojis
-    chain_info = {
-        "ethereum": ("🔷", "ETH"),
-        "polygon": ("🟣", "POL"),
-        "bsc": ("🟡", "BSC"),
-        "arbitrum": ("🔵", "ARB"),
-        "optimism": ("🔴", "OP"),
-        "base": ("🔵", "Base"),
-        "solana": ("🟢", "SOL"),
-    }
+    user = update.effective_user
+    with get_session() as session:
+        db_user = session.query(User).filter(User.telegram_id == user.id).first()
+        if not db_user:
+            await query.edit_message_text("❌ Please use /start first\\.", parse_mode="MarkdownV2")
+            return
+        user_id = db_user.id
 
-    emoji, display_name = chain_info.get(chain, ("💎", chain.title()))
+    address = await _user_deposit_address(user_id)
+    if not address:
+        await query.edit_message_text(
+            "❌ Could not load your deposit address\\. Try again shortly\\.",
+            parse_mode="MarkdownV2",
+            reply_markup=back_only,
+        )
+        return
+
+    info = get_chain_by_name(chain)
+    emoji = info.logo_emoji if info else "💎"
+    display_name = info.display_name if info else chain.title()
+    tokens = ", ".join(creditable_tokens(chain))
+    confirmations = CONFIRMATIONS.get(chain, 12)
 
     # Generate QR code
     try:
-        qr_bytes = generate_wallet_qr(wallet.address, chain=chain)
+        qr_bytes = generate_wallet_qr(address, chain=chain)
     except Exception:
         # Fallback: just show address without QR
         await query.edit_message_text(
             f"{emoji} *{display_name} Deposit*\n\n"
-            f"Address:\n`{wallet.address}`\n\n"
-            f"⚠️ Only send tokens on the {display_name} network\\!",
+            f"`{address}`\n\n"
+            f"Send *{tokens}* on *{display_name}* only\\.\n"
+            f"⚠️ Native coins and other tokens sent here are *not* credited\\.",
             parse_mode="MarkdownV2",
-            reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("« Back", callback_data="custodial_deposit")]]
-            ),
+            reply_markup=back_only,
         )
         return
 
@@ -327,11 +384,13 @@ async def deposit_qr_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     caption = (
         f"{emoji} *{display_name} Deposit*\n\n"
-        f"Address:\n`{wallet.address}`\n\n"
-        f"⚠️ Only send tokens on the *{display_name}* network\\!\n\n"
+        f"`{address}`\n\n"
+        f"Send *{tokens}* on *{display_name}* only\\.\n\n"
         f"• Scan QR or copy address above\n"
-        f"• Deposits credited automatically\n"
-        f"• Allow 1\\-5 min for confirmation"
+        f"• This address is yours alone, so deposits credit automatically\n"
+        f"• Credited after {confirmations} confirmations\n"
+        f"⚠️ Native coins \\(ETH, BNB, POL\\) and other tokens sent here are "
+        f"*not* credited"
     )
 
     keyboard = [

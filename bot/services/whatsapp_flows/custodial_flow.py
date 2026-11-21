@@ -10,76 +10,73 @@ logger = logging.getLogger(__name__)
 
 
 class DepositFlow(BaseWhatsAppFlow):
-    """Show deposit address and optionally a QR code."""
+    """Show this user's own custodial deposit address.
+
+    The address shown here has to be the one ``deposit_watcher`` watches: a
+    ``HotWallet`` carrying ``deposit_user_id``, minted by
+    ``hot_wallet_service.get_or_create_user_deposit_wallet``. This flow used to
+    render the user's self-custody ``Wallet.address`` instead — an address
+    nothing credits. Funds sent there were not lost (the user holds the key) but
+    they landed in that wallet and the custodial balance never moved, so a user
+    expecting a credit saw their deposit vanish.
+
+    EVM and allowlisted ERC-20s only, which is the whole of what the watcher
+    detects: native ETH/BNB/POL emits no Transfer log, and Solana SPL is not
+    scanned at all. Neither is offered here, per
+    ``docs/operations/deposit-crediting.md`` ("not built yet — and deliberately
+    not offered in the UI").
+    """
 
     flow_name = "custodial_deposit"
     trigger_commands = ["deposit"]
-    steps = {
-        "choose_chain": "_step_choose_chain",
-    }
+    # One terminal response, no steps: EVM is the only family we can credit, so
+    # there is nothing to choose. The chain picker is gone rather than left
+    # offering a Solana branch that would never credit.
+    steps: dict = {}
 
     async def start(self, user_id: str, user_db_id: int, text: str = "") -> FlowResponse:
-        await self._set_state(user_id, "choose_chain", {"user_db_id": user_db_id})
-        return FlowResponse(
-            text="Select the chain to deposit on:",
-            header="📥 Deposit",
-            buttons=[
-                {"id": "dep_evm", "title": "🔷 EVM"},
-                {"id": "dep_solana", "title": "🟢 Solana"},
-            ],
-        )
-
-    async def _step_choose_chain(
-        self, user_id: str, user_db_id: int, text: str, state: ConversationState
-    ) -> FlowResponse:
         await self._clear(user_id)
-        db_uid = state.data.get("user_db_id") or user_db_id
 
-        chain_type = (
-            "evm"
-            if "evm" in text.lower()
-            else "solana" if "solana" in text.lower() or "sol" in text.lower() else None
-        )
-        if not chain_type:
-            return FlowResponse(
-                "Please select EVM or Solana:",
-                buttons=[
-                    {"id": "dep_evm", "title": "🔷 EVM"},
-                    {"id": "dep_solana", "title": "🟢 Solana"},
-                ],
-            )
+        if not user_db_id:
+            return FlowResponse("Send *start* first so we can set up your account.")
 
         try:
-            from database.db import get_session
-            from bot.models.user import User
+            from bot.config.chains import get_chain_by_name
+            from bot.services.deposit_watcher import creditable_matrix
+            from bot.services.hot_wallet import hot_wallet_service
 
-            with get_session() as session:
-                user = session.query(User).filter(User.id == db_uid).first()
-                wallet = (
-                    next(
-                        (w for w in user.wallets if w.chain_type == chain_type and w.is_active),
-                        None,
-                    )
-                    if user
-                    else None
-                )
+            wallet = await hot_wallet_service.get_or_create_user_deposit_wallet(
+                int(user_db_id), "evm"
+            )
+            address = wallet.address if wallet else None
+            if not address:
+                return FlowResponse("Could not retrieve deposit address. Try again later.")
 
-            if not wallet:
-                return FlowResponse(
-                    f"No {chain_type.upper()} wallet found.\n" f"Use *wallets* to create one first."
-                )
+            def _display(chain: str) -> str:
+                info = get_chain_by_name(chain)
+                return info.display_name if info else chain.upper()
 
-            address = wallet.address
+            accepted = "\n".join(
+                f"• {', '.join(tokens)} on {', '.join(_display(c) for c in chains)}"
+                for chains, tokens in creditable_matrix()
+            )
+
             # QR code via public API
             qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=250x250&data={address}"
 
             return FlowResponse(
                 text=(
-                    f"📥 *Deposit Address*\n\n"
-                    f"Chain: {chain_type.upper()}\n"
-                    f"Address:\n`{address}`\n\n"
-                    f"Send tokens to this address. Only send {chain_type.upper()}-compatible tokens."
+                    f"📥 *Your Deposit Address*\n\n"
+                    f"`{address}`\n\n"
+                    f"This address is yours alone — that is how we know a deposit "
+                    f"is yours, so deposits to it credit your custodial balance "
+                    f"automatically.\n\n"
+                    f"*Credited:*\n{accepted}\n\n"
+                    f"⚠️ Send only those tokens, on those networks. Native coins "
+                    f"(ETH, BNB, POL) and Solana are *not* credited yet — anything "
+                    f"else sent here will not show up in your balance."
                 ),
+                header="📥 Deposit",
                 image=qr_url,
             )
         except Exception as e:

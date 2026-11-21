@@ -85,6 +85,48 @@ ADDRESS_CHUNK = 100
 COLD_START_LOOKBACK = 500
 
 
+# --- what a deposit surface may offer ----------------------------------------
+#
+# Every surface that shows a deposit address (Telegram, WhatsApp, terminal) has
+# to describe exactly what this watcher credits, and offer nothing else. These
+# derive that from ALLOWLIST so there is one list, not one per surface: add a
+# chain or token above and the surfaces follow. The alternative — each surface
+# carrying its own idea of what is fundable — is how a user ends up sending to
+# an address, or on a chain, that nothing ever credits.
+
+
+def creditable_chains() -> Tuple[str, ...]:
+    """Chains with at least one creditable token, in a stable order."""
+    return tuple(sorted(chain for chain, syms in ALLOWLIST.items() if syms))
+
+
+def creditable_tokens(chain: Optional[str] = None) -> Tuple[str, ...]:
+    """Symbols credited on ``chain``, or across every chain when None."""
+    if chain is not None:
+        return tuple(sorted(ALLOWLIST.get(chain, ())))
+    return tuple(sorted({sym for syms in ALLOWLIST.values() for sym in syms}))
+
+
+def is_chain_creditable(chain: str) -> bool:
+    """True when a deposit on ``chain`` can actually be credited."""
+    return bool(ALLOWLIST.get(chain))
+
+
+def creditable_matrix() -> list:
+    """``[(chains, tokens)]``, grouping chains that credit the same token set.
+
+    Lets a surface say "USDC and USDT on ETH/BSC/… , USDC on Base" rather than
+    flattening to one token list that would overstate what Base accepts.
+    """
+    groups: Dict[Tuple[str, ...], list] = {}
+    for chain in creditable_chains():
+        groups.setdefault(creditable_tokens(chain), []).append(chain)
+    return sorted(
+        ((tuple(chains), tokens) for tokens, chains in groups.items()),
+        key=lambda pair: (-len(pair[0]), pair[0]),
+    )
+
+
 def _topic_for_address(address: str) -> str:
     """Left-pad an address to a 32-byte topic."""
     return "0x" + address.lower().replace("0x", "").rjust(64, "0")
