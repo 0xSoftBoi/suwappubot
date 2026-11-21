@@ -43,6 +43,30 @@ Read tools answer freely; anything that costs money is a proposal a human must a
 - Also on testnet only: a separate contract `suwappu-arb3.testnet` (code sha256 `667f4c62a77bdb59442d74daf75d2bb6c093c8bb1fcf893e4bba6562cff9ba8a`) that pins two rubrics: the PR rubric and `http_json_v1`, where the enclave fetches an HTTPS endpoint and checks conditions on the JSON it returns. It fixes a late-callback double-payment bug that the contract above still has, but that fix was tested only in a local harness. Known limits: a condition already true at creation can be paid out immediately; the account that signs the resolve call shows about 0.3 NEAR less balance during it; whoever controls the checked endpoint controls the verdict; not audited. See the `contract_v3` block in /arbiter.json.
 - Roadmap, NOT shipped: mainnet, independent audit, in-contract TDX quote verification, NEAR Intents funding, Agent Market integration, LLM-judged rubrics.
 
+## Products
+One page per product with how it works, commands or endpoints, hard facts, limits and FAQ. Each is also clean Markdown at <url>.md. Catalogue: https://suwappu.bot/products
+- [Web Terminal](https://suwappu.bot/products/terminal.md): One browser workspace for every trade you place
+- [Telegram Bot](https://suwappu.bot/products/telegram-bot.md): Every Suwappu feature, one chat command away
+- [Swaps and Routing](https://suwappu.bot/products/swap-routing.md): Quote many routes. Swap on the best-scoring one.
+- [Limit, DCA, Trailing](https://suwappu.bot/products/orders.md): Set the rule once. The bot checks it every 30 seconds.
+- [Price Alerts](https://suwappu.bot/products/alerts.md): Name a price. Get a message when it prints.
+- [Copy Trading](https://suwappu.bot/products/copy-trading.md): Follow a leader. Cap what you copy.
+- [Launch Sniping](https://suwappu.bot/products/sniping.md): Be early on Solana launches, with daily caps.
+- [HyperLiquid Perps](https://suwappu.bot/products/perps.md): HyperLiquid perps, with the leverage cap shown by the market
+- [Prediction Markets](https://suwappu.bot/products/predictions.md): Trade Polymarket outcomes from a chat command
+- [Wallets and Custody](https://suwappu.bot/products/wallets-custody.md): Know where your keys live before you trade
+- [Agent API](https://suwappu.bot/products/agent-api.md): Quote, simulate, then execute. One REST API.
+- [MCP Server](https://suwappu.bot/products/mcp-server.md): Give your agent 23 market tools over MCP.
+- [TypeScript and Python SDKs](https://suwappu.bot/products/sdks.md): Typed clients for the Agent API.
+- [Managed Wallets](https://suwappu.bot/products/managed-wallets.md): A wallet your agent can use, within limits.
+- [Spend Policies](https://suwappu.bot/products/spend-policies.md): Limits that sit outside the agent's control.
+- [Approvals and Audit](https://suwappu.bot/products/approvals-audit.md): A human decides. Every step is recorded.
+- [Organisations](https://suwappu.bot/products/organisations.md): One org, scoped keys, clear roles.
+- [Billing and Credits](https://suwappu.bot/products/billing-credits.md): Prepaid credits. Costs you can add up.
+- [Autopilot](https://suwappu.bot/products/autopilot.md): Autonomous agents. Public decisions. Paper by default. (paper)
+- [Arbiter](https://suwappu.bot/products/arbiter.md): Escrow that pays on verified delivery. (preview)
+- [Agent Desk](https://suwappu.bot/products/agent-desk.md): Give your agent a mandate, not your keys. (preview)
+
 ## Problems solved
 Each page names a problem, answers it directly and links the product that solves it. Every one is also clean Markdown at <url>.md. Start: https://suwappu.bot/start (get an API key in one call).
 - [How do I let an AI agent swap tokens without handing it my keys?](https://suwappu.bot/solve/let-ai-agent-swap-tokens.md): Register an agent with one POST, get a quote, dry-run it with /swap/simulate, then either execute from a Suwappu managed wallet or take an unsigned transaction and sign it yourself.

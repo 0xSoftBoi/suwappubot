@@ -6,6 +6,7 @@ import stats from '@/data/stats.generated.json';
 import {
   SOLVE_PAGES, SOLVE_UPDATED, SITE_ORIGIN, AUDIENCE_LABEL, getSolvePage, teaser, withUtm,
 } from '@/data/solve';
+import { productForHref } from '@/data/products';
 import { Backdrop, V3Section, RouteMap, ToolOrbit, BoundaryRings } from '@/components/v3';
 import TrackedLink from '@/components/solve/TrackedLink';
 import CopyCode from '@/components/solve/CopyCode';
@@ -50,6 +51,7 @@ export default async function SolvePage({ params }: { params: Promise<Params> })
   if (!p) notFound();
   const url = `${SITE_ORIGIN}/solve/${p.slug}`;
   const cta = withUtm(p.cta.href, p.slug);
+  const deep = productForHref(p.product.href);
   const related = p.related.map(getSolvePage).filter((r): r is NonNullable<typeof r> => Boolean(r));
   const abs = (h: string) => (h.startsWith('/') ? `${SITE_ORIGIN}${h}` : h);
 
@@ -119,6 +121,7 @@ export default async function SolvePage({ params }: { params: Promise<Params> })
                 </div>
                 <p className="sv-product">
                   Built with <TrackedLink href={p.product.href} surface="solve" slug={p.slug} kind="product" className="sv-product__link">{p.product.name} →</TrackedLink>
+                  {deep && <> · <TrackedLink href={`/products/${deep.slug}`} surface="solve" slug={p.slug} kind="product" className="sv-product__link">Full details: {deep.name} →</TrackedLink></>}
                 </p>
               </div>
               <div className="sv-art" aria-hidden="true"><Art audience={p.audience} /></div>

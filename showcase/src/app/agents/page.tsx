@@ -10,6 +10,7 @@ import { Reveal, Backdrop, ToolOrbit, AuthorityFlow, CountUp, ProblemStrip } fro
 import styles from './agents.module.css';
 import '../sales-v3.css';
 import '../product-v3.css';
+import '../products/product-deep.css';
 
 export const metadata: Metadata = {
   title: { absolute: 'Agents: API, MCP & A2A for AI agents | Suwappu' },
@@ -243,6 +244,7 @@ export default function AgentsPage() {
               Read the quick start
             </a>
           </div>
+          <p className="pdx-detail"><a href="/products/agent-api">Full details: Agent API →</a></p>
         </header>
             <Reveal className="pv3-hero__art" delay={120}>
               <ToolOrbit count={stats.mcpToolCount}>

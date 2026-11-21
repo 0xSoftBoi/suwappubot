@@ -8,6 +8,7 @@ import { Reveal, Backdrop } from '@/components/v3';
 import styles from './agent-desk.module.css';
 import '../sales-v3.css';
 import '../product-v3.css';
+import '../products/product-deep.css';
 
 export const metadata: Metadata = {
   title: 'Agent Desk | Give your agent a mandate, not your keys',
@@ -242,6 +243,7 @@ export default function AgentTerminalPage() {
               How it works ↓
             </a>
           </div>
+          <p className="pdx-detail"><a href="/products/agent-desk">Full details: Agent Desk →</a></p>
         </header>
           </div>
         </div>

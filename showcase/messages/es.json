@@ -110,7 +110,15 @@
       "contactTitle": "Contacto",
       "contactDesc": "Habla con el equipo",
       "language": "Idioma",
-      "mobileTitle": "Menú"
+      "mobileTitle": "Menú",
+      "copyTradingTitle": "Copy trading",
+      "copyTradingDesc": "Copia las carteras que elijas",
+      "snipingTitle": "Sniping",
+      "snipingDesc": "Nuevos lanzamientos, con filtros",
+      "predictionsTitle": "Predicciones",
+      "predictionsDesc": "Mercados de predicción en el Terminal",
+      "spendPoliciesTitle": "Políticas de gasto",
+      "spendPoliciesDesc": "Límites de gasto de un agente"
     }
   },
   "hero": {

@@ -175,3 +175,8 @@
 .pdx-links { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 1.2rem 0 0; padding: 0; list-style: none; }
 .pdx-links a { display: inline-flex; align-items: center; min-height: 40px; padding: 0 0.95rem; border-radius: 999px; border: 1px solid var(--v3-line-strong); color: var(--v3-ink); text-decoration: none; font-weight: 600; font-size: 0.875rem; }
 .pdx-links a:hover { border-color: #f6a93c; }
+
+.pdx-h2 { margin: 0; font-family: var(--type-display-font, var(--font-serif)); font-weight: var(--type-display-weight, 500); font-size: clamp(1.5rem, 1.1rem + 1.6vw, 2.25rem); line-height: 1.15; color: var(--v3-ink); }
+.pdx-detail { margin: 0.9rem 0 0; font-size: 0.9rem; }
+.pdx-detail a { color: inherit; font-weight: 600; text-decoration: none; border-bottom: 1px solid #f6a93c; }
+.pdx-notice { display: inline-flex; margin: 0 0 1rem; padding: 0.35rem 0.85rem; border-radius: 999px; border: 1px solid #a9a6ec; background: #ecebff; color: #3d3a8c; font: 700 0.75rem/1.4 var(--v3-font-mono); letter-spacing: 0.03em; }

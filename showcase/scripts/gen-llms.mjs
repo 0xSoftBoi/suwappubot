@@ -10,6 +10,8 @@ const SITE = 'https://suwappu.bot';
 const solve = JSON.parse(readFileSync(join(scriptDir, '../src/data/solve.json'), 'utf-8'));
 const stats = JSON.parse(readFileSync(join(scriptDir, '../src/data/stats.generated.json'), 'utf-8'));
 const SOLVE_UPDATED = '2026-11-21'; // keep in step with src/data/solve.ts
+const products = JSON.parse(readFileSync(join(scriptDir, '../src/data/products.json'), 'utf-8')).pages;
+const PRODUCTS_UPDATED = '2026-11-21'; // keep in step with src/data/products.ts
 
 const H1 = '# Suwappu API';
 const SUMMARY =
@@ -87,6 +89,27 @@ const solveFull = solve.pages.map((p) => [
   `## FAQ\n\n${p.faq.map((f) => `### ${f.q}\n\n${f.a}\n`).join('\n')}`,
 ].join('\n')).join('\n');
 
+// ---- Products (src/data/products.json: the same copy as /products/<slug>) ----
+const productIndex = [
+  '## Products',
+  `One page per product with how it works, commands or endpoints, hard facts, limits and FAQ. Each is also clean Markdown at <url>.md. Catalogue: ${SITE}/products`,
+  ...products.map((p) => `- [${p.name}](${SITE}/products/${p.slug}.md): ${p.headline}${p.status && p.status !== 'live' ? ` (${p.status})` : ''}`),
+].join('\n');
+const productFull = products.map((p) => [
+  `\n---\n\n# ${p.name}: ${p.headline}`, `\n> ${p.lead}\n`, `Source: ${SITE}/products/${p.slug} (last updated ${PRODUCTS_UPDATED})${p.status && p.status !== 'live' ? ` · status: ${p.status}` : ''}\n`,
+  `## What it is\n\n${p.whatItIs.join('\n\n')}\n`,
+  `## How it works\n\n${p.howItWorks.map((s, i) => `${i + 1}. ${s.title}. ${s.detail}`).join('\n')}\n`,
+  `## What you can do\n\n${p.capabilities.map((c) => `- ${c.title}. ${c.detail}`).join('\n')}\n`,
+  p.commands ? `## Commands\n\n${p.commands.map((c) => `- ${c.command}: ${c.does}`).join('\n')}\n` : '',
+  p.endpoints ? `## Endpoints\n\n${p.endpoints.map((e) => `- ${e.method} ${e.path}: ${e.does}`).join('\n')}\n` : '',
+  `### ${p.example.title}\n\n\`\`\`${p.example.lang === 'telegram' ? 'text' : p.example.lang}\n${p.example.code}\n\`\`\`\n`,
+  `## The hard facts\n\n${p.specs.map((x) => `- ${x.label}: ${x.value}`).join('\n')}\n`,
+  ...(p.more ?? []).map((m) => `## ${m.title}\n\n${m.body}\n`),
+  `## Pricing\n\n${p.pricing}\n`,
+  `## What it does not do\n\n${p.limits.map((l) => `- ${l}`).join('\n')}\n`,
+  `## FAQ\n\n${p.faq.map((f) => `### ${f.q}\n\n${f.a}\n`).join('\n')}`,
+].join('\n')).join('\n');
+
 // ---- llms.txt (curated index) ----
 const main = docs.sections.filter((s) => !OPTIONAL_IDS.has(s.id));
 const optional = docs.sections.filter((s) => OPTIONAL_IDS.has(s.id));
@@ -106,6 +129,8 @@ const llms = [
   '',
   ARBITER,
   '',
+  productIndex,
+  '',
   solveIndex,
   '',
   ...main.map(sectionBlock).flatMap((b) => [b, '']),
@@ -115,7 +140,7 @@ const llms = [
 ].join('\n');
 
 // ---- llms-full.txt (full corpus) ----
-const fullParts = [H1, '', SUMMARY, '', PREAMBLE, '', ARBITER, '', '# Problems solved', solveFull, ''];
+const fullParts = [H1, '', SUMMARY, '', PREAMBLE, '', ARBITER, '', '# Products', productFull, '', '# Problems solved', solveFull, ''];
 for (const section of docs.sections) {
   fullParts.push(`\n\n# ${section.title}\n`);
   for (const page of section.pages) {
