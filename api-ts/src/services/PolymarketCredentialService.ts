@@ -59,7 +59,6 @@ export const PolymarketCredentialServiceLive = Layer.effect(
 		const getCredentials = (agentId: string) =>
 			Effect.gen(function* () {
 				const db = yield* requireDb
-				const key = getEncryptionKey()
 
 				const rows = yield* Effect.tryPromise({
 					try: () =>
@@ -72,7 +71,12 @@ export const PolymarketCredentialServiceLive = Layer.effect(
 				})
 
 				const row = rows[0]
+				// No account yet: nothing to decrypt, so don't require the key.
 				if (!row || !row.isActive) return null
+				const key = yield* Effect.try({
+					try: () => getEncryptionKey(),
+					catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+				})
 
 				const nonce = row.aesgcmNonce || ''
 

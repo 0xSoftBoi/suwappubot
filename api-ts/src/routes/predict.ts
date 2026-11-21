@@ -421,12 +421,14 @@ predictRoutes.get('/positions', agentBearerAuth(), regionGate(), async (c) => {
 			const pm = yield* PolymarketService
 			const credService = yield* PolymarketCredentialService
 
-			const credentials = yield* credService.getCredentials(agentId)
-			if (!credentials) {
-				return yield* Effect.fail(
-					new ValidationError({ message: 'No Polymarket credentials found. Place an order first to initialize.' }),
-				)
-			}
+			const credentials = yield* credService.getCredentials(agentId).pipe(
+				Effect.mapError((e) => new ExternalServiceError({
+					message: `Polymarket credential lookup failed: ${e.message}`,
+					service: 'polymarket-credentials',
+				})),
+			)
+			// Agent has never traded on Polymarket: no positions, not an error.
+			if (!credentials) return []
 
 			const positions = yield* pm.getPositions(credentials, walletAddress).pipe(
 				Effect.mapError((e) => new ExternalServiceError({
