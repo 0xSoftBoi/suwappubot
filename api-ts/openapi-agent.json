@@ -1466,6 +1466,16 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "The wallet policy service is temporarily unavailable. The body is the standard JSON error with error_code UPSTREAM_ERROR; retry later.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
@@ -1528,6 +1538,16 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "The wallet policy service is temporarily unavailable. The body is the standard JSON error with error_code UPSTREAM_ERROR; retry later.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
