@@ -9,6 +9,7 @@ import hmac
 import hashlib
 import json
 import logging
+import math
 import re
 import time
 import uuid
@@ -810,10 +811,23 @@ def _human_min_received(quote) -> str:
         if "." in raw_min or "e" in raw_min.lower():
             return raw_min  # already human-scaled by the provider
         raw_to = int(str(quote.to_amount))
-        if raw_to <= 0:
+        to_human = float(quote.to_amount_human)
+        if raw_to <= 0 or to_human <= 0:
             return raw_min
-        human = Decimal(str(quote.to_amount_human)) * Decimal(int(raw_min)) / Decimal(raw_to)
-        return format(human.normalize(), "f")
+        # Recover the integer token decimals from the float ratio, then shift the
+        # integer minimum exactly. Multiplying by the float ratio directly leaked
+        # its rounding into the display (e.g. "0.003160603370747483999999999999").
+        exp = math.log10(raw_to / to_human)
+        decimals = round(exp)
+        if abs(exp - decimals) < 0.01 and 0 <= decimals <= 36:
+            # Build the Decimal with its exponent set and format without context
+            # arithmetic: scaleb()/normalize() round to the 28-digit default
+            # precision, which truncates 18-decimal tokens like PEPE.
+            human = format(Decimal(f"{int(raw_min)}e{-decimals}"), "f")
+            return human.rstrip("0").rstrip(".") if "." in human else human
+        # Not a clean power of ten (unexpected): scale, then trim float noise.
+        human = Decimal(str(to_human)) * Decimal(int(raw_min)) / Decimal(raw_to)
+        return format(round(human, 12).normalize(), "f")
     except Exception:
         return raw_min
 
