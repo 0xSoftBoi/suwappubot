@@ -77,8 +77,17 @@ def configure_logging(level: str | None = None) -> None:
 
     numeric_level = getattr(logging, str(level).upper(), logging.INFO)
     if not _configured:
-        # force=True: replace any default stderr handler a library installed first.
-        logging.basicConfig(level=numeric_level, handlers=_build_handlers(), force=True)
+        # Replace only plain StreamHandlers (e.g. a default stderr handler a
+        # library installed first). Not basicConfig(force=True): that strips
+        # EVERY root handler, including pytest's capture handlers (subclasses,
+        # so the exact-type check skips them).
+        root = logging.getLogger()
+        for h in list(root.handlers):
+            if type(h) is logging.StreamHandler:
+                root.removeHandler(h)
+        for h in _build_handlers():
+            root.addHandler(h)
+        root.setLevel(numeric_level)
         _configured = True
     route_server_loggers()
 

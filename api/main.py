@@ -3080,4 +3080,7 @@ async def root_redirect():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # log_config=None: keep uvicorn from installing its own stderr handlers, so
+    # its startup records follow our stdout/stderr split (prod uses the uvicorn
+    # CLI, where route_server_loggers() at import already covers this).
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_config=None)
