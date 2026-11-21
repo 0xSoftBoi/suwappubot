@@ -28,7 +28,7 @@ type RecurringEnv = {
 	SPEND_PERMISSION_MANAGER_ADDRESS?: string
 }
 
-export type OnchainResult = { ok: true; txHash: string } | { ok: false; error: string }
+export type OnchainResult = { ok: true; txHash: string } | { ok: false; error: string; txHash?: string }
 
 /** Recurring billing is usable only when enabled AND an operator key is set. */
 export function isRecurringEnabled(env: RecurringEnv): boolean {
@@ -99,7 +99,9 @@ export async function approveSpendPermission(
 	try {
 		const { publicClient } = clients(env)
 		const txHash = await sendWrite(env, 'approveWithSignature', [permission, signature])
-		await publicClient.waitForTransactionReceipt({ hash: txHash })
+		const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash })
+		// A mined-but-reverted tx is not an approval; never record it as one.
+		if (receipt.status !== 'success') return { ok: false, error: 'tx_reverted', txHash }
 		return { ok: true, txHash }
 	} catch (e) {
 		return { ok: false, error: e instanceof Error ? e.message : String(e) }
@@ -121,7 +123,8 @@ export async function chargeSpendPermission(
 	try {
 		const { publicClient } = clients(env)
 		const txHash = await sendWrite(env, 'spend', [permission, value])
-		await publicClient.waitForTransactionReceipt({ hash: txHash })
+		const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash })
+		if (receipt.status !== 'success') return { ok: false, error: 'tx_reverted', txHash }
 		return { ok: true, txHash }
 	} catch (e) {
 		return { ok: false, error: e instanceof Error ? e.message : String(e) }

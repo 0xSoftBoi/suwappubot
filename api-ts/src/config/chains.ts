@@ -396,6 +396,11 @@ export async function broadcastRawTx(
 	// True once any attempt ended without a definitive answer (timeout, network
 	// error, non-2xx, transient RPC code) — the node may have accepted the tx.
 	let uncertain = false
+	// True if the loop ended on a definitive rejection (bad signature, intrinsic
+	// gas, insufficient funds, ...). Every node evaluates a signed tx against the
+	// same chain state, so a definitive "no" means no earlier attempt can have
+	// been accepted either — unless the by-hash lookup below finds it.
+	let rejected = false
 	for (let i = 0; i < urls.length; i++) {
 		const url = urls[i]!
 		attempts++
@@ -419,6 +424,7 @@ export async function broadcastRawTx(
 			lastErr = e instanceof Error ? e : new Error(String(e))
 			const isFinal = (lastErr as Error & { final?: boolean }).final
 			if (!isFinal) uncertain = true
+			if (isFinal) rejected = true
 			if (isFinal || i === urls.length - 1) break
 			logger.warn(`[rpc] broadcast via ${safeHost(url)} failed (${terse(e)}), failing over`)
 		}
@@ -432,7 +438,7 @@ export async function broadcastRawTx(
 		if (found) return { hash: localHash, url: found }
 	}
 	// `ambiguous`: an attempt may have landed even though we are reporting failure.
-	throw Object.assign(lastErr, { ambiguous: uncertain })
+	throw Object.assign(lastErr, { ambiguous: uncertain && !rejected })
 }
 
 /**
@@ -454,6 +460,12 @@ export async function broadcastRawTxTolerant(
 		}
 		throw e
 	}
+}
+
+/** True if any endpoint knows the tx (mempool or mined). Never throws. */
+export async function isTxKnown(chainId: number, hash: string): Promise<boolean> {
+	const urls = getRpcUrls(chainId)
+	return urls.length > 0 && (await findTxUrl(urls, hash)) !== null
 }
 
 async function findTxUrl(urls: string[], hash: string): Promise<string | null> {

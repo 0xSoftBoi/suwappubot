@@ -11,7 +11,10 @@ import {
 	swapTransactions,
 } from '../db'
 import { DatabaseError, ValidationError } from '../errors'
-import { getTransactionReceipt } from '../config/chains'
+import { getTransactionReceipt, isTxKnown } from '../config/chains'
+
+/** A `submitted` swap whose hash no endpoint knows after this long is settled as failed. */
+const SUBMITTED_DROP_AFTER_MS = 10 * 60 * 1000
 import { AGENT_FEE_FRACTION_EVM, DEFAULT_FEE_WALLET_EVM } from '../config/constants'
 import { type AgentFeeMetadata, getPlatformFeeFractionEvm } from '../lib/feeDiscount'
 import { EnvService } from '../config/EnvService'
@@ -900,7 +903,30 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 				catch: () => new DatabaseError({ message: 'Failed to check tx receipt' }),
 			})
 
-			if (!receipt) return swap // Still pending
+			if (!receipt) {
+				// A `submitted` row can carry a locally computed hash from an
+				// ambiguous broadcast, and the user was told not to resubmit. If it
+				// never reached any node, settle it as failed after a deadline
+				// instead of leaving it pending forever.
+				const since = (swap.updatedAt ?? swap.createdAt)?.getTime() ?? Date.now()
+				if (Date.now() - since < SUBMITTED_DROP_AFTER_MS) return swap // Still pending
+				const known = yield* Effect.promise(() => isTxKnown(chainId, swap.txHash!))
+				if (known) return swap // In a mempool somewhere; keep waiting
+				const dropped = yield* Effect.tryPromise({
+					try: () =>
+						db
+							.update(swapTransactions)
+							.set({
+								status: 'failed',
+								errorMessage: 'Transaction never reached the network (dropped)',
+								updatedAt: new Date(),
+							})
+							.where(eq(swapTransactions.id, swapId))
+							.returning(),
+					catch: (e) => new DatabaseError({ message: `Failed to update swap: ${e}`, cause: e }),
+				})
+				return dropped[0] || null
+			}
 
 			const newStatus = receipt.status === 'completed' ? 'completed' : 'failed'
 			const updateData: Partial<SwapTransaction> = {
