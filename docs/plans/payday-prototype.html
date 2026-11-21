@@ -1,382 +1,515 @@
 <title>Suwappu Payday</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Inter:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
 <style>
-/* Layout: one phone-width app column, bottom tab bar, sheets slide up from the bottom. Persimmon accent from the Suwappu brand. */
+/* Layout: admin console. Fixed left nav (collapses to a top bar under 860px), top bar with bell, content column. Persimmon accent from the Suwappu brand. */
 :root{
-  --bg:#fbf7f2; --surface:#ffffff; --sunk:#f3ece3; --fg:#1f1a15; --muted:#776b5f; --line:#e8ded2;
-  --accent:#f29a2e; --accent-ink:#2a1700; --accent-soft:#fde8cc;
-  --good:#1f8a5b; --good-soft:#dcf2e7; --warn:#a8650a; --warn-soft:#fbecd2;
+  --bg:#f7f4ef; --surface:#ffffff; --sunk:#f0ebe3; --fg:#1d1914; --muted:#74695e; --line:#e6ddd1;
+  --accent:#ef9426; --accent-ink:#2a1700; --accent-soft:#fde9cf; --nav:#1f1a15; --nav-fg:#efe6db; --nav-muted:#a3968a;
+  --good:#1d845a; --good-soft:#dcf1e6; --warn:#a4600a; --warn-soft:#fbebd0; --bad:#b4322a; --bad-soft:#f9dfdc; --info:#3b5bb5; --info-soft:#e2e8f8;
   --display:"Bricolage Grotesque", ui-rounded, "Segoe UI", system-ui, sans-serif;
   --body:"Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --r:18px;
+  --mono:"JetBrains Mono", ui-monospace, Menlo, monospace;
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
-  --bg:#16120e; --surface:#211b16; --sunk:#2b241d; --fg:#f6efe7; --muted:#b3a597; --line:#3a3027;
-  --accent:#ffb45b; --accent-ink:#2a1700; --accent-soft:#3d2a14;
-  --good:#5fd09a; --good-soft:#173528; --warn:#f4b55a; --warn-soft:#3a2a12; color-scheme:dark}}
+  --bg:#14110e; --surface:#1e1914; --sunk:#29221c; --fg:#f5eee6; --muted:#b1a395; --line:#372e26;
+  --accent:#ffb45b; --accent-ink:#2a1700; --accent-soft:#3a2914; --nav:#0f0c0a; --nav-fg:#efe6db; --nav-muted:#8f8276;
+  --good:#5ccf98; --good-soft:#163427; --warn:#f2b45a; --warn-soft:#382912; --bad:#f08a80; --bad-soft:#3a1c19; --info:#9db2f2; --info-soft:#1d2540; color-scheme:dark}}
 :root[data-theme="dark"]{
-  --bg:#16120e; --surface:#211b16; --sunk:#2b241d; --fg:#f6efe7; --muted:#b3a597; --line:#3a3027;
-  --accent:#ffb45b; --accent-ink:#2a1700; --accent-soft:#3d2a14;
-  --good:#5fd09a; --good-soft:#173528; --warn:#f4b55a; --warn-soft:#3a2a12; color-scheme:dark}
+  --bg:#14110e; --surface:#1e1914; --sunk:#29221c; --fg:#f5eee6; --muted:#b1a395; --line:#372e26;
+  --accent:#ffb45b; --accent-ink:#2a1700; --accent-soft:#3a2914; --nav:#0f0c0a; --nav-fg:#efe6db; --nav-muted:#8f8276;
+  --good:#5ccf98; --good-soft:#163427; --warn:#f2b45a; --warn-soft:#382912; --bad:#f08a80; --bad-soft:#3a1c19; --info:#9db2f2; --info-soft:#1d2540; color-scheme:dark}
 *{box-sizing:border-box}
 html,body{height:100%}
-body{background:var(--bg);color:var(--fg);font:15px/1.5 var(--body);
-  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
-.app{max-width:440px;margin:0 auto;padding-block:12px 110px;display:flex;flex-direction:column;gap:18px}
-h1,h2,h3{font-family:var(--display);margin:0;text-wrap:balance;letter-spacing:-.01em}
-h1{font-size:1.65rem;font-weight:800}
-h2{font-size:1.15rem;font-weight:700}
-.num{font-variant-numeric:tabular-nums}
-.muted{color:var(--muted)}
-.small{font-size:.85rem}
-.proto{font-size:.78rem;color:var(--muted);text-align:center;background:var(--sunk);border-radius:999px;padding:6px 12px}
-.top{display:flex;align-items:center;justify-content:space-between;gap:12px}
-.biz{display:flex;align-items:center;gap:10px;min-width:0}
-.logo{width:40px;height:40px;border-radius:12px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font:800 1.1rem var(--display);flex:none}
-.biz small{display:block;color:var(--muted);font-size:.8rem}
-.chip{border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:999px;padding:6px 12px;font:500 .85rem var(--body);cursor:pointer}
-.chip:focus-visible,.btn:focus-visible,.row:focus-visible,.tab:focus-visible,.opt:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
-
-/* hero payday card */
-.payday{background:var(--accent);color:var(--accent-ink);border-radius:26px;padding:22px;display:flex;flex-direction:column;gap:14px;position:relative;overflow:hidden}
-.payday::after{content:"";position:absolute;right:-40px;top:-40px;width:170px;height:170px;border-radius:50%;background:rgba(255,255,255,.22)}
-.payday .label{font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;font-weight:600;opacity:.8}
-.payday .big{font:800 2.6rem/1 var(--display)}
-.payday .meta{display:flex;gap:8px;flex-wrap:wrap;position:relative;z-index:1}
-.payday .meta span{background:rgba(255,255,255,.35);border-radius:999px;padding:4px 10px;font-size:.82rem;font-weight:500}
-.btn{appearance:none;border:0;border-radius:14px;padding:14px 18px;font:600 1rem var(--body);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px}
-.btn-dark{background:var(--accent-ink);color:#fff}
+body{background:var(--bg);color:var(--fg);font:14px/1.5 var(--body)}
+.shell{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100%}
+aside{background:var(--nav);color:var(--nav-fg);padding:18px 12px;display:flex;flex-direction:column;gap:4px;position:sticky;top:0;height:100vh;overflow:auto;padding-left:max(12px,env(safe-area-inset-left,0px))}
+.brand{display:flex;align-items:center;gap:10px;padding:4px 8px 16px}
+.logo{width:34px;height:34px;border-radius:10px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font:800 1rem var(--display)}
+.brand b{font:800 1.05rem var(--display);display:block}
+.brand small{color:var(--nav-muted);font-size:.75rem}
+.nav-btn{display:flex;align-items:center;gap:10px;background:none;border:0;color:var(--nav-fg);font:500 .9rem var(--body);padding:9px 10px;border-radius:10px;cursor:pointer;text-align:left;width:100%}
+.nav-btn svg{width:18px;height:18px;flex:none;opacity:.85}
+.nav-btn:hover{background:rgba(255,255,255,.06)}
+.nav-btn[aria-current="page"]{background:rgba(255,255,255,.11)}
+.nav-btn .count{margin-left:auto;background:var(--accent);color:var(--accent-ink);border-radius:999px;font-size:.7rem;font-weight:600;padding:0 7px}
+.nav-sep{height:1px;background:rgba(255,255,255,.08);margin:10px 4px}
+.nav-label{font-size:.68rem;text-transform:uppercase;letter-spacing:.09em;color:var(--nav-muted);padding:4px 10px}
+.entity{margin-top:auto;font-size:.8rem;color:var(--nav-muted);padding:10px}
+.entity select{width:100%;margin-top:4px;background:rgba(255,255,255,.07);color:var(--nav-fg);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:7px;font:inherit}
+main{min-width:0;display:flex;flex-direction:column}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px max(24px,env(safe-area-inset-right,0px)) 12px 24px;border-bottom:1px solid var(--line);background:var(--surface);position:sticky;top:0;z-index:4}
+.crumbs{color:var(--muted);font-size:.85rem;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.crumbs b{color:var(--fg)}
+.top-actions{display:flex;gap:8px;align-items:center}
+.iconbtn{position:relative;width:38px;height:38px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--fg);display:grid;place-items:center;cursor:pointer}
+.iconbtn svg{width:18px;height:18px}
+.dot{position:absolute;top:6px;right:7px;width:8px;height:8px;border-radius:50%;background:var(--accent);border:2px solid var(--surface)}
+.content{padding:24px max(24px,env(safe-area-inset-right,0px)) 60px 24px;display:flex;flex-direction:column;gap:20px;max-width:1180px;width:100%}
+.proto{font-size:.76rem;color:var(--muted);background:var(--sunk);border-radius:8px;padding:6px 10px;align-self:flex-start}
+h1,h2,h3{font-family:var(--display);margin:0;letter-spacing:-.01em;text-wrap:balance}
+h1{font-size:1.6rem;font-weight:800}
+h2{font-size:1.08rem;font-weight:600}
+h3{font-size:.95rem;font-weight:600}
+.head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
+.head p{margin:4px 0 0;color:var(--muted)}
+.muted{color:var(--muted)} .small{font-size:.82rem} .num{font-variant-numeric:tabular-nums} .mono{font-family:var(--mono);font-size:.8rem}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.card-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.grid2{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:20px}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.btn{appearance:none;border:1px solid transparent;border-radius:10px;padding:9px 14px;font:600 .88rem var(--body);cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 .btn-primary{background:var(--accent);color:var(--accent-ink)}
-.btn-ghost{background:var(--sunk);color:var(--fg)}
-.btn-wide{width:100%}
-.btn[disabled]{opacity:.5;cursor:not-allowed}
-
-/* money account */
-.account{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;display:flex;align-items:center;justify-content:space-between;gap:12px}
-.account .amt{font:700 1.4rem var(--display)}
-.cover{height:6px;border-radius:999px;background:var(--sunk);overflow:hidden;margin-top:8px}
-.cover i{display:block;height:100%;background:var(--good);border-radius:999px}
-
-/* lists */
-.section{display:flex;flex-direction:column;gap:10px}
-.section-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
-.list{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
-.row{display:flex;align-items:center;gap:12px;padding:13px 14px;border-top:1px solid var(--line);background:none;border-left:0;border-right:0;border-bottom:0;width:100%;text-align:left;color:inherit;font:inherit;cursor:pointer}
-.row:first-child{border-top:0}
-.av{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font:700 .9rem var(--display);flex:none;background:var(--sunk);color:var(--fg)}
-.row .main{flex:1;min-width:0}
-.row .main b{font-weight:600;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.row .main small{color:var(--muted);font-size:.82rem}
-.row .right{text-align:right;flex:none}
-.row .right b{font-family:var(--display);font-weight:700}
-.pill{display:inline-block;border-radius:999px;padding:2px 8px;font-size:.74rem;font-weight:600}
-.pill.good{background:var(--good-soft);color:var(--good)}
-.pill.warn{background:var(--warn-soft);color:var(--warn)}
-.pill.plain{background:var(--sunk);color:var(--muted)}
-
-/* templates */
-.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-.opt{background:var(--surface);border:1.5px solid var(--line);border-radius:16px;padding:14px;text-align:left;cursor:pointer;color:inherit;font:inherit;display:flex;flex-direction:column;gap:4px}
-.opt[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft)}
-.opt b{font-family:var(--display);font-weight:700}
-.opt small{color:var(--muted);font-size:.8rem;line-height:1.35}
-.opt svg{width:26px;height:26px;color:var(--accent)}
-
-/* tabs */
-.tabs{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line);
-  padding:8px max(16px,env(safe-area-inset-left,0px)) calc(8px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-right,0px));z-index:5}
-.tabs nav{max-width:440px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
-.tab{background:none;border:0;color:var(--muted);font:500 .75rem var(--body);display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px;border-radius:12px;cursor:pointer}
-.tab svg{width:22px;height:22px}
-.tab[aria-current="page"]{color:var(--fg);background:var(--sunk)}
-
-/* sheet */
-.scrim{position:fixed;inset:0;background:rgba(20,12,4,.45);z-index:20;display:flex;align-items:flex-end;justify-content:center}
-.sheet{background:var(--bg);width:100%;max-width:480px;border-radius:24px 24px 0 0;max-height:92%;overflow:auto;
-  padding:10px max(18px,env(safe-area-inset-left,0px)) calc(22px + env(safe-area-inset-bottom,0px)) max(18px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:16px;animation:up .22s ease-out}
-.grab{width:42px;height:5px;border-radius:999px;background:var(--line);margin:0 auto}
-@keyframes up{from{transform:translateY(30px);opacity:.6}to{transform:none;opacity:1}}
-@media (prefers-reduced-motion:reduce){.sheet{animation:none}}
-label{display:flex;flex-direction:column;gap:6px;font-weight:500;font-size:.9rem}
-input,select{font:inherit;padding:13px 14px;border-radius:12px;border:1.5px solid var(--line);background:var(--surface);color:var(--fg);width:100%}
-input:focus,select:focus{outline:none;border-color:var(--accent)}
-.money-in{position:relative}
-.money-in span{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--muted);font-weight:600}
-.money-in input{padding-left:28px;font:700 1.2rem var(--display)}
-.seg{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
-.seg button{border:1.5px solid var(--line);background:var(--surface);color:var(--fg);border-radius:10px;padding:9px 4px;font:500 .82rem var(--body);cursor:pointer}
-.seg button[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft)}
-.note{background:var(--sunk);border-radius:14px;padding:12px 14px;font-size:.88rem;color:var(--muted)}
-.sum{display:flex;flex-direction:column;gap:8px}
-.sum div{display:flex;justify-content:space-between;gap:12px}
-.sum .total{border-top:1px solid var(--line);padding-top:10px;font:700 1.15rem var(--display)}
-.done{text-align:center;display:flex;flex-direction:column;align-items:center;gap:10px;padding-top:6px}
-.check{width:72px;height:72px;border-radius:50%;background:var(--good-soft);color:var(--good);display:grid;place-items:center}
-.check svg{width:38px;height:38px}
-
-/* recipient preview */
-.phone{background:var(--surface);border:1px solid var(--line);border-radius:28px;padding:20px;display:flex;flex-direction:column;gap:16px}
-.bubble{background:var(--sunk);border-radius:18px 18px 18px 6px;padding:12px 14px;font-size:.92rem}
-.received{text-align:center;display:flex;flex-direction:column;gap:4px}
-.received .big{font:800 2.4rem var(--display)}
-.ways{display:flex;flex-direction:column;gap:8px}
-.way{display:flex;align-items:center;gap:12px;border:1.5px solid var(--line);border-radius:14px;padding:12px 14px;background:var(--bg);cursor:pointer;color:inherit;font:inherit;text-align:left;width:100%}
+.btn-ghost{background:var(--surface);border-color:var(--line);color:var(--fg)}
+.btn-quiet{background:var(--sunk);color:var(--fg)}
+.btn-danger{background:var(--bad-soft);color:var(--bad)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+button:focus-visible,select:focus-visible,input:focus-visible,.row-btn:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.pill{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:2px 9px;font-size:.74rem;font-weight:600;white-space:nowrap}
+.pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.p-good{background:var(--good-soft);color:var(--good)} .p-warn{background:var(--warn-soft);color:var(--warn)} .p-bad{background:var(--bad-soft);color:var(--bad)} .p-info{background:var(--info-soft);color:var(--info)} .p-plain{background:var(--sunk);color:var(--muted)}
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:640px}
+th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:middle}
+th{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;background:var(--sunk);position:sticky;top:0}
+tr:last-child td{border-bottom:0}
+td.r,th.r{text-align:right}
+tr.flag td{background:var(--warn-soft)}
+.cell-in{width:84px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);font:inherit;text-align:right}
+.who{display:flex;align-items:center;gap:10px;min-width:0}
+.av{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font:600 .75rem var(--display);flex:none;color:#2a1700}
+.who small{display:block;color:var(--muted);font-size:.76rem}
+.todo{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--line)}
+.todo:first-of-type{border-top:0}
+.todo .t{flex:1;min-width:0}
+.todo .t small{display:block;color:var(--muted)}
+.sev{width:4px;align-self:stretch;border-radius:4px;flex:none}
+.kv{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px dashed var(--line)}
+.kv:last-child{border-bottom:0}
+.kv.total{font:600 1rem var(--display);border-bottom:0;border-top:1px solid var(--line);padding-top:10px}
+.stat b{font:800 1.5rem var(--display);display:block}
+.stat span{color:var(--muted);font-size:.8rem}
+.steps{display:flex;gap:6px;flex-wrap:wrap}
+.step{display:flex;align-items:center;gap:8px;padding:7px 12px;border-radius:999px;background:var(--sunk);color:var(--muted);font-weight:500;font-size:.85rem;border:0;cursor:pointer}
+.step b{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;background:var(--line);font-size:.72rem;color:var(--fg)}
+.step[aria-current="step"]{background:var(--accent-soft);color:var(--fg)}
+.step[aria-current="step"] b{background:var(--accent);color:var(--accent-ink)}
+.step.done b{background:var(--good);color:#fff}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);overflow-x:auto}
+.tab{background:none;border:0;border-bottom:2px solid transparent;padding:9px 12px;font:500 .88rem var(--body);color:var(--muted);cursor:pointer;white-space:nowrap}
+.tab[aria-selected="true"]{color:var(--fg);border-bottom-color:var(--accent)}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+input,select{font:inherit;color:var(--fg)}
+.field{padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);min-width:0}
+.alert{display:flex;gap:10px;padding:10px 12px;border-radius:10px;font-size:.86rem}
+.alert.warn{background:var(--warn-soft);color:var(--warn)} .alert.info{background:var(--info-soft);color:var(--info)} .alert.good{background:var(--good-soft);color:var(--good)}
+.timeline{display:flex;flex-direction:column;gap:0}
+.tl{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:10px;align-items:start;padding:7px 0}
+.tl i{width:12px;height:12px;border-radius:50%;margin-top:4px;border:2px solid var(--line);background:var(--surface)}
+.tl.done i{background:var(--good);border-color:var(--good)} .tl.now i{background:var(--accent);border-color:var(--accent)}
+.drawer-scrim{position:fixed;inset:0;background:rgba(15,10,5,.45);z-index:20;display:flex;justify-content:flex-end}
+.drawer{background:var(--bg);width:min(520px,100%);height:100%;overflow:auto;padding:22px max(22px,env(safe-area-inset-right,0px)) 40px 22px;display:flex;flex-direction:column;gap:16px;animation:slide .2s ease-out}
+@keyframes slide{from{transform:translateX(24px);opacity:.6}to{transform:none;opacity:1}}
+@media (prefers-reduced-motion:reduce){.drawer{animation:none}}
+.pop{position:absolute;right:0;top:46px;width:min(360px,calc(100vw - 32px));background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.18);padding:12px;z-index:10;display:flex;flex-direction:column;gap:8px}
+.menu{position:absolute;right:0;top:44px;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.18);padding:6px;z-index:10;min-width:260px}
+.menu button{display:block;width:100%;text-align:left;background:none;border:0;padding:9px 10px;border-radius:8px;font:inherit;color:var(--fg);cursor:pointer}
+.menu button:hover{background:var(--sunk)}
+.menu small{display:block;color:var(--muted)}
+.rel{position:relative}
+.toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:999px;font-weight:500;z-index:40;max-width:calc(100% - 32px)}
+.way{display:flex;align-items:center;gap:12px;border:1.5px solid var(--line);border-radius:12px;padding:11px 13px;background:var(--surface);cursor:pointer;color:inherit;font:inherit;text-align:left;width:100%}
 .way[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft)}
-.way .main{flex:1;min-width:0}
-.way small{display:block;color:var(--muted);font-size:.8rem}
-.toast{position:fixed;left:50%;bottom:calc(86px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:999px;font-weight:500;font-size:.9rem;z-index:30;max-width:calc(100% - 32px)}
+.way .m{flex:1;min-width:0} .way small{display:block;color:var(--muted)}
+.phone{max-width:380px;background:var(--surface);border:1px solid var(--line);border-radius:28px;padding:20px;display:flex;flex-direction:column;gap:14px}
+.src{font-size:.72rem;color:var(--muted)}
+.mobile-nav{display:none}
+@media (max-width:860px){
+  .shell{grid-template-columns:1fr}
+  aside{display:none}
+  .mobile-nav{display:flex;gap:8px;align-items:center;padding:10px max(16px,env(safe-area-inset-right,0px)) 10px max(16px,env(safe-area-inset-left,0px));background:var(--nav);color:var(--nav-fg)}
+  .mobile-nav select{flex:1;min-width:0;background:rgba(255,255,255,.08);color:var(--nav-fg);border:1px solid rgba(255,255,255,.15);border-radius:8px;padding:8px}
+  .topbar{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+  .content{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+  .grid2,.grid3{grid-template-columns:1fr}
+}
 </style>
 
-<div class="app" id="app"></div>
-<div class="tabs"><nav id="tabs" aria-label="Main"></nav></div>
+<div class="mobile-nav"><div class="logo">P</div><select id="mnav" aria-label="Go to"></select></div>
+<div class="shell">
+  <aside id="side" aria-label="Main navigation"></aside>
+  <main>
+    <div class="topbar">
+      <div class="crumbs" id="crumbs"></div>
+      <div class="top-actions">
+        <div class="rel"><button class="iconbtn" id="bell" aria-label="Notifications"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg><span class="dot"></span></button><div id="bellpop"></div></div>
+        <button class="btn btn-ghost" data-go="them">Payee view</button>
+      </div>
+    </div>
+    <div class="content" id="view"></div>
+  </main>
+</div>
 <div id="layer"></div>
 
 <script>
 (function(){
-const I = {
-  home:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>',
-  people:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.3-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><circle cx="17" cy="9" r="2.6"/><path d="M17 14.5c2.3 0 4 1.4 4.6 4"/></svg>',
-  clock:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
-  eye:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
-  check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
-  shop:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9l1.5-5h13L20 9M4 9v11h16V9M4 9h16M9 20v-6h6v6"/></svg>',
-  laptop:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19h20"/></svg>',
-  ball:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18"/></svg>',
-  star:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg>',
-  heart:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 20s-7.5-4.6-9-9.5C2 6.9 4.5 4 7.5 4c2 0 3.5 1.2 4.5 2.7C13 5.2 14.5 4 16.5 4 19.5 4 22 6.9 21 10.5 19.5 15.4 12 20 12 20z"/></svg>',
-  trophy:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 4h8v5a4 4 0 0 1-8 0zM8 6H4.5a3 3 0 0 0 3.5 4M16 6h3.5a3 3 0 0 1-3.5 4M12 13v4M8 20h8"/></svg>'
+const ic = {
+ home:'<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
+ pay:'<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h4"/>',
+ people:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.3-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><circle cx="17" cy="9" r="2.6"/><path d="M17 14.5c2.3 0 4 1.4 4.6 4"/>',
+ approvals:'<path d="M9 12l2 2 4-4"/><rect x="4" y="3" width="16" height="18" rx="2"/>',
+ reports:'<path d="M5 20V10M12 20V4M19 20v-7"/>',
+ taxes:'<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/>',
+ settings:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>',
+ eye:'<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'
 };
-
-// What you pay for changes the words, not the product.
-const USES = {
-  staff:{icon:'shop',name:'My staff',hint:'Shifts, hourly or salary',who:'staff',one:'team member',cta:'Run payroll'},
-  freelancers:{icon:'laptop',name:'Freelancers',hint:'Invoices and projects',who:'freelancers',one:'freelancer',cta:'Pay freelancers'},
-  club:{icon:'ball',name:'A club or team',hint:'Refs, coaches, helpers',who:'helpers',one:'helper',cta:'Pay the team'},
-  creators:{icon:'star',name:'Creators',hint:'Revenue share, affiliates',who:'creators',one:'creator',cta:'Send payouts'},
-  family:{icon:'heart',name:'Family',hint:'Allowance, help at home',who:'family',one:'person',cta:'Send allowance'},
-  prizes:{icon:'trophy',name:'Prizes & bounties',hint:'One-off rewards',who:'winners',one:'winner',cta:'Pay winners'}
-};
-
-const OFTEN = {once:'One time',weekly:'Every week',biweekly:'Every 2 weeks',monthly:'Every month'};
-const WAYS = {
-  bank:{name:'Bank account',time:'1–2 business days',fee:'Free'},
-  instant:{name:'Debit card',time:'Within minutes',fee:'1% fee'},
-  app:{name:'Keep in Suwappu',time:'Instantly · earns ~4% a year',fee:'Free'},
-  crypto:{name:'Crypto wallet',time:'Instantly · any coin, any network',fee:'Free'},
-  pending:{name:'Not picked yet',time:'We texted them a link',fee:''}
-};
-
-// Example data: a sample ramen shop, clearly not the user's own figures.
-const S = {
-  view:'home', use:'staff', biz:'Ramen Bar (sample)', balance:12300,
-  people:[
-    {id:1,name:'Maya Chen',contact:'(415) 555-0142',amount:2400,often:'biweekly',way:'bank',role:'Kitchen lead'},
-    {id:2,name:'Diego Ruiz',contact:'diego@example.com',amount:1850,often:'biweekly',way:'instant',role:'Line cook'},
-    {id:3,name:'Aiko Tanaka',contact:'@aiko_t',amount:1600,often:'biweekly',way:'app',role:'Server'},
-    {id:4,name:'Sam Okafor',contact:'(415) 555-0199',amount:1350,often:'biweekly',way:'crypto',role:'Server'},
-    {id:5,name:'Lena Park',contact:'lena@example.com',amount:2250,often:'biweekly',way:'pending',role:'Manager (new)'}
-  ],
-  activity:[
-    {date:'Nov 14',title:'Payroll · 4 people',amount:7200,status:'Everyone paid'},
-    {date:'Nov 10',title:'Added money from Chase ••4410',amount:-10000,status:'Arrived'},
-    {date:'Oct 31',title:'Payroll · 4 people',amount:7200,status:'Everyone paid'},
-    {date:'Oct 24',title:'Holiday bonus · Maya',amount:300,status:'Paid'}
-  ],
-  payday:'Fri, Nov 28', nextId:6, seeAs:1
-};
-
+const svg = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ic[k]}</svg>`;
 const $ = (s,el=document)=>el.querySelector(s);
-const money = n => '$'+Math.round(n).toLocaleString('en-US');
-const esc = s => String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const initials = n => n.split(/\s+/).map(w=>w[0]||'').join('').slice(0,2).toUpperCase();
-const hue = id => ['#fde8cc','#dcefe6','#e3e4fb','#fbe0e6','#e6f0d6'][id%5];
-const U = ()=>USES[S.use];
-const due = ()=>S.people.reduce((a,p)=>a+p.amount,0);
-const fee = ()=>S.people.filter(p=>p.way==='instant').reduce((a,p)=>a+p.amount*0.01,0);
+const $$ = (s,el=document)=>[...el.querySelectorAll(s)];
+const esc = s => String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money = (n,d=0) => (n<0?'−':'')+'$'+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
+const hues=['#fde3c2','#d6efe2','#dfe3fb','#fadbe2','#e3eecf','#f6e0c9','#d9ecf3'];
+const av = p => `<span class="av" style="background:${hues[p.id%hues.length]}">${p.name.split(' ').map(w=>w[0]).join('').slice(0,2)}</span>`;
+const pill = (t,k)=>`<span class="pill p-${k}">${esc(t)}</span>`;
+const toast = m => {const t=document.createElement('div');t.className='toast';t.setAttribute('role','status');t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),2600)};
 
-function toast(msg){const t=document.createElement('div');t.className='toast';t.setAttribute('role','status');t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),2400)}
-
-function personRow(p,showAmount=true){
-  const w=WAYS[p.way];
-  const pill = p.way==='pending' ? '<span class="pill warn">Needs to pick</span>' : '<span class="pill plain">'+esc(w.name)+'</span>';
-  return `<button class="row" data-edit="${p.id}"><span class="av" style="background:${hue(p.id)};color:#2a1700">${initials(p.name)}</span>
-    <span class="main"><b>${esc(p.name)}</b><small>${esc(p.role||OFTEN[p.often])}</small></span>
-    <span class="right">${showAmount?`<b class="num">${money(p.amount)}</b><br>`:''}${pill}</span></button>`;
-}
-
-const views = {
-  home(){
-    const total=due(), cov=Math.min(100,S.balance/total*100), short=total+fee()-S.balance;
-    return `
-    <div class="proto">Prototype · example data · no real money moves</div>
-    <div class="top"><div class="biz"><div class="logo">${esc(S.biz[0])}</div><div><b>${esc(S.biz)}</b><small>Paying ${esc(U().who)}</small></div></div>
-      <button class="chip" data-act="use">Change</button></div>
-    <section class="payday" aria-label="Next payday">
-      <span class="label">Next payday · ${S.payday}</span>
-      <span class="big num">${money(total)}</span>
-      <div class="meta"><span>${S.people.length} ${esc(U().who)}</span><span>${OFTEN[S.people[0]?.often||'biweekly']}</span><span>Auto-pay on</span></div>
-      <button class="btn btn-dark btn-wide" data-act="review" ${S.people.length?'':'disabled'}>${esc(U().cta)} now</button>
-    </section>
-    <div class="account"><div style="flex:1;min-width:0"><span class="muted small">Money in your Payday account</span>
-      <div class="amt num">${money(S.balance)}</div>
-      <div class="cover" aria-hidden="true"><i style="width:${cov}%;${cov<100?'background:var(--warn)':''}"></i></div>
-      <span class="small ${short>0?'':'muted'}" style="${short>0?'color:var(--warn)':''}">${short>0?`Add ${money(short)} before ${S.payday.split(', ')[1]}`:'Enough for this payday'}</span></div>
-      <button class="btn btn-ghost" data-act="add-money">Add money</button></div>
-    <section class="section"><div class="section-head"><h2>Who gets paid</h2><button class="chip" data-act="add">+ Add</button></div>
-      <div class="list">${S.people.map(p=>personRow(p)).join('')||'<div class="row muted">No one yet. Add your first person.</div>'}</div></section>`;
-  },
-  people(){
-    return `<h1>Your ${esc(U().who)}</h1>
-    <p class="muted" style="margin:0">Tap someone to change their pay. They choose how they get it, you never handle bank details.</p>
-    <button class="btn btn-primary btn-wide" data-act="add">Add a ${esc(U().one)}</button>
-    <div class="list">${S.people.map(p=>personRow(p)).join('')}</div>
-    <div class="note">Got a spreadsheet? <b>Upload a list</b> with names, phone or email, and amounts. We'll invite everyone at once.</div>`;
-  },
-  activity(){
-    return `<h1>Activity</h1>
-    <div class="list">${S.activity.map(a=>`<div class="row" style="cursor:default"><span class="av">${a.amount<0?'+':'↗'}</span>
-      <span class="main"><b>${esc(a.title)}</b><small>${esc(a.date)} · ${esc(a.status)}</small></span>
-      <span class="right"><b class="num" style="${a.amount<0?'color:var(--good)':''}">${a.amount<0?'+'+money(-a.amount):money(a.amount)}</b><br><span class="pill good">Receipt</span></span></div>`).join('')}</div>
-    <div class="note">Every payment comes with a pay stub for them and a record for you. Year-end tax forms are made for you automatically.</div>`;
-  },
-  them(){
-    const p=S.people.find(x=>x.id===S.seeAs)||S.people[0];
-    if(!p) return '<h1>Add someone first</h1>';
-    return `<h1>What they see</h1>
-    <p class="muted" style="margin:0">No app to download. They get a text or Telegram message with a link.</p>
-    <label for="seeAs">Preview as<select id="seeAs">${S.people.map(x=>`<option value="${x.id}" ${x.id===p.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select></label>
-    <div class="phone">
-      <div class="bubble">Hi ${esc(p.name.split(' ')[0])}, ${esc(S.biz.replace(' (sample)',''))} sent you ${money(p.amount)} on Payday. Tap to get it: <u>pay.suwappu.bot/k7Q2</u></div>
-      <div class="received"><span class="muted small">You got paid</span><span class="big num">${money(p.amount)}</span><span class="muted small">from ${esc(S.biz.replace(' (sample)',''))} · ${S.payday}</span></div>
-      <div><h3 style="font-size:1rem;margin-bottom:8px">How do you want it?</h3>
-      <div class="ways">${['bank','instant','app','crypto'].map(k=>`<button class="way" data-way="${k}" aria-pressed="${p.way===k}">
-        <span class="main"><b>${WAYS[k].name}</b><small>${WAYS[k].time}</small></span><span class="pill ${WAYS[k].fee==='Free'?'good':'plain'}">${WAYS[k].fee}</span></button>`).join('')}</div></div>
-      <div class="note small">You can split it too, like 80% to the bank and 20% to savings. We'll remember your choice for next time.</div>
-    </div>`;
-  }
+/* ---------- Example data (sample company, not real people) ---------- */
+const ENT = {sf:'Ramen Bar SF LLC · CA', ny:'Ramen Bar NY LLC · NY'};
+const S = {
+ view:'home', entity:'all', step:1, peopleTab:'employees', settingsTab:'entities', reportCat:'All', filter:'',
+ balance:48200, speed:'2-day', autopilot:true,
+ people:[
+  {id:1,name:'Maya Chen',title:'Kitchen lead',type:'employee',ent:'sf',pay:'hourly',rate:34,hrs:80,ot:6,bonus:0,reimb:42,last:3018,pto:0,k401:4,health:180,way:'bank',split:'80% Chase / 20% Suwappu savings'},
+  {id:2,name:'Diego Ruiz',title:'Line cook',type:'employee',ent:'sf',pay:'hourly',rate:26,hrs:80,ot:0,bonus:0,reimb:0,last:2080,pto:8,k401:3,health:180,way:'instant',split:'100% debit card'},
+  {id:3,name:'Aiko Tanaka',title:'Server',type:'employee',ent:'sf',pay:'hourly',rate:19,hrs:64,ot:0,bonus:0,reimb:0,last:1368,pto:0,k401:0,health:0,way:'app',split:'100% Suwappu balance'},
+  {id:4,name:'Sam Okafor',title:'Server',type:'employee',ent:'ny',pay:'hourly',rate:21,hrs:72,ot:0,bonus:250,reimb:0,last:1512,pto:0,k401:0,health:120,way:'crypto',split:'100% USDC · Base'},
+  {id:5,name:'Lena Park',title:'GM (new hire)',type:'employee',ent:'ny',pay:'salary',salary:98000,hrs:80,ot:0,bonus:0,reimb:0,last:0,pto:0,k401:5,health:240,way:'pending',split:'Not set up yet'},
+  {id:6,name:'Ravi Shah',title:'Bookkeeper',type:'employee',ent:'sf',pay:'salary',salary:72000,hrs:80,ot:0,bonus:0,reimb:0,last:2769,pto:16,k401:6,health:240,way:'bank',split:'100% Wells ••2201'},
+  {id:7,name:'Jo Alvarez',title:'Dishwasher',type:'employee',ent:'ny',pay:'hourly',rate:18,hrs:80,ot:12,bonus:0,reimb:0,last:1440,pto:0,k401:0,health:0,way:'bank',split:'100% Chase ••9910'}
+ ],
+ contractors:[
+  {id:11,name:'Studio Kiri',title:'Menu design',ent:'sf',country:'US',amount:1800,way:'bank',status:'Invoice approved'},
+  {id:12,name:'Tomás Vidal',title:'Photography',ent:'ny',country:'Mexico',amount:950,way:'crypto',status:'Invoice approved'},
+  {id:13,name:'Nkem Eze',title:'Social media',ent:'sf',country:'Nigeria',amount:700,way:'crypto',status:'Awaiting invoice'}
+ ],
+ runs:[
+  {id:'R-1128',name:'Regular payroll',sched:'Every other Friday',ent:'all',period:'Nov 10 – Nov 23',runBy:'Mon, Nov 24 · 4:00 pm PT',payday:'Fri, Nov 28',status:'Unprocessed'},
+  {id:'C-1130',name:'Contractor payments',sched:'Monthly',ent:'all',period:'November',runBy:'Thu, Nov 27',payday:'Sun, Nov 30',status:'Unprocessed'}
+ ],
+ history:[
+  {id:'R-1114',name:'Regular payroll',payday:'Nov 14',total:15187,people:6,status:'Paid'},
+  {id:'B-1107',name:'Bonus · Maya Chen',payday:'Nov 7',total:300,people:1,status:'Paid'},
+  {id:'R-1031',name:'Regular payroll',payday:'Oct 31',total:14902,people:6,status:'Paid'},
+  {id:'C-1031',name:'Contractor payments',payday:'Oct 31',total:3250,people:3,status:'Paid'}
+ ],
+ approvals:{
+  rules:[
+   {name:'Large payrolls',when:'Total is more than $15,000',who:['Ravi Shah (Payroll manager)','Owner'],on:true},
+   {name:'New entity runs',when:'Entity is Ramen Bar NY LLC',who:['Finance approver'],on:true},
+   {name:'International contractors',when:'Contractor country is not US',who:['Owner'],on:true}
+  ],
+  log:[]
+ },
+ roles:[
+  {who:'Kenji Mori',role:'All access admin',scope:'Entire company',note:'Account owner'},
+  {who:'Ravi Shah',role:'Custom admin · Full payroll access',scope:'Entire company',note:''},
+  {who:'Priya Nair',role:'Custom admin · Edit payroll access (needs approval)',scope:'Ramen Bar NY LLC',note:''},
+  {who:'Maya Chen',role:'People manager',scope:'Direct reports',note:''},
+  {who:'Harbor CPA',role:'Outside collaborator · Accountant',scope:'Reports, taxes (view)',note:'External'}
+ ]
 };
 
-function render(){
-  $('#app').innerHTML = views[S.view]();
-  $('#tabs').innerHTML = [['home','Home','home'],['people','People','people'],['activity','Activity','clock'],['them','Their view','eye']]
-    .map(([k,l,ic])=>`<button class="tab" data-view="${k}" ${S.view===k?'aria-current="page"':''}>${I[ic]}${l}</button>`).join('');
-  const sel=$('#seeAs'); if(sel) sel.onchange=e=>{S.seeAs=+e.target.value;render()};
+const inEnt = p => S.entity==='all' || p.ent===S.entity;
+function gross(p){ const reg = p.pay==='salary' ? p.salary/26 : p.rate*p.hrs; const ot = p.pay==='salary'?0:p.rate*1.5*p.ot; return reg+ot+p.bonus; }
+// Estimate only: in production gross-to-net comes from the tax partner.
+function calc(p){ const g=gross(p); const pre=g*p.k401/100+p.health; const taxable=g-pre;
+  const fed=taxable*0.11, fica=g*0.0765, state=taxable*(p.ent==='sf'?0.05:0.055), erTax=g*0.0765+Math.min(g,7000)*0.006;
+  const net=g-pre-fed-fica-state+p.reimb; return {g,pre,fed,fica,state,er:erTax,net,reimb:p.reimb}; }
+function variance(p){ if(!p.last) return null; return (gross(p)-p.last)/p.last*100; }
+const emps = ()=>S.people.filter(inEnt);
+const ctrs = ()=>S.contractors.filter(inEnt);
+function totals(){ const t={g:0,pre:0,fed:0,fica:0,state:0,er:0,net:0,reimb:0};
+  emps().forEach(p=>{const c=calc(p);for(const k in t)t[k]+=c[k]}); t.taxes=t.fed+t.fica+t.state+t.er; t.debit=t.net+t.taxes+t.pre; return t; }
+const run = id => S.runs.find(r=>r.id===id);
+function alerts(){ const a=[];
+  emps().forEach(p=>{ const v=variance(p);
+    if(p.way==='pending') a.push({k:'warn',t:`${p.name} hasn't chosen how to get paid. Their pay will wait safely until they do.`});
+    if(!p.last) a.push({k:'info',t:`${p.name} is on their first payroll.`});
+    else if(Math.abs(v)>=15) a.push({k:'warn',t:`${p.name}'s gross pay is ${v>0?'up':'down'} ${Math.abs(v).toFixed(0)}% from last payroll.`});
+    if(p.ot>=10) a.push({k:'info',t:`${p.name} has ${p.ot} overtime hours.`}); });
+  return a; }
+function tasks(){ const t=[]; const R=run('R-1128');
+  if(R.status==='Unprocessed') t.push({sev:'warn',title:'Run payroll for Nov 28',sub:'Run by Mon, Nov 24 · 4:00 pm PT for 2-day pay',act:'run',btn:'Run payroll'});
+  if(R.status==='Awaiting approval') t.push({sev:'warn',title:'Approve Regular payroll (R-1128)',sub:'Submitted by Ravi Shah · needs Owner approval',act:'approvals',btn:'Review'});
+  const t2=totals(); if(S.balance<t2.debit+ctrs().reduce((a,c)=>a+c.amount,0)) t.push({sev:'bad',title:'Add money before payday',sub:`${money(t2.debit-S.balance)} short for upcoming debits`,act:'fund',btn:'Add money'});
+  S.people.filter(p=>p.way==='pending').forEach(p=>t.push({sev:'info',title:`${p.name} needs to set up payment`,sub:'Invite sent by text · reminder in 2 days',act:'remind',btn:'Resend'}));
+  t.push({sev:'info',title:'NY unemployment registration',sub:'Needed before Ramen Bar NY LLC files Q4',act:'taxes',btn:'Open'});
+  t.push({sev:'plain',title:'Approve 1 contractor invoice',sub:'Nkem Eze · $700 · due Nov 30',act:'pay',btn:'Review'});
+  return t; }
+
+/* ---------- Navigation ---------- */
+const NAV=[['home','Home'],['pay','Pay'],['people','People'],['approvals','Approvals'],['reports','Reports'],['taxes','Taxes & compliance'],['settings','Settings']];
+const TITLES={home:'Home',pay:'Pay',run:'Pay › Run payroll',people:'People',approvals:'Approvals',reports:'Reports',taxes:'Taxes & compliance',settings:'Settings',them:'Payee view'};
+function renderNav(){
+  const pend = S.runs.filter(r=>r.status==='Awaiting approval').length;
+  $('#side').innerHTML = `<div class="brand"><div class="logo">P</div><div><b>Payday</b><small>Ramen Bar Group (sample)</small></div></div>
+   ${NAV.map(([k,l])=>`<button class="nav-btn" data-go="${k}" ${S.view===k||(k==='pay'&&S.view==='run')?'aria-current="page"':''}>${svg(k)}${l}${k==='approvals'&&pend?`<span class="count">${pend}</span>`:''}</button>`).join('')}
+   <div class="nav-sep"></div><div class="nav-label">Preview</div>
+   <button class="nav-btn" data-go="them" ${S.view==='them'?'aria-current="page"':''}>${svg('eye')}What payees see</button>
+   <label class="entity" for="ent">Entity<select id="ent"><option value="all">All entities</option>${Object.entries(ENT).map(([k,v])=>`<option value="${k}" ${S.entity===k?'selected':''}>${v}</option>`).join('')}</select></label>`;
+  $('#mnav').innerHTML = [...NAV,['them','What payees see']].map(([k,l])=>`<option value="${k}" ${S.view===k||(k==='pay'&&S.view==='run')?'selected':''}>${l}</option>`).join('');
+  $('#crumbs').innerHTML = `Ramen Bar Group (sample) › <b>${TITLES[S.view]}</b>`;
 }
 
-function sheet(html,onMount){
-  const layer=$('#layer');
-  layer.innerHTML=`<div class="scrim" data-close><div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>${html}</div></div>`;
-  const sc=$('.scrim',layer);
-  sc.addEventListener('click',e=>{if(e.target===sc||e.target.closest('[data-x]'))close()});
-  onMount&&onMount($('.sheet',layer));
-  const f=$('input,button.btn',layer); f&&f.focus();
-}
-function close(){ $('#layer').innerHTML=''; }
-
-function useSheet(){
-  sheet(`<h2>What are you paying for?</h2><p class="muted" style="margin:0">Same simple flow for all of them. We just use the right words.</p>
-  <div class="grid">${Object.entries(USES).map(([k,u])=>`<button class="opt" data-pick="${k}" aria-pressed="${S.use===k}">${I[u.icon]}<b>${u.name}</b><small>${u.hint}</small></button>`).join('')}</div>
-  <button class="btn btn-ghost btn-wide" data-x>Done</button>`, s=>{
-    s.querySelectorAll('[data-pick]').forEach(b=>b.onclick=()=>{S.use=b.dataset.pick;close();render();toast('Now paying '+U().who)});
-  });
-}
-
-function personSheet(p){
-  const editing=!!p; p=p||{name:'',contact:'',amount:'',often:'biweekly',role:''};
-  let often=p.often;
-  sheet(`<h2>${editing?esc(p.name):'Add a '+esc(U().one)}</h2>
-  <form id="pf" style="display:flex;flex-direction:column;gap:14px" novalidate>
-    <label for="pname">Name<input id="pname" value="${esc(p.name)}" placeholder="Jordan Lee" autocomplete="off"></label>
-    <label for="pcontact">Phone, email or Telegram<input id="pcontact" value="${esc(p.contact)}" placeholder="(415) 555-0100"></label>
-    <label for="pamt">How much each time<span class="money-in"><span>$</span><input id="pamt" inputmode="decimal" value="${p.amount}" placeholder="0"></span></label>
-    <div><div style="font-weight:500;font-size:.9rem;margin-bottom:6px">How often</div>
-    <div class="seg" id="seg">${Object.entries(OFTEN).map(([k,v])=>`<button type="button" data-o="${k}" aria-pressed="${often===k}">${v.replace('Every ','')}</button>`).join('')}</div></div>
-    ${editing?'':'<div class="note">We\'ll send them a link to choose how they get paid: bank, debit card, Suwappu, or crypto. You never see their account details.</div>'}
-    <p id="perr" class="small" style="color:var(--warn);margin:0" hidden></p>
-    <button class="btn btn-primary btn-wide" type="submit">${editing?'Save changes':'Add and send invite'}</button>
-    ${editing?'<button class="btn btn-ghost btn-wide" type="button" id="premove">Remove from payroll</button>':''}
-  </form>`, s=>{
-    s.querySelectorAll('[data-o]').forEach(b=>b.onclick=()=>{often=b.dataset.o;s.querySelectorAll('[data-o]').forEach(x=>x.setAttribute('aria-pressed',x===b))});
-    const rm=$('#premove',s); if(rm) rm.onclick=()=>{S.people=S.people.filter(x=>x.id!==p.id);close();render();toast(p.name+' removed')};
-    $('#pf',s).onsubmit=e=>{
-      e.preventDefault();
-      const name=$('#pname',s).value.trim(), contact=$('#pcontact',s).value.trim(), amount=parseFloat($('#pamt',s).value.replace(/[$,]/g,''));
-      const err=$('#perr',s);
-      if(!name){err.textContent='Add their name.';err.hidden=false;return}
-      if(!contact){err.textContent='Add a phone, email or Telegram so we can reach them.';err.hidden=false;return}
-      if(!(amount>0)){err.textContent='Enter an amount above $0.';err.hidden=false;return}
-      if(editing){Object.assign(p,{name,contact,amount,often})}
-      else S.people.push({id:S.nextId++,name,contact,amount,often,way:'pending',role:OFTEN[often]});
-      close();render();toast(editing?'Saved':'Invite sent to '+name.split(' ')[0]);
-    };
-  });
-}
-
-function addMoneySheet(){
-  const need=Math.max(0,Math.ceil(due()+fee()-S.balance));
-  sheet(`<h2>Add money</h2>
-  <label for="amt">Amount<span class="money-in"><span>$</span><input id="amt" inputmode="decimal" value="${need||1000}"></span></label>
-  <div class="ways">
-    <button class="way" data-src="bank" aria-pressed="true"><span class="main"><b>Bank transfer</b><small>Chase ••4410 · arrives in 1 day</small></span><span class="pill good">Free</span></button>
-    <button class="way" data-src="card" aria-pressed="false"><span class="main"><b>Debit card</b><small>Instant</small></span><span class="pill plain">1.5%</span></button>
-    <button class="way" data-src="crypto" aria-pressed="false"><span class="main"><b>From a crypto wallet</b><small>Send any coin, we turn it into dollars</small></span><span class="pill good">Free</span></button>
+/* ---------- Views ---------- */
+const V={};
+V.home=()=>{ const t=totals(), tk=tasks(), R=run('R-1128'), C=run('C-1130'), ct=ctrs().reduce((a,c)=>a+c.amount,0);
+ return `<span class="proto">Prototype · sample company · no real money moves · tax math is an estimate</span>
+ <div class="head"><div><h1>Good morning, Kenji</h1><p>${tk.length} things need you this week.</p></div><button class="btn btn-primary" data-go="run">Run payroll</button></div>
+ <div class="grid3">
+  <div class="card stat"><span>Next payday</span><b>Fri, Nov 28</b><span>Run by Mon, Nov 24 · 4:00 pm PT</span></div>
+  <div class="card stat"><span>Upcoming debits (payroll + contractors)</span><b class="num">${money(t.debit+ct)}</b><span>Payroll ${money(t.debit)} · Contractors ${money(ct)}</span></div>
+  <div class="card stat"><span>Payday account balance</span><b class="num">${money(S.balance)}</b><span style="color:${S.balance>=t.debit+ct?'var(--good)':'var(--bad)'}">${S.balance>=t.debit+ct?'Covers everything upcoming':'Not enough for upcoming debits'}</span></div>
+ </div>
+ <div class="grid2">
+  <div class="card"><div class="card-head"><h2>To do</h2><span class="muted small">Also in the bell</span></div>
+   ${tk.map(x=>`<div class="todo"><span class="sev" style="background:var(--${x.sev==='plain'?'line':x.sev==='info'?'info':x.sev})"></span><div class="t"><b>${esc(x.title)}</b><small>${esc(x.sub)}</small></div><button class="btn btn-quiet" data-act="${x.act}">${x.btn}</button></div>`).join('')}
   </div>
-  <button class="btn btn-primary btn-wide" id="go">Add money</button>`, s=>{
-    s.querySelectorAll('[data-src]').forEach(b=>b.onclick=()=>s.querySelectorAll('[data-src]').forEach(x=>x.setAttribute('aria-pressed',x===b)));
-    $('#go',s).onclick=()=>{const v=parseFloat($('#amt',s).value.replace(/[$,]/g,''));if(!(v>0))return;
-      S.balance+=v;S.activity.unshift({date:'Today',title:'Added money',amount:-v,status:'Arrived'});close();render();toast(money(v)+' added')};
-  });
-}
-
-function reviewSheet(){
-  const total=due(), f=fee(), all=total+f, short=all-S.balance, pending=S.people.filter(p=>p.way==='pending');
-  sheet(`<h2>Check and pay</h2>
-  <div class="list">${S.people.map(p=>personRow(p)).join('')}</div>
-  <div class="sum">
-    <div><span>${S.people.length} ${esc(U().who)}</span><span class="num">${money(total)}</span></div>
-    <div class="muted"><span>Instant card fees</span><span class="num">${money(f)}</span></div>
-    <div class="total"><span>Total</span><span class="num">${money(all)}</span></div>
+  <div class="card"><div class="card-head"><h2>Upcoming payrolls</h2><button class="btn btn-ghost" data-go="pay">All</button></div>
+   ${[R,C].map(r=>`<div class="todo"><div class="t"><b>${r.name}</b><small>Payday ${r.payday} · run by ${r.runBy}</small></div>${statusPill(r.status)}</div>`).join('')}
+   <div class="alert ${S.autopilot?'good':'info'}">${S.autopilot?'AutoPilot is on: Regular payroll submits itself one day before the deadline. You get 24 hours to change or cancel it.':'AutoPilot is off. You submit each payroll yourself.'}</div>
   </div>
-  ${pending.length?`<div class="note">${pending.map(p=>esc(p.name.split(' ')[0])).join(', ')} hasn't picked how to get paid yet. Their money waits safely until they do.</div>`:''}
-  ${short>0?`<div class="note" style="color:var(--warn)">You need ${money(short)} more in your Payday account.</div><button class="btn btn-primary btn-wide" id="topup">Add ${money(short)}</button>`
-    :`<button class="btn btn-primary btn-wide" id="pay">Pay ${money(all)}</button>`}
-  <button class="btn btn-ghost btn-wide" data-x>Not now</button>`, s=>{
-    const t=$('#topup',s); if(t) t.onclick=()=>{close();addMoneySheet()};
-    const p=$('#pay',s); if(p) p.onclick=()=>confirmPay(all);
-  });
+ </div>
+ <div class="card"><div class="card-head"><h2>Cash requirements · Nov 28 payroll</h2><span class="src">Matches the Cash requirements report</span></div>
+  <div class="grid3">
+   <div><div class="kv"><span>Employee take-home</span><b class="num">${money(t.net)}</b></div><div class="kv"><span>Reimbursements (included)</span><span class="num">${money(t.reimb)}</span></div></div>
+   <div><div class="kv"><span>Taxes (employee + employer)</span><b class="num">${money(t.taxes)}</b></div><div class="kv"><span>Benefits & 401(k)</span><span class="num">${money(t.pre)}</span></div></div>
+   <div><div class="kv total"><span>Total debit</span><span class="num">${money(t.debit)}</span></div><div class="small muted">Debited ${S.speed==='2-day'?'Wed, Nov 26':'Mon, Nov 24'} from your Payday account</div></div>
+  </div></div>`;
+};
+function statusPill(s){ return pill(s,{'Unprocessed':'plain','Awaiting approval':'warn','Changes requested':'bad','Submitted':'info','Paid':'good','Cancelled':'plain'}[s]||'plain'); }
+
+V.pay=()=>`<div class="head"><div><h1>Pay</h1><p>Payroll cycles, off-cycle payments and history.</p></div>
+  <div class="toolbar"><div class="rel"><button class="btn btn-ghost" id="offcycle">Off-cycle payroll ▾</button><div id="offmenu"></div></div><button class="btn btn-primary" data-go="run">Run payroll</button></div></div>
+ <div class="card"><h2>Payroll cycles</h2><div class="tw"><table><thead><tr><th>Payroll</th><th>Pay period</th><th>Run by</th><th>Payday</th><th>Status</th><th></th></tr></thead><tbody>
+  ${S.runs.map(r=>`<tr><td><b>${r.name}</b><div class="small muted">${r.sched} · <span class="mono">${r.id}</span></div></td><td>${r.period}</td><td>${r.runBy}</td><td>${r.payday}</td><td>${statusPill(r.status)}</td>
+   <td class="r">${r.id==='R-1128'?(r.status==='Unprocessed'||r.status==='Changes requested'?'<button class="btn btn-quiet" data-go="run">Run</button>':r.status==='Submitted'?'<button class="btn btn-danger" data-act="cancel">Cancel</button>':''):'<button class="btn btn-quiet" data-act="contractors">Pay contractors</button>'}</td></tr>`).join('')}
+ </tbody></table></div></div>
+ <div class="grid2">
+  <div class="card"><h2>Payroll calendar · Nov 28 payday</h2><div class="timeline">
+   ${[['Pay period closes','Sun, Nov 23',1],['Hours and changes cut-off','Mon, Nov 24 · 10:00 am',run('R-1128').status!=='Unprocessed'],['Run by (2-day pay)','Mon, Nov 24 · 4:00 pm PT',['Submitted','Paid'].includes(run('R-1128').status)],['Approval due','Mon, Nov 24 · 4:00 pm PT',['Submitted','Paid'].includes(run('R-1128').status)],['Money leaves your account','Wed, Nov 26',run('R-1128').status==='Paid'],['Payday','Fri, Nov 28',run('R-1128').status==='Paid']]
+    .map(([a,b,d],i,arr)=>{const now=!d&&(i===0||arr[i-1][2]);return `<div class="tl ${d?'done':now?'now':''}"><i></i><span>${a}</span><span class="muted small">${b}</span></div>`}).join('')}</div>
+   <label class="small" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="auto" ${S.autopilot?'checked':''}> AutoPilot: submit one day before the deadline, with 24 hours to change or cancel</label></div>
+  <div class="card"><h2>History</h2><div class="tw"><table style="min-width:420px"><thead><tr><th>Payday</th><th>Payroll</th><th class="r">Total</th><th>Status</th></tr></thead><tbody>
+   ${S.history.map(h=>`<tr><td>${h.payday}</td><td>${esc(h.name)}<div class="small muted">${h.people} paid · <span class="mono">${h.id}</span></div></td><td class="r num">${money(h.total)}</td><td>${statusPill(h.status)}</td></tr>`).join('')}
+   </tbody></table></div><div class="small muted">Paid payrolls can be reversed or corrected with an off-cycle correction payroll.</div></div>
+ </div>`;
+
+V.run=()=>{ const R=run('R-1128'); const locked=!['Unprocessed','Changes requested'].includes(R.status);
+ const stepper=`<div class="steps">${['Hours & earnings','Time off & deductions','Review & submit'].map((l,i)=>`<button class="step ${S.step>i+1?'done':''}" data-step="${i+1}" ${S.step===i+1?'aria-current="step"':''}><b>${S.step>i+1?'✓':i+1}</b>${l}</button>`).join('')}</div>`;
+ const head=`<div class="head"><div><h1>Regular payroll · Nov 28</h1><p>Pay period Nov 10 – Nov 23 · ${emps().length} employees · run by Mon, Nov 24 · 4:00 pm PT</p></div>${statusPill(R.status)}</div>${stepper}
+  ${locked?`<div class="alert info">This payroll is ${R.status.toLowerCase()}. Edits are locked. ${R.status==='Submitted'?'You can cancel it until money leaves your account.':''}</div>`:''}`;
+ const list=emps().filter(p=>!S.filter||p.name.toLowerCase().includes(S.filter.toLowerCase()));
+ if(S.step===1) return head+`<div class="card"><div class="card-head"><div class="toolbar"><input class="field" id="flt" placeholder="Search people" value="${esc(S.filter)}" aria-label="Search people"><button class="btn btn-ghost" id="bulk" ${locked?'disabled':''}>Bulk edit: set hours to 80</button></div><span class="small muted">Edit cells directly. Changes recalculate instantly.</span></div>
+  <div class="tw"><table><thead><tr><th>Employee</th><th>Pay</th><th class="r">Reg. hours</th><th class="r">Overtime</th><th class="r">Bonus</th><th class="r">Reimb.</th><th class="r">Gross</th><th class="r">vs last</th></tr></thead><tbody>
+  ${list.map(p=>{const v=variance(p);const flag=v===null||Math.abs(v)>=15;return `<tr class="${flag?'flag':''}"><td><div class="who">${av(p)}<div>${esc(p.name)}<small>${esc(p.title)} · ${p.ent.toUpperCase()}</small></div></div></td>
+   <td class="small">${p.pay==='salary'?money(p.salary)+'/yr':money(p.rate,2)+'/hr'}</td>
+   ${['hrs','ot','bonus','reimb'].map(k=>`<td class="r">${p.pay==='salary'&&(k==='hrs'||k==='ot')?'<span class="muted small">Salary</span>':`<input class="cell-in num" data-p="${p.id}" data-k="${k}" value="${p[k]}" ${locked?'disabled':''} aria-label="${k} for ${esc(p.name)}">`}</td>`).join('')}
+   <td class="r num"><b>${money(gross(p),2)}</b></td><td class="r num">${v===null?pill('New','info'):`<span style="color:var(--${Math.abs(v)>=15?'warn':'muted'})">${v>0?'+':''}${v.toFixed(1)}%</span>`}</td></tr>`}).join('')}
+  </tbody></table></div><div class="toolbar" style="justify-content:flex-end"><button class="btn btn-primary" data-step="2">Continue</button></div></div>`;
+ if(S.step===2) return head+`<div class="card"><h2>Time off & deductions</h2><div class="tw"><table><thead><tr><th>Employee</th><th class="r">Paid time off (hrs)</th><th class="r">401(k) %</th><th class="r">Health premium</th><th>Payment</th></tr></thead><tbody>
+  ${list.map(p=>`<tr><td><div class="who">${av(p)}<div>${esc(p.name)}<small>${esc(p.title)}</small></div></div></td>
+   ${['pto','k401','health'].map(k=>`<td class="r"><input class="cell-in num" data-p="${p.id}" data-k="${k}" value="${p[k]}" ${locked?'disabled':''} aria-label="${k} for ${esc(p.name)}"></td>`).join('')}
+   <td>${p.way==='pending'?pill('Not set up','warn'):`<span class="small">${esc(p.split)}</span>`}</td></tr>`).join('')}
+  </tbody></table></div><div class="toolbar" style="justify-content:space-between"><button class="btn btn-ghost" data-step="1">Back</button><button class="btn btn-primary" data-step="3">Continue to review</button></div></div>`;
+ const t=totals(), al=alerts();
+ return head+`<div class="grid3">
+   <div class="card"><h3>What gets taxed and debited</h3><div class="kv"><span>Employee take-home</span><span class="num">${money(t.net)}</span></div><div class="kv"><span>Employee taxes</span><span class="num">${money(t.fed+t.fica+t.state)}</span></div><div class="kv"><span>Employer taxes</span><span class="num">${money(t.er)}</span></div><div class="kv"><span>Benefits & 401(k)</span><span class="num">${money(t.pre)}</span></div><div class="kv total"><span>Total debit</span><span class="num">${money(t.debit)}</span></div></div>
+   <div class="card"><h3>What your team takes home</h3>${emps().map(p=>`<div class="kv"><span>${esc(p.name)}</span><span class="num">${money(calc(p).net)}</span></div>`).join('')}</div>
+   <div class="card"><h3>What your company pays</h3><div class="kv"><span>Gross wages</span><span class="num">${money(t.g)}</span></div><div class="kv"><span>Employer taxes</span><span class="num">${money(t.er)}</span></div><div class="kv"><span>Reimbursements</span><span class="num">${money(t.reimb)}</span></div><div class="kv total"><span>Company cost</span><span class="num">${money(t.g+t.er+t.reimb)}</span></div></div>
+  </div>
+  <div class="grid2"><div class="card"><div class="card-head"><h2>Before you submit</h2><span class="small muted">Alerts never change anyone's pay</span></div>${al.map(a=>`<div class="alert ${a.k}">${esc(a.t)}</div>`).join('')||'<div class="alert good">No alerts.</div>'}</div>
+  <div class="card"><h2>Payment speed</h2>${[['4-day','Debit Mon, Nov 24','Free'],['2-day','Debit Wed, Nov 26','Free'],['next-day','Debit Thu, Nov 27','Plus plan'],['same-day','Debit Fri, Nov 28','Premium']].map(([k,a,b])=>`<button class="way" data-speed="${k}" aria-pressed="${S.speed===k}" ${locked?'disabled':''}><span class="m"><b>${k[0].toUpperCase()+k.slice(1)} pay</b><small>${a}</small></span>${pill(b,b==='Free'?'good':'plain')}</button>`).join('')}
+   <div class="small muted">Payees on Suwappu balance or crypto get paid instantly on payday regardless of speed.</div></div></div>
+  <div class="card"><div class="toolbar" style="justify-content:space-between"><button class="btn btn-ghost" data-step="2">Back</button>
+   <div class="toolbar">${R.status==='Submitted'?'<button class="btn btn-danger" data-act="cancel">Cancel payroll</button>':''}
+   <button class="btn btn-primary" data-act="submit" ${locked?'disabled':''}>${t.debit>15000?'Submit for approval':'Submit payroll'} · ${money(t.debit)}</button></div></div>
+   ${t.debit>15000?'<div class="small muted">Over $15,000, so the "Large payrolls" rule sends this to Ravi Shah, then the Owner.</div>':'<div class="small muted">Under your approval thresholds, so this submits directly after you confirm with your passkey.</div>'}</div>`;
+};
+
+V.approvals=()=>{ const R=run('R-1128'); const t=totals(); const waiting=R.status==='Awaiting approval';
+ return `<div class="head"><div><h1>Approvals</h1><p>Requests waiting on you, and the rules that create them.</p></div></div>
+ <div class="card"><h2>Waiting for approval</h2>
+  ${waiting?`<div class="todo"><div class="t"><b>Regular payroll · Nov 28 · ${money(t.debit)}</b><small>Submitted by you as Payroll manager · step 2 of 2: Owner · rule "Large payrolls"</small></div>
+   <div class="toolbar"><button class="btn btn-ghost" data-act="request">Request changes</button><button class="btn btn-primary" data-act="approve">Approve</button></div></div>
+   <div class="timeline"><div class="tl done"><i></i><span>Submitted by Kenji Mori</span><span class="muted small">Just now</span></div><div class="tl done"><i></i><span>Approved by Ravi Shah (Payroll manager)</span><span class="muted small">Just now</span></div><div class="tl now"><i></i><span>Owner approval</span><span class="muted small">Due Mon 4:00 pm PT</span></div></div>`
+  :`<div class="muted">Nothing waiting. Payrolls that match a rule below show up here and in the bell.</div>`}
+  ${S.approvals.log.map(l=>`<div class="alert ${l.k}">${esc(l.t)}</div>`).join('')}
+ </div>
+ <div class="card"><div class="card-head"><h2>Approval rules</h2><button class="btn btn-ghost" data-act="newrule">New rule</button></div>
+  <div class="tw"><table><thead><tr><th>Rule</th><th>When</th><th>Approvers (in order)</th><th>Status</th></tr></thead><tbody>
+  ${S.approvals.rules.map((r,i)=>`<tr><td><b>${esc(r.name)}</b></td><td>${esc(r.when)}</td><td>${r.who.map((w,j)=>`<span class="small">${j+1}. ${esc(w)}</span>`).join('<br>')}</td><td><button class="btn btn-quiet" data-rule="${i}">${r.on?pill('On','good'):pill('Off','plain')}</button></td></tr>`).join('')}
+  </tbody></table></div>
+  <div class="alert warn">Priya Nair is marked out of office until Dec 2. Rules that route to her will stall, so add a backup approver.</div>
+  <div class="small muted">Approvers can approve or request changes with a comment. Final approval asks for a passkey. Every decision is in the audit log.</div></div>`;
+};
+
+V.people=()=>{ const tab=S.peopleTab;
+ const rows = tab==='employees' ? emps().map(p=>`<tr><td><button class="row-btn who" data-person="${p.id}" style="background:none;border:0;color:inherit;font:inherit;cursor:pointer;text-align:left">${av(p)}<div>${esc(p.name)}<small>${esc(p.title)}</small></div></button></td><td>${ENT[p.ent]}</td><td>${p.pay==='salary'?money(p.salary)+'/yr':money(p.rate,2)+'/hr'}</td><td>${p.way==='pending'?pill('Not set up','warn'):esc(p.split)}</td><td>${p.last?pill('Active','good'):pill('Onboarding','info')}</td></tr>`).join('')
+  : ctrs().map(c=>`<tr><td><div class="who">${av(c)}<div>${esc(c.name)}<small>${esc(c.title)}</small></div></div></td><td>${c.country}${c.country!=='US'?' '+pill('International','info'):''}</td><td>${money(c.amount)} / month</td><td>${c.way==='crypto'?'USDC (their choice)':'Bank transfer'}</td><td>${pill(c.status,c.status.includes('approved')?'good':'warn')}</td></tr>`).join('');
+ return `<div class="head"><div><h1>People</h1><p>${emps().length} employees and ${ctrs().length} contractors${S.entity!=='all'?' in '+ENT[S.entity]:''}.</p></div><div class="toolbar"><button class="btn btn-ghost" data-act="import">Import from spreadsheet</button><button class="btn btn-primary" data-act="addperson">Add person</button></div></div>
+ <div class="tabs" role="tablist">${[['employees','Employees'],['contractors','Contractors']].map(([k,l])=>`<button class="tab" role="tab" data-ptab="${k}" aria-selected="${tab===k}">${l}</button>`).join('')}</div>
+ <div class="tw"><table><thead><tr><th>Name</th><th>${tab==='employees'?'Entity':'Country'}</th><th>Pay</th><th>Gets paid by</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>
+ <div class="small muted">People choose how they're paid through a secure link. Admins never see full bank or wallet details, and any change to them needs the person's passkey and triggers a 48-hour hold plus a notice to the old contact.</div>`;
+};
+
+const REPORTS=[
+ ['Payroll','Payroll journal (payroll register)','Every payroll line by person'],['Payroll','Pay history','All past payrolls and totals'],['Payroll','Gross-to-net','Earnings to take-home, by person'],['Payroll','Variance','Changes vs the previous payroll'],['Payroll','Cash requirements','Money needed for upcoming payrolls'],
+ ['Finance','Payroll cost','Total company cost by entity and department'],['Finance','General ledger','Journal entries for QuickBooks, Xero or NetSuite'],['Finance','Labor cost allocation','Cost split across locations and jobs'],['Finance','Workforce costing','Cost per person including taxes and benefits'],
+ ['People','Reports by department','Headcount and pay by department'],['People','Compensation change history','Every raise and change, with who made it'],['People','Contractor payments','All contractor payments by country'],
+ ['Time','Time-tracking hours','Hours and overtime by person'],['Time','Time off','Balances and usage'],
+ ['Compliance','Workers’ comp audit','Wages by class code'],['Compliance','Pre-tax benefit accounts','HSA, FSA and commuter totals'],['Compliance','Tax liabilities','Taxes owed and paid by agency'],['Compliance','Audit log','Every admin action with time and person'],
+ ['Crypto','Payout value at payment time','Dollar value of each crypto payout for taxes']
+];
+V.reports=()=>{ const cats=['All',...new Set(REPORTS.map(r=>r[0]))]; const list=REPORTS.filter(r=>S.reportCat==='All'||r[0]===S.reportCat);
+ return `<div class="head"><div><h1>Reports</h1><p>Standard reports, plus your own saved reports. Download as PDF, CSV or Excel.</p></div><button class="btn btn-primary" data-act="custom">Build a custom report</button></div>
+ <div class="tabs" role="tablist">${cats.map(c=>`<button class="tab" role="tab" data-rcat="${c}" aria-selected="${S.reportCat===c}">${c}</button>`).join('')}</div>
+ <div class="tw"><table><thead><tr><th>Report</th><th>Shows</th><th>Category</th><th></th></tr></thead><tbody>
+ ${list.map(r=>`<tr><td><b>${r[1]}</b></td><td class="muted">${r[2]}</td><td>${pill(r[0],r[0]==='Crypto'?'info':'plain')}</td><td class="r"><button class="btn btn-quiet" data-act="runreport">Run</button></td></tr>`).join('')}
+ </tbody></table></div>
+ <div class="card"><h2>Saved reports</h2><div class="todo"><div class="t"><b>Monthly cost by location</b><small>Payroll cost · grouped by entity · emailed to Harbor CPA on the 1st</small></div><button class="btn btn-quiet" data-act="runreport">Run</button></div></div>`;
+};
+
+V.taxes=()=>`<div class="head"><div><h1>Taxes & compliance</h1><p>We file and pay payroll taxes for you. Here's what's done and what needs you.</p></div></div>
+ <div class="alert warn">Ramen Bar NY LLC needs a New York unemployment insurance account number before Q4 filings. <b>Add it</b> or let us register for you.</div>
+ <div class="grid2">
+  <div class="card"><h2>Filings</h2><div class="tw"><table style="min-width:440px"><thead><tr><th>Form</th><th>Agency</th><th>Period</th><th>Status</th></tr></thead><tbody>
+   ${[['941','IRS','Q3 2026','Filed'],['DE 9 / DE 9C','California EDD','Q3 2026','Filed'],['NYS-45','New York DOL','Q3 2026','Filed'],['940','IRS','2026','Due Jan 31'],['W-2 / W-3','SSA','2026','Due Jan 31'],['1099-NEC','IRS','2026','Due Jan 31']].map(r=>`<tr><td><b>${r[0]}</b></td><td>${r[1]}</td><td>${r[2]}</td><td>${pill(r[3],r[3]==='Filed'?'good':'plain')}</td></tr>`).join('')}
+  </tbody></table></div></div>
+  <div class="card"><h2>Compliance</h2>
+   <div class="todo"><div class="t"><b>Tax setup</b><small>Federal EIN, CA EDD, NY DOL and withholding accounts</small></div>${pill('1 missing','warn')}</div>
+   <div class="todo"><div class="t"><b>Tax documents</b><small>Filed forms, W-2s, 1099s, year-end packets</small></div>${pill('Up to date','good')}</div>
+   <div class="todo"><div class="t"><b>Report a notice</b><small>Got a letter from an agency? Upload it and we'll handle it</small></div><button class="btn btn-quiet" data-act="notice">Upload</button></div>
+   <div class="todo"><div class="t"><b>Workers' compensation</b><small>Pay-as-you-go policy, synced each payroll</small></div>${pill('Active','good')}</div>
+   <div class="todo"><div class="t"><b>Contractor tax forms</b><small>W-9 for US, W-8BEN for international contractors</small></div>${pill('1 pending','warn')}</div>
+   <div class="todo"><div class="t"><b>Tax credits</b><small>Tip credit (FICA) for restaurant staff may apply</small></div><button class="btn btn-quiet" data-act="credit">Check</button></div>
+  </div></div>
+ <div class="small muted">In production these filings are made through a licensed payroll tax partner.</div>`;
+
+V.settings=()=>{ const tab=S.settingsTab; const T={
+ entities:`<div class="tw"><table><thead><tr><th>Entity</th><th>State</th><th>EIN</th><th>Pay schedule</th><th>Funding account</th></tr></thead><tbody>
+  <tr><td><b>Ramen Bar SF LLC</b></td><td>California</td><td class="mono">••-•••4410</td><td>Every other Friday</td><td>Payday account · USD</td></tr>
+  <tr><td><b>Ramen Bar NY LLC</b></td><td>New York</td><td class="mono">••-•••8822</td><td>Every other Friday</td><td>Payday account · USD</td></tr></tbody></table></div><button class="btn btn-ghost" style="align-self:flex-start" data-act="noop">Add entity</button>`,
+ roles:`<div class="tw"><table><thead><tr><th>Person</th><th>Role</th><th>Can see</th><th></th></tr></thead><tbody>${S.roles.map(r=>`<tr><td><b>${esc(r.who)}</b>${r.note?`<div class="small muted">${esc(r.note)}</div>`:''}</td><td>${esc(r.role)}</td><td>${esc(r.scope)}</td><td class="r"><button class="btn btn-quiet" data-act="noop">Edit</button></td></tr>`).join('')}</tbody></table></div>
+  <div class="small muted">Role types: All access admin, Custom admin (pick exactly what they can do), People manager, Outside collaborator. Each role can be limited to an entity, a state or direct reports.</div>`,
+ schedules:`<div class="tw"><table><thead><tr><th>Schedule</th><th>Who</th><th>Next payday</th><th>Default speed</th><th>AutoPilot</th></tr></thead><tbody><tr><td><b>Every other Friday</b></td><td>All employees</td><td>Nov 28</td><td>${S.speed}</td><td>${S.autopilot?pill('On','good'):pill('Off','plain')}</td></tr><tr><td><b>Monthly, last day</b></td><td>Contractors</td><td>Nov 30</td><td>Instant</td><td>${pill('Off','plain')}</td></tr></tbody></table></div>`,
+ integrations:`<div class="tw"><table><thead><tr><th>App</th><th>What syncs</th><th>Status</th></tr></thead><tbody>${[['QuickBooks Online','Journal entry per payroll, by location and department','Connected'],['Xero','General ledger','Available'],['NetSuite','General ledger, multi-entity','Available'],['Toast POS','Hours and tips into payroll','Connected'],['Homebase','Timesheets','Available'],['HRIS sync (BambooHR, Workday, Rippling…)','People and pay changes','Available']].map(r=>`<tr><td><b>${r[0]}</b></td><td class="muted">${r[1]}</td><td>${pill(r[2],r[2]==='Connected'?'good':'plain')}</td></tr>`).join('')}</tbody></table></div>`,
+ security:`<div class="card" style="padding:0;border:0"><div class="todo"><div class="t"><b>Single sign-on (SAML / OIDC)</b><small>Okta, Google Workspace, Microsoft Entra</small></div>${pill('Okta connected','good')}</div>
+  <div class="todo"><div class="t"><b>Automatic user provisioning (SCIM)</b><small>Add and remove admins from your identity provider</small></div>${pill('On','good')}</div>
+  <div class="todo"><div class="t"><b>Passkey for approvals and payouts</b><small>Required for submit, approve and payment-detail changes</small></div>${pill('Required','good')}</div>
+  <div class="todo"><div class="t"><b>Payment-detail change hold</b><small>48 hours before a new bank or wallet receives pay</small></div>${pill('48 h','good')}</div>
+  <div class="todo"><div class="t"><b>Audit log</b><small>Every admin action, exportable</small></div><button class="btn btn-quiet" data-go="reports">View</button></div></div>`,
+ api:`<div class="card" style="padding:0;border:0"><div class="todo"><div class="t"><b>API keys</b><small>2 active · last used 3 hours ago</small></div><button class="btn btn-quiet" data-act="noop">Manage</button></div>
+  <div class="todo"><div class="t"><b>Webhooks</b><small>payroll.submitted, payroll.paid, payment.failed, person.payment_method_changed · signed</small></div>${pill('3 endpoints','good')}</div>
+  <div class="todo"><div class="t"><b>AI agents</b><small>Let an assistant prepare payrolls and pay prizes within your approval rules</small></div>${pill('Off','plain')}</div></div>`};
+ return `<div class="head"><div><h1>Settings</h1><p>Company, access and connections.</p></div></div>
+  <div class="tabs" role="tablist">${[['entities','Entities'],['roles','Roles & permissions'],['schedules','Pay schedules'],['integrations','Integrations'],['security','Security'],['api','API & webhooks']].map(([k,l])=>`<button class="tab" role="tab" data-stab="${k}" aria-selected="${tab===k}">${l}</button>`).join('')}</div>
+  <div class="card">${T[tab]}</div>`;
+};
+
+const WAYS=[['bank','Bank account','1–2 business days','Free'],['instant','Debit card','Within minutes','1%'],['app','Keep in Suwappu','Instant · can earn interest','Free'],['wise','Wise / Revolut','Up to 1 business day','Free'],['paypal','PayPal','Up to 1 day','2%'],['crypto','Crypto wallet','Instant · USDC or another coin, any network · we cover network fees','Free']];
+V.them=()=>{ const p=S.people.find(x=>x.id===(S.seeAs||1)); const c=calc(p);
+ return `<div class="head"><div><h1>What payees see</h1><p>No app to download. They get a text, email or Telegram message with a link.</p></div>
+  <label class="small" for="seeas">Preview as <select class="field" id="seeas">${S.people.map(x=>`<option value="${x.id}" ${x.id===p.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select></label></div>
+ <div class="grid2"><div class="phone">
+   <div class="muted small">Ramen Bar SF · Payday</div>
+   <div><div class="muted small">You get paid Fri, Nov 28</div><div style="font:800 2.2rem var(--display)" class="num">${money(c.net,2)}</div><div class="small muted">from ${money(c.g,2)} before taxes and deductions</div></div>
+   <h3>How do you want to get paid?</h3>
+   ${WAYS.map(w=>`<button class="way" data-way="${w[0]}" aria-pressed="${p.way===w[0]}"><span class="m"><b>${w[1]}</b><small>${w[2]}</small></span>${pill(w[3],w[3]==='Free'?'good':'plain')}</button>`).join('')}
+   <div class="small muted">You can split it, like 80% to your bank and 20% to savings.</div></div>
+  <div class="card"><h2>Pay stub · Nov 28</h2>
+   <div class="kv"><span>Gross pay</span><span class="num">${money(c.g,2)}</span></div><div class="kv"><span>Federal income tax</span><span class="num">−${money(c.fed,2)}</span></div><div class="kv"><span>Social Security & Medicare</span><span class="num">−${money(c.fica,2)}</span></div><div class="kv"><span>State tax</span><span class="num">−${money(c.state,2)}</span></div><div class="kv"><span>401(k) & health</span><span class="num">−${money(c.pre,2)}</span></div><div class="kv"><span>Reimbursements</span><span class="num">+${money(c.reimb,2)}</span></div><div class="kv total"><span>Take-home</span><span class="num">${money(c.net,2)}</span></div>
+   <div class="small muted">Also in their link: past pay stubs, paycheck comparison, W-2 and tax forms, and payment method changes (passkey + 48-hour hold).</div></div></div>`;
+};
+
+/* ---------- Render + events ---------- */
+function render(){ renderNav(); $('#view').innerHTML=V[S.view](); }
+function go(v){ S.view=v; if(v==='run'&&S.step>3)S.step=1; try{history.replaceState(null,'','#'+v)}catch(_){} render(); window.scrollTo(0,0); $('#bellpop').innerHTML=''; }
+
+function drawer(html){ $('#layer').innerHTML=`<div class="drawer-scrim"><div class="drawer" role="dialog" aria-modal="true">${html}</div></div>`;
+ const sc=$('.drawer-scrim'); sc.addEventListener('click',e=>{if(e.target===sc||e.target.closest('[data-x]'))$('#layer').innerHTML=''}); }
+
+function confirmSubmit(){ const t=totals(); const needs=t.debit>15000;
+ drawer(`<h2>${needs?'Submit for approval':'Submit payroll'}</h2><p class="muted" style="margin:0">${money(t.debit)} will be debited from your Payday account${needs?' after approval':''}. ${S.speed} pay.</p>
+  <button class="btn btn-primary" id="pk">Confirm with passkey</button><button class="btn btn-ghost" data-x>Cancel</button>`);
+ $('#pk').onclick=()=>{ const R=run('R-1128'); R.status=needs?'Awaiting approval':'Submitted'; $('#layer').innerHTML=''; toast(needs?'Sent to approvers':'Payroll submitted'); go(needs?'approvals':'pay'); };
 }
 
-function confirmPay(all){
-  sheet(`<h2>Pay ${money(all)} now?</h2><p class="muted" style="margin:0">We'll ask for your Face ID or passcode to confirm it's you.</p>
-  <button class="btn btn-primary btn-wide" id="yes">Confirm with Face ID</button><button class="btn btn-ghost btn-wide" data-x>Cancel</button>`, s=>{
-    $('#yes',s).onclick=()=>{
-      S.balance-=all;
-      const n=S.people.length;
-      S.activity.unshift({date:'Today',title:`${U().cta} · ${n} people`,amount:all,status:'Sent'});
-      sheet(`<div class="done"><div class="check">${I.check}</div><h2>Sent to ${n} ${esc(U().who)}</h2>
-        <p class="muted" style="margin:0">Each person gets a message and a pay stub.</p></div>
-        <div class="list">${S.people.map(p=>`<div class="row" style="cursor:default"><span class="av" style="background:${hue(p.id)};color:#2a1700">${initials(p.name)}</span>
-          <span class="main"><b>${esc(p.name)}</b><small>${esc(WAYS[p.way].name)} · ${esc(WAYS[p.way].time)}</small></span>
-          <span class="right"><b class="num">${money(p.amount)}</b><br><span class="pill ${p.way==='pending'?'warn':'good'}">${p.way==='pending'?'Waiting':'On its way'}</span></span></div>`).join('')}</div>
-        <button class="btn btn-primary btn-wide" data-x>Done</button>`, ()=>{});
-      render();
-    };
-  });
-}
+const ACT={
+ run:()=>{S.step=1;go('run')}, approvals:()=>go('approvals'), taxes:()=>go('taxes'), pay:()=>go('pay'),
+ fund:()=>drawer(`<h2>Add money</h2><label class="small" for="amt">Amount<input class="field" id="amt" value="10000" inputmode="decimal" style="width:100%"></label>
+   ${[['Bank transfer (ACH)','Chase ••4410 · 1 business day','Free'],['Wire','Same day','Bank fees'],['Stablecoin (USDC)','Any network · arrives in minutes','Free']].map((w,i)=>`<button class="way" data-src="${i}" aria-pressed="${i===0}"><span class="m"><b>${w[0]}</b><small>${w[1]}</small></span>${pill(w[2],w[2]==='Free'?'good':'plain')}</button>`).join('')}
+   <button class="btn btn-primary" id="addm">Add money</button><button class="btn btn-ghost" data-x>Cancel</button>`),
+ remind:()=>toast('Invite resent by text'),
+ submit:confirmSubmit,
+ approve:()=>{run('R-1128').status='Submitted';S.approvals.log.unshift({k:'good',t:'You approved Regular payroll · Nov 28. It will be debited on schedule.'});toast('Approved');render()},
+ request:()=>{run('R-1128').status='Changes requested';S.approvals.log.unshift({k:'warn',t:'You requested changes: "Check Jo Alvarez overtime." Sent back to Ravi Shah.'});toast('Changes requested');render()},
+ cancel:()=>{run('R-1128').status='Unprocessed';toast('Payroll cancelled. Nothing was debited.');render()},
+ contractors:()=>{ const c=ctrs(); drawer(`<h2>Pay contractors · November</h2><p class="muted" style="margin:0">Approve invoices, then pay. International contractors see an estimated arrival date.</p>
+   ${c.map(x=>`<div class="todo"><div class="t"><b>${esc(x.name)}</b><small>${esc(x.title)} · ${x.country} · ${x.way==='crypto'?'USDC, arrives in minutes':'bank, 1–2 days'}</small></div><span class="num">${money(x.amount)}</span></div>`).join('')}
+   <div class="kv total"><span>Total</span><span class="num">${money(c.filter(x=>x.status!=='Awaiting invoice').reduce((a,x)=>a+x.amount,0))}</span></div>
+   <div class="alert info">Nkem Eze's invoice isn't in yet. Approve all pays the others now.</div>
+   <button class="btn btn-primary" id="payc">Approve all & pay</button><button class="btn btn-ghost" data-x>Close</button>`);
+   $('#payc').onclick=()=>{run('C-1130').status='Submitted';$('#layer').innerHTML='';toast('Contractor payments sent');render()}; },
+ addperson:()=>drawer(`<h2>Add person</h2><label class="small" for="nm">Name<input class="field" id="nm" style="width:100%" placeholder="Jordan Lee"></label>
+   <label class="small" for="ty">Type<select class="field" id="ty" style="width:100%"><option>Employee (W-2)</option><option>Contractor (US)</option><option>Contractor (international)</option></select></label>
+   <label class="small" for="ct">Phone, email or Telegram<input class="field" id="ct" style="width:100%"></label>
+   <div class="alert info">We send them a link to fill in tax forms and choose how to get paid. You never handle their bank details.</div>
+   <button class="btn btn-primary" id="addp">Send invite</button><button class="btn btn-ghost" data-x>Cancel</button>`),
+ import:()=>toast('Upload a CSV: name, contact, pay, entity'), custom:()=>toast('Custom report builder: pick fields, filters, grouping'),
+ runreport:()=>toast('Report ready: PDF, CSV or Excel'), notice:()=>toast('Upload a photo or PDF of the notice'), credit:()=>toast('Checking tip credit eligibility'),
+ newrule:()=>toast('New rule: pick a condition (amount, entity, country) and approvers'), noop:()=>toast('Not in this prototype')
+};
 
 document.addEventListener('click',e=>{
-  const v=e.target.closest('[data-view]'); if(v){S.view=v.dataset.view;try{location.hash=S.view}catch(_){};render();window.scrollTo(0,0);return}
-  const a=e.target.closest('[data-act]');
-  if(a){({use:useSheet,add:()=>personSheet(),review:reviewSheet,'add-money':addMoneySheet})[a.dataset.act]();return}
-  const ed=e.target.closest('[data-edit]'); if(ed && !e.target.closest('.sheet')){personSheet(S.people.find(p=>p.id===+ed.dataset.edit));return}
-  const w=e.target.closest('[data-way]');
-  if(w){const p=S.people.find(x=>x.id===S.seeAs)||S.people[0];p.way=w.dataset.way;render();toast(p.name.split(' ')[0]+' will get it by '+WAYS[p.way].name.toLowerCase())}
+ const g=e.target.closest('[data-go]'); if(g){go(g.dataset.go);return}
+ const a=e.target.closest('[data-act]'); if(a){ACT[a.dataset.act]&&ACT[a.dataset.act]();return}
+ const st=e.target.closest('[data-step]'); if(st){S.step=+st.dataset.step;render();window.scrollTo(0,0);return}
+ const sp=e.target.closest('[data-speed]'); if(sp){S.speed=sp.dataset.speed;render();return}
+ const pt=e.target.closest('[data-ptab]'); if(pt){S.peopleTab=pt.dataset.ptab;render();return}
+ const stb=e.target.closest('[data-stab]'); if(stb){S.settingsTab=stb.dataset.stab;render();return}
+ const rc=e.target.closest('[data-rcat]'); if(rc){S.reportCat=rc.dataset.rcat;render();return}
+ const ru=e.target.closest('[data-rule]'); if(ru){const r=S.approvals.rules[+ru.dataset.rule];r.on=!r.on;render();return}
+ const w=e.target.closest('[data-way]'); if(w){const p=S.people.find(x=>x.id===(S.seeAs||1));p.way=w.dataset.way;p.split='100% '+WAYS.find(x=>x[0]===p.way)[1];render();toast('Saved. Applies from the next payday.');return}
+ const src=e.target.closest('[data-src]'); if(src){$$('[data-src]').forEach(x=>x.setAttribute('aria-pressed',x===src));return}
+ if(e.target.id==='addm'){const v=parseFloat($('#amt').value.replace(/[$,]/g,''));if(v>0){S.balance+=v;$('#layer').innerHTML='';toast(money(v)+' added');render()}return}
+ if(e.target.id==='addp'){const n=$('#nm').value.trim();if(!n){toast('Add a name first');return}$('#layer').innerHTML='';toast('Invite sent to '+n);return}
+ if(e.target.id==='bulk'){emps().forEach(p=>{if(p.pay==='hourly')p.hrs=80});render();toast('Set regular hours to 80 for hourly staff');return}
+ const pr=e.target.closest('[data-person]'); if(pr){const p=S.people.find(x=>x.id===+pr.dataset.person);const c=calc(p);
+  drawer(`<div class="who">${av(p)}<div><h2>${esc(p.name)}</h2><small>${esc(p.title)} · ${ENT[p.ent]}</small></div></div>
+   <div class="card"><h3>Job & pay</h3><div class="kv"><span>Pay</span><span>${p.pay==='salary'?money(p.salary)+' per year':money(p.rate,2)+' per hour'}</span></div><div class="kv"><span>Schedule</span><span>Every other Friday</span></div><div class="kv"><span>This payroll (est.)</span><span class="num">${money(c.g,2)} gross · ${money(c.net,2)} take-home</span></div></div>
+   <div class="card"><h3>Payment</h3><div class="kv"><span>Gets paid by</span><span>${esc(p.split)}</span></div><div class="small muted">Only ${esc(p.name.split(' ')[0])} can change this, with their passkey.</div></div>
+   <div class="card"><h3>Taxes & documents</h3><div class="kv"><span>W-4</span><span>${p.last?'On file':'Waiting'}</span></div><div class="kv"><span>State withholding</span><span>${p.ent==='sf'?'DE 4 on file':'IT-2104 on file'}</span></div><div class="kv"><span>Pay stubs</span><span>${p.last?'6':'0'}</span></div></div>
+   <button class="btn btn-ghost" data-x>Close</button>`);return}
+ if(e.target.closest('#offcycle')){const m=$('#offmenu');m.innerHTML=m.innerHTML?'':`<div class="menu">${[['Bonus','Taxed at the supplemental rate, skips regular deductions'],['Correction','Fix a past paycheck, regular rate with deductions'],['Dismissal','Final paycheck following state rules'],['Past check date','Record a paycheck paid outside Payday'],['Prize or one-off payout','For contractors, creators or winners']].map(([a,b])=>`<button data-act="noop"><b>${a}</b><small>${b}</small></button>`).join('')}</div>`;return}
+ if(e.target.closest('#bell')){const b=$('#bellpop');if(b.innerHTML){b.innerHTML='';return}
+  b.innerHTML=`<div class="pop"><div class="tabs"><button class="tab" aria-selected="true">Tasks</button><button class="tab" aria-selected="false" data-act="noop">Activity</button></div>${tasks().slice(0,4).map(x=>`<div class="todo"><div class="t"><b class="small">${esc(x.title)}</b><small>${esc(x.sub)}</small></div><button class="btn btn-quiet" data-act="${x.act}">${x.btn}</button></div>`).join('')}</div>`;return}
+ if(!e.target.closest('.pop')&&!e.target.closest('.menu')){$('#bellpop').innerHTML='';const m=$('#offmenu');if(m)m.innerHTML=''}
 });
-document.addEventListener('keydown',e=>{if(e.key==='Escape')close()});
-function fromHash(){const h=(location.hash||'').slice(1);if(views[h]){S.view=h;render()}}
-window.addEventListener('hashchange',fromHash);
-render(); fromHash();
+document.addEventListener('input',e=>{
+ const t=e.target;
+ if(t.dataset.p){const p=S.people.find(x=>x.id===+t.dataset.p);const v=parseFloat(t.value);if(!isNaN(v)&&v>=0){p[t.dataset.k]=v;const pos=t.selectionStart, id=t.dataset.p+t.dataset.k;render();const n=$(`[data-p="${t.dataset.p}"][data-k="${t.dataset.k}"]`);if(n){n.focus();try{n.setSelectionRange(pos,pos)}catch(_){}}}}
+ if(t.id==='flt'){S.filter=t.value;render();const n=$('#flt');n.focus();n.setSelectionRange(n.value.length,n.value.length)}
+});
+document.addEventListener('change',e=>{
+ if(e.target.id==='ent'){S.entity=e.target.value;render()}
+ if(e.target.id==='mnav'){go(e.target.value)}
+ if(e.target.id==='auto'){S.autopilot=e.target.checked;toast(S.autopilot?'AutoPilot on':'AutoPilot off')}
+ if(e.target.id==='seeas'){S.seeAs=+e.target.value;render()}
+});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('#layer').innerHTML='';$('#bellpop').innerHTML=''}});
+const h=(location.hash||'').slice(1); if(V[h]) S.view=h;
+render();
 })();
 </script>
