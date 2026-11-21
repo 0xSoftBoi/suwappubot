@@ -177,8 +177,8 @@
       "githubMeta": "Código abierto",
       "changelog": "Novedades",
       "changelogMeta": "Último: {date}",
-      "routesThrough": "ENRUTA A TRAVÉS DE",
-      "statsLine": "{platformChains} cadenas de plataforma · {routerCount} sedes de enrutamiento · {agentApiChains} cadenas de Agent API — a {date}"
+      "routesThrough": "RUTAS A TRAVÉS DE",
+      "statsLine": "{platformChains} cadenas de plataforma · {routerCount} proveedores de enrutamiento · {agentApiChains} cadenas de Agent API — a fecha de {date}"
     },
     "interfaces": {
       "eyebrow": "Capacidad 06",

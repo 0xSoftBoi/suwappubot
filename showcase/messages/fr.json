@@ -178,7 +178,7 @@
       "changelog": "Nouveautés",
       "changelogMeta": "Dernière : {date}",
       "routesThrough": "ROUTE VIA",
-      "statsLine": "{platformChains} chaînes de plateforme · {routerCount} places de routage · {agentApiChains} chaînes Agent API — au {date}"
+      "statsLine": "{platformChains} chaînes de plateforme · {routerCount} fournisseurs de routage · {agentApiChains} chaînes Agent API — au {date}"
     },
     "interfaces": {
       "eyebrow": "Capacité 06",

@@ -9,7 +9,6 @@ export const entries: Entry[] = [
     points: [
       'MCP server now negotiates `protocolVersion` on `initialize` (`2024-11-05`, `2025-03-26`, `2025-06-18`) instead of assuming one.',
       'New `/.well-known/ai-catalog.json` (ARD v0.9 draft) for machine discovery, mounted next to the agent card.',
-      'Agent card now declares the `a2a-x402` payment extension in `capabilities.extensions`.',
       '`POST /v1/agent/swap/simulate` + `simulate_swap` MCP tool: a zero-funds-move dry run with balance, allowance, gas, revert, and slippage checks.',
     ],
   },

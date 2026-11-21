@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { track } from '@/lib/analytics';
 
 type Tile = { slug: string; audience: string; h1: string; teaser: string; hay: string };
@@ -14,6 +14,24 @@ export default function HubFilter({ groups, tiles }: { groups: Group[]; tiles: T
   const [q, setQ] = useState('');
   const [aud, setAud] = useState<string>('all');
   const needle = q.trim().toLowerCase();
+
+  // The header links to /solve#trader, #developer and #desk. A section is not
+  // rendered while a different audience (or a search) is filtering it out, so
+  // a fragment alone would land nowhere: select that audience, clear the
+  // search, then scroll once the section exists.
+  useEffect(() => {
+    const known = new Set(groups.map((g) => g.audience));
+    const apply = () => {
+      const target = window.location.hash.slice(1);
+      if (!known.has(target)) return;
+      setQ('');
+      setAud(target);
+      requestAnimationFrame(() => document.getElementById(target)?.scrollIntoView({ block: 'start' }));
+    };
+    apply();
+    window.addEventListener('hashchange', apply);
+    return () => window.removeEventListener('hashchange', apply);
+  }, [groups]);
   const shown = useMemo(
     () => tiles.filter((t) => (aud === 'all' || t.audience === aud) && (!needle || t.hay.includes(needle))),
     [tiles, aud, needle],
