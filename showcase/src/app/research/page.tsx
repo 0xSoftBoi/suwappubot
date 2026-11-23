@@ -47,6 +47,12 @@ const decisionLenses = [
     href: '/research/airdrop-concentration',
     label: 'Model validation',
   },
+  {
+    seat: 'Onboarding / funding',
+    question: 'When a bot routes native deposits through a third-party MPC bridge, which trust decisions does the bot actually enforce and which stay with the user?',
+    href: '/research/hyperliquid-egress',
+    label: 'HyperUnit integration',
+  },
 ] as const;
 
 export const metadata: Metadata = {
@@ -147,7 +153,7 @@ export default function ResearchPage() {
         <section className={styles.decisionMap} aria-labelledby="decision-map">
           <div className={styles.sectionLabel}>
             <span id="decision-map">Read by decision</span>
-            <span>Five institutional lenses · one evidence standard</span>
+            <span>{decisionLenses.length} institutional lenses · one evidence standard</span>
           </div>
           <div className={styles.decisionList}>
             {decisionLenses.map((lens, index) => (

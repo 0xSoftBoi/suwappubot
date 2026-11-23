@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 560" role="img" aria-labelledby="title desc">
+  <title id="title">HyperUnit native deposit flow with client-side guardrails</title>
+  <desc id="desc">The bot gates the HyperUnit option on a known allowed region, requires two guardian signatures and a hard minimum before showing a deposit address, and polls the mint manually. It never holds keys, never pins guardian keys, and never reconciles the minted amount.</desc>
+  <rect width="960" height="560" fill="#fbfaf5"/>
+  <text x="54" y="48" fill="#b75e12" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13" font-weight="700" letter-spacing="1.2">HYPERUNIT / NATIVE DEPOSITS</text>
+  <text x="54" y="84" fill="#17324a" font-family="Georgia, 'Times New Roman', serif" font-size="28">Someone else's bridge, our guardrails.</text>
+  <text x="54" y="110" fill="#667b87" font-family="Arial, sans-serif" font-size="14">Source-verified implementation · production provisioning unverified</text>
+
+  <g font-family="Arial, sans-serif">
+    <rect x="54" y="151" width="160" height="132" rx="3" fill="#ffffff" stroke="#ccd6d8"/>
+    <text x="72" y="178" fill="#b75e12" font-size="11" font-weight="700" letter-spacing=".8">01 / REGION</text>
+    <text x="72" y="208" fill="#17324a" font-size="18" font-weight="700">Fail-closed gate</text>
+    <text x="72" y="234" fill="#4f6f7f" font-size="13">Unknown region or DB</text>
+    <text x="72" y="253" fill="#4f6f7f" font-size="13">error → not offered</text>
+
+    <path d="M214 217 H248" stroke="#b75e12" stroke-width="2"/>
+    <path d="M242 211 L250 217 L242 223" fill="none" stroke="#b75e12" stroke-width="2"/>
+
+    <rect x="250" y="151" width="180" height="132" rx="3" fill="#ffffff" stroke="#ccd6d8"/>
+    <text x="268" y="178" fill="#b75e12" font-size="11" font-weight="700" letter-spacing=".8">02 / ADDRESS</text>
+    <text x="268" y="208" fill="#17324a" font-size="18" font-weight="700">/gen + attestation</text>
+    <text x="268" y="234" fill="#4f6f7f" font-size="13">≥2 guardian signatures</text>
+    <text x="268" y="253" fill="#4f6f7f" font-size="13">or refuse the address</text>
+
+    <path d="M430 217 H464" stroke="#b75e12" stroke-width="2"/>
+    <path d="M458 211 L466 217 L458 223" fill="none" stroke="#b75e12" stroke-width="2"/>
+
+    <rect x="466" y="151" width="180" height="132" rx="3" fill="#ffffff" stroke="#ccd6d8"/>
+    <text x="484" y="178" fill="#b75e12" font-size="11" font-weight="700" letter-spacing=".8">03 / FUNDING</text>
+    <text x="484" y="208" fill="#17324a" font-size="18" font-weight="700">User sends native</text>
+    <text x="484" y="234" fill="#4f6f7f" font-size="13">Hard minimum enforced:</text>
+    <text x="484" y="253" fill="#4f6f7f" font-size="13">0.002 BTC · 0.05 ETH · 0.1 SOL</text>
+
+    <path d="M646 217 H680" stroke="#b75e12" stroke-width="2"/>
+    <path d="M674 211 L682 217 L674 223" fill="none" stroke="#b75e12" stroke-width="2"/>
+
+    <rect x="682" y="151" width="170" height="132" rx="3" fill="#17324a"/>
+    <text x="700" y="178" fill="#e58d2b" font-size="11" font-weight="700" letter-spacing=".8">04 / MINT</text>
+    <text x="700" y="208" fill="#ffffff" font-size="18" font-weight="700">2-of-3 MPC mints</text>
+    <text x="700" y="234" fill="#d9e2e6" font-size="13">UBTC / UETH / … spot</text>
+    <text x="700" y="253" fill="#d9e2e6" font-size="13">into HyperCore account</text>
+  </g>
+
+  <line x1="54" y1="324" x2="906" y2="324" stroke="#b9c8cc"/>
+  <text x="54" y="353" fill="#17324a" font-family="Arial, sans-serif" font-size="12" font-weight="700" letter-spacing=".6">CONTROL BOUNDARY IN CURRENT SOURCE</text>
+  <g font-family="Arial, sans-serif">
+    <text x="54" y="388" fill="#667b87" font-size="11" font-weight="700">ENFORCED</text>
+    <text x="54" y="410" fill="#17324a" font-size="15" font-weight="700">Asset allowlist · minimums · signature threshold · region gate</text>
+    <text x="54" y="436" fill="#667b87" font-size="11" font-weight="700">NOT ENFORCED</text>
+    <text x="54" y="458" fill="#17324a" font-size="15" font-weight="700">Guardian key-pinning · minted-amount reconciliation · bot-mediated withdrawal</text>
+    <text x="54" y="492" fill="#667b87" font-size="11" font-weight="700">EGRESS</text>
+    <text x="54" y="514" fill="#17324a" font-size="15" font-weight="700">Non-US proxy for HyperUnit's geo-block · no HyperCore → external-chain withdrawal in the bot</text>
+  </g>
+</svg>

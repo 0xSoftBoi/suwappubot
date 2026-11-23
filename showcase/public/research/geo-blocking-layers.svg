@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" role="img" aria-labelledby="title desc">
+  <title id="title">Three independent geo-blocking layers</title>
+  <desc id="desc">Three stacked layers of geo-blocking: the bot's user-facing gate, the bot's infrastructure egress, and the bridge's own enforcement. Each fails independently; one can hold while another gives.</desc>
+  <rect width="960" height="600" fill="#fbfaf5"/>
+  <text x="54" y="48" fill="#b75e12" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13" font-weight="700" letter-spacing="1.2">GEO-BLOCKING / DEFENSE IN DEPTH</text>
+  <text x="54" y="84" fill="#17324a" font-family="Georgia, 'Times New Roman', serif" font-size="28">Three layers, three independent failures.</text>
+  <text x="54" y="110" fill="#667b87" font-family="Arial, sans-serif" font-size="14">Each layer can hold while another gives — audit all three</text>
+
+  <g font-family="Arial, sans-serif">
+    <rect x="54" y="150" width="852" height="104" rx="3" fill="#ffffff" stroke="#ccd6d8"/>
+    <text x="76" y="178" fill="#b75e12" font-size="11" font-weight="700" letter-spacing=".8">LAYER 1 / USER-FACING GATE — THE BOT</text>
+    <text x="76" y="208" fill="#17324a" font-size="18" font-weight="700">Derivatives fail-open · HyperUnit fail-closed</text>
+    <text x="76" y="232" fill="#4f6f7f" font-size="13">451 only when region is positively known · unknown → allowed for perps, not offered for HyperUnit</text>
+
+    <path d="M483 254 L483 286" stroke="#b75e12" stroke-width="2"/>
+    <path d="M477 280 L483 288 L489 280" fill="none" stroke="#b75e12" stroke-width="2"/>
+
+    <rect x="54" y="288" width="852" height="104" rx="3" fill="#ffffff" stroke="#ccd6d8"/>
+    <text x="76" y="316" fill="#b75e12" font-size="11" font-weight="700" letter-spacing=".8">LAYER 2 / INFRASTRUCTURE EGRESS — THE BOT'S OWN CALLS</text>
+    <text x="76" y="346" fill="#17324a" font-size="18" font-weight="700">Non-US proxy for bridge API calls</text>
+    <text x="76" y="370" fill="#4f6f7f" font-size="13">HyperUnit geo-blocks the US, so the bot's /gen and /operations calls egress from non-US infrastructure</text>
+
+    <path d="M483 392 L483 424" stroke="#b75e12" stroke-width="2"/>
+    <path d="M477 418 L483 426 L489 418" fill="none" stroke="#b75e12" stroke-width="2"/>
+
+    <rect x="54" y="426" width="852" height="104" rx="3" fill="#17324a"/>
+    <text x="76" y="454" fill="#e58d2b" font-size="11" font-weight="700" letter-spacing=".8">LAYER 3 / BRIDGE ENFORCEMENT — HYPERUNIT</text>
+    <text x="76" y="484" fill="#ffffff" font-size="18" font-weight="700">Geo-blocks US persons at the API</text>
+    <text x="76" y="508" fill="#d9e2e6" font-size="13">Independent of the bot: the bridge applies its own jurisdiction policy to every request</text>
+  </g>
+
+  <line x1="54" y1="552" x2="906" y2="552" stroke="#b9c8cc"/>
+  <text x="54" y="578" fill="#17324a" font-family="Arial, sans-serif" font-size="13" font-weight="700">The Kraken lesson applies at every layer: controls must cover ongoing activity, not onboarding only.</text>
+</svg>
