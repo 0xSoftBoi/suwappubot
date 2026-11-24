@@ -1,6 +1,6 @@
 {
   "name": "@suwappu/primitives-client",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Typed viem client for the immutable Suwappu on-chain primitives (TimeCurve, AmortizingVault, MutualCredit).",

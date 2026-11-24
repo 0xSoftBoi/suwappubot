@@ -1,0 +1,15 @@
+{
+  "name": "@suwappu/commons-turnkey-deploy",
+  "private": true,
+  "type": "module",
+  "description": "Deploy Commons contracts with a Turnkey-held key (no raw private key leaves Turnkey).",
+  "scripts": {
+    "create-wallet": "bun run deploy.ts create-wallet",
+    "deploy": "bun run deploy.ts deploy"
+  },
+  "dependencies": {
+    "@turnkey/sdk-server": "^6.1.1",
+    "@turnkey/viem": "^0.14.0",
+    "viem": "2.55.10"
+  }
+}
