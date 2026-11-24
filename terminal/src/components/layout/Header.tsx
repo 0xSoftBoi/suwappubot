@@ -379,6 +379,13 @@ export function Header() {
         >
           API Keys
         </a>
+        <Link
+          to="/commons"
+          className="terminal-theme-control hidden h-8 items-center rounded-[7px] px-2.5 text-xs font-semibold text-terminal-text transition-colors hover:text-terminal-accent sm:flex"
+          title="Commons — ownerless public-good primitives"
+        >
+          Commons
+        </Link>
         <SeasonPointsChip />
         {walletButton}
         {googleButton}
