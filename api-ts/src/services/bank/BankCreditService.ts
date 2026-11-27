@@ -37,6 +37,7 @@ import {
 	call,
 	computeHealth,
 	erc20Abi,
+	assertSpendable,
 	hashOf,
 	isInterestFree,
 	postExternalLeg,
@@ -425,6 +426,12 @@ const openLine = (i: OpenLineInput): Fx<LineView> =>
 		if (!inserted) return yield* view(yield* loadLineById(id))
 
 		const xfer = yield* BankTransferService
+		// wallet-sourced collateral leaves the wallet without a ledger debit: it must not eat held funds of that asset
+		if (!savingsAccountId) {
+			const sameWallet = yield* bankDb((db) => db.select().from(bankAccounts).where(and(eq(bankAccounts.chain, acct.chain), eq(bankAccounts.address, acct.address!), eq(bankAccounts.status, 'active'))))
+			const collAcct = sameWallet.find((a) => lc(findAsset(a.asset, a.chain)?.address ?? '') === lc(params.collateralToken))
+			if (collAcct) yield* assertSpendable(collAcct.id, amount).pipe(Effect.tapError((e) => bankDb((db) => db.update(bankCreditLines).set({ status: 'closed', updatedAt: new Date(), metadata: { failed: e.message } }).where(eq(bankCreditLines.id, id))).pipe(Effect.ignore)))
+		}
 		yield* ensureAllowance(acct, params.collateralToken, MORPHO_BLUE, amount)
 		// MONEY-PATH: supplyCollateral pulls the collateral tokens from the wallet into Morpho Blue.
 		const sent = yield* xfer.sendEvm({
@@ -466,7 +473,7 @@ const findPool = (asset: string, chain: string, needMinor: bigint): Fx<BankAccou
 		const best = balances.reduce<{ acct: BankAccount; bal: bigint } | undefined>((m, x) => (!m || x.bal > m.bal ? x : m), undefined)
 		if (!best || best.bal <= 0n || best.bal < needMinor)
 			return yield* Effect.fail(
-				bankErr('NOT_CONFIGURED', `LENDER_POOL_UNFUNDED: no funded lender pool for ${asset} on ${chain} (need ${needMinor}, best pool balance ${best?.bal ?? 0n})`, {
+				bankErr('LENDER_POOL_UNFUNDED', `no funded lender pool for ${asset} on ${chain} (need ${needMinor}, best pool balance ${best?.bal ?? 0n})`, {
 					missing: `a funded bank_accounts row with kind='pool' (owner org/user/agent with a custody wallet), asset=${asset}, chain=${chain}, balance >= ${needMinor}`,
 				}),
 			)
@@ -545,7 +552,7 @@ const poolRepay = (owner: BankOwner, line: BankCreditLine, amount: bigint, key: 
 		const interest = pay < accrued ? pay : accrued
 		const split = { interest, principal: pay - interest }
 		const poolId = line.poolAccountId
-		if (!poolId) return yield* Effect.fail(bankErr('NOT_CONFIGURED', 'LENDER_POOL_UNFUNDED: line has no pool account', { missing: 'bank_credit_lines.pool_account_id (set when the first draw is made)' }))
+		if (!poolId) return yield* Effect.fail(bankErr('LENDER_POOL_UNFUNDED', 'line has no pool account', { missing: 'bank_credit_lines.pool_account_id (set when the first draw is made)' }))
 		const t = yield* xfer.transfer({
 			owner, idempotencyKey: `credit:repay:${line.id}:${key}`, type: 'credit', fromAccountId: acct.id, toAccountId: poolId,
 			amountMinor: pay.toString(), memo: `credit repay ${line.kind}`, metadata: { creditLineId: line.id, op: 'repay' },
@@ -635,6 +642,8 @@ const repay: BankCreditServiceInterface['repay'] = (i) =>
 		const key = `credit:repay:${line.id}:${i.idempotencyKey}`
 		const { row, created } = yield* beginExternalOp({ owner: i.owner, key, account: acct, direction: 'out', amountMinor: amount, metadata: { creditLineId: line.id, op: 'repay', creditOp: true, repayAll } })
 		if (!created) return { line: yield* view(line), transferId: row.id, txHash: row.txHash, status: row.status }
+		// holds (card auths / escrow) must not be spent by a direct on-chain repay
+		yield* assertSpendable(acct.id, amount).pipe(Effect.tapError((e) => failExternalOp(row.id, e.message).pipe(Effect.ignore)))
 		const loan = findAsset(acct.asset, acct.chain)!
 		yield* ensureAllowance(acct, loan.address, MORPHO_BLUE, approveFor).pipe(Effect.tapError((e) => failExternalOp(row.id, e.message).pipe(Effect.ignore)))
 		const xfer = yield* BankTransferService

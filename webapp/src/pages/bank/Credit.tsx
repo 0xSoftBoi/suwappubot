@@ -84,7 +84,7 @@ function LineAction({ v, mode, onClose }: { v: CreditLineView; mode: 'draw' | 'r
       error={m.error}
       onConfirm={() => m.mutate()}
       onClose={onClose}
-      result={m.data && (tid ? <TransferTracker transferId={tid} onDone={onClose} /> : <div className="space-y-2"><Row label="Status" value={str((m.data as unknown as Record<string, unknown>).status) ?? 'Submitted'} /><Btn className="w-full" onClick={onClose}>Done</Btn></div>)}
+      result={m.data !== undefined ? (tid ? <TransferTracker transferId={tid} onDone={onClose} /> : <div className="space-y-2"><Row label="Status" value={str((m.data as unknown as Record<string, unknown>).status) ?? 'Submitted'} /><Btn className="w-full" onClick={onClose}>Done</Btn></div>) : undefined}
     />
   )
 }

@@ -17,6 +17,7 @@ import { EnvService } from '../../config/EnvService'
 import { type BankRemittance, bankRemittances, bankTransfers, bankRampTransfers, users } from '../../db'
 import type { DrizzleService } from '../../db'
 import { logger } from '../../lib/logger'
+import { BankEarnService } from './BankEarnService'
 import { BankLedgerService } from './BankLedgerService'
 import { BankRampService, type QuoteInput } from './BankRampService'
 import { type BankDeps, BankTransferService } from './BankTransferService'
@@ -25,7 +26,7 @@ import { type BankOwner, bankDb, newId } from './db'
 import { type BankError, bankErr } from './errors'
 import { RAIL_INFO, type Rail } from './ramps/rails'
 
-type Deps = BankDeps | BankTransferService | BankRampService | EnvService
+type Deps = BankDeps | BankTransferService | BankRampService | EnvService | BankEarnService
 type Fx<A> = Effect.Effect<A, BankError, Deps>
 
 export type Recipient =
@@ -101,13 +102,29 @@ const resolveUser = (rec: { telegramId?: number | undefined; username?: string |
 		return rows[0]!.id
 	})
 
+/** Records the autoEarn choice through Earn's real settings call (honours interest-free mode and the default keep-floor). Never fails the remittance. */
+const enrolAutoEarn = (accountId: string, owner: BankOwner, autoEarn: boolean): Fx<{ id: string }> =>
+	autoEarn
+		? Effect.flatMap(BankEarnService, (earn) => earn.setSettings({ owner, accountId, enabled: true })).pipe(
+				Effect.catchAll((e) => {
+					logger.warn({ accountId, err: e.message }, '[bank-remittance] autoEarn enrolment not applied')
+					// transient failure: leave the choice for Earn's sweep job to enrol (it reads the flag); policy blocks are final
+					return e.code === 'POLICY_BLOCKED'
+						? Effect.void
+						: bankDb((db) => db.execute(sql`update bank_accounts set metadata = metadata || '{"autoEarn": true}'::jsonb where id = ${accountId}`)).pipe(Effect.ignore)
+				}),
+				Effect.as({ id: accountId }),
+			)
+		: Effect.succeed({ id: accountId })
+
 /** Recipient's checking account for asset/chain, opened if absent. */
 const ensureAccount = (owner: BankOwner, asset: string, chain: string, autoEarn: boolean): Fx<{ id: string }> =>
 	Effect.gen(function* () {
 		const ledger = yield* BankLedgerService
 		const existing = (yield* ledger.getAccounts(owner)).find((a) => a.kind === 'checking' && a.asset === asset && a.chain === chain && a.status === 'active' && !a.label)
-		if (existing) return existing
-		return yield* ledger.openAccount({ owner, kind: 'checking', asset, chain, ...(autoEarn ? { metadata: { autoEarn: true } } : {}) })
+		if (existing) return yield* enrolAutoEarn(existing.id, owner, autoEarn)
+		const opened = yield* ledger.openAccount({ owner, kind: 'checking', asset, chain })
+		return yield* enrolAutoEarn(opened.id, owner, autoEarn)
 	})
 
 const claimBase = (env: EnvService['Type']) => (env.BANK_CLAIM_BASE_URL ? env.BANK_CLAIM_BASE_URL.replace(/\/$/, '') : null)
@@ -234,9 +251,7 @@ const impl: BankRemittanceServiceInterface = {
 					)
 				: ensureAccount(claimer, won.sendAsset, won.sendChain, won.autoEarn === 'true')
 			).pipe(Effect.catchAll(revert))
-			if (won.autoEarn === 'true') {
-				yield* bankDb((db) => db.execute(sql`update bank_accounts set metadata = metadata || '{"autoEarn": true}'::jsonb where id = ${to.id}`)).pipe(Effect.ignore)
-			}
+			if (won.autoEarn === 'true' && i.accountId) yield* enrolAutoEarn(to.id, claimer, true)
 			const bt = yield* transfers
 				.transfer({ owner: sender, idempotencyKey: `remit:${won.id}:claim`, type: 'remittance', fromAccountId: won.escrowAccountId as string, toAccountId: to.id, amountMinor: won.amountMinor, metadata: { remittanceId: won.id, claim: true } })
 				.pipe(Effect.catchAll(revert))

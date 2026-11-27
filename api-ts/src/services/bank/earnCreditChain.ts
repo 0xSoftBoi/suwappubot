@@ -4,7 +4,7 @@
  * BankTransferService.sendEvm (never signed here).
  */
 import { createHash } from 'node:crypto'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { Effect } from 'effect'
 import { type Hex, decodeFunctionResult, encodeFunctionData, parseAbi, toEventSelector } from 'viem'
 import { RPC_ENDPOINTS } from '../../config/chains'
@@ -14,6 +14,7 @@ import { BankLedgerService } from './BankLedgerService'
 import { evmReceipt, type EvmReceipt } from './chain'
 import { bankDb, newId } from './db'
 import { bankErr } from './errors'
+import { assertAvailable } from './holds'
 
 export const MORPHO_BLUE = '0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb'
 export const MORPHO_API = 'https://api.morpho.org/graphql'
@@ -326,6 +327,19 @@ export const postExternalLeg = (input: {
 		})
 		return yield* bankDb(async (db) => (await db.select().from(bankTransfers).where(eq(bankTransfers.id, id)).limit(1))[0]!)
 	})
+
+/**
+ * MONEY-PATH. Direct on-chain spends (credit repay, collateral supply) debit the ledger only at settlement, after the
+ * money has moved. Check BEFORE broadcasting that the account's ledger balance net of active holds (card
+ * authorisations, escrow) covers `amount`, under the account row lock.
+ */
+export const assertSpendable = (accountId: string, amount: bigint) =>
+	bankDb((db) =>
+		db.transaction(async (tx) => {
+			await tx.execute(sql`select 1 from bank_accounts where id = ${accountId} for update`)
+			await assertAvailable(accountId, tx, amount)
+		}),
+	)
 
 export const requireEvmAccount = (a: BankAccount) => {
 	if (!a.address || a.walletId === null || a.walletUserId === null)
