@@ -20,11 +20,13 @@ import {
 	bankEarnPositions,
 	bankEarnSettings,
 	bankEarnSnapshots,
+	bankTransfers,
 } from '../../db'
 import { logger } from '../../lib/logger'
 import { findAsset } from './assets'
 import { BankLedgerService } from './BankLedgerService'
 import { BankTransferService, type BankDeps } from './BankTransferService'
+import { availableBalance } from './holds'
 import { featureEnabled } from './segments'
 import { evmTokenBalance } from './chain'
 import { type BankOwner, bankDb, newId } from './db'
@@ -268,6 +270,38 @@ const addShares = (savingsId: string, deltaFree: bigint) =>
 			.where(eq(bankEarnPositions.savingsAccountId, savingsId))
 	})
 
+/**
+ * MONEY-PATH: persist the tx hash only while the op is still pending. 0 rows (reconciler already undid/failed it) fails,
+ * which aborts sendEvm BEFORE broadcast (onSigned runs pre-broadcast).
+ */
+const patchOpHashIfPending = (id: string, txHash: string) =>
+	bankDb(async (db) => {
+		const r = await db
+			.update(bankEarnOps)
+			.set({ txHash, updatedAt: new Date() })
+			.where(and(eq(bankEarnOps.id, id), eq(bankEarnOps.status, 'pending')))
+			.returning({ id: bankEarnOps.id })
+		if (r.length === 0) throw bankErr('CONFLICT', `earn op ${id} is no longer pending; not broadcasting`)
+	})
+
+/** MONEY-PATH: confirm a pending deposit and add its shares in ONE transaction; 0 rows flipped => no-op (replay/job race). */
+const confirmDepositOnce = (op: BankEarnOp, shares: bigint) =>
+	bankDb((db) =>
+		db.transaction(async (tx) => {
+			const [r] = await tx
+				.update(bankEarnOps)
+				.set({ status: 'confirmed', sharesMinor: shares.toString(), failureReason: null, updatedAt: new Date() })
+				.where(and(eq(bankEarnOps.id, op.id), eq(bankEarnOps.status, 'pending')))
+				.returning()
+			if (!r) return null
+			await tx
+				.update(bankEarnPositions)
+				.set({ sharesMinor: sql`${bankEarnPositions.sharesMinor} + ${shares.toString()}::numeric`, updatedAt: new Date() })
+				.where(eq(bankEarnPositions.savingsAccountId, op.savingsAccountId))
+			return r
+		}),
+	)
+
 const getPosition = (savingsId: string) =>
 	bankDb(async (db) => (await db.select().from(bankEarnPositions).where(eq(bankEarnPositions.savingsAccountId, savingsId)).limit(1))[0] ?? null)
 
@@ -275,18 +309,35 @@ const getPosition = (savingsId: string) =>
 const undoDeposit = (op: BankEarnOp, owner: BankOwner, reason: string): Fx<BankEarnOp> =>
 	Effect.gen(function* () {
 		const xfer = yield* BankTransferService
-		yield* xfer.transfer({
-			owner,
-			idempotencyKey: `earn:${op.idempotencyKey}:undo`,
-			type: 'earn',
-			fromAccountId: op.savingsAccountId,
-			toAccountId: op.checkingAccountId,
-			amountMinor: op.assetsMinor,
-			memo: 'earn deposit reversed',
-			metadata: { earnOpId: op.id, reason },
+		// MONEY-PATH: only reverse a reservation that exists and is settled; otherwise the undo would move OTHER
+		// deposits' principal out of the shared savings account.
+		const reserved = op.transferId
+			? yield* bankDb(async (db) => (await db.select({ status: bankTransfers.status }).from(bankTransfers).where(eq(bankTransfers.id, op.transferId!)).limit(1))[0] ?? null)
+			: null
+		if (reserved?.status === 'confirmed')
+			yield* xfer.transfer({
+				owner,
+				idempotencyKey: `earn:${op.idempotencyKey}:undo`,
+				type: 'earn',
+				fromAccountId: op.savingsAccountId,
+				toAccountId: op.checkingAccountId,
+				amountMinor: op.assetsMinor,
+				memo: 'earn deposit reversed',
+				metadata: { earnOpId: op.id, reason },
+			})
+		else if (reserved) {
+			logger.warn({ opId: op.id, transferStatus: reserved.status }, '[bank-earn] deposit undo skipped: reservation not reversible')
+			return op
+		}
+		logger.warn({ opId: op.id, reason, reserved: !!reserved }, '[bank-earn] deposit reversed')
+		return yield* bankDb(async (db) => {
+			const [r] = await db
+				.update(bankEarnOps)
+				.set({ status: 'failed', failureReason: reason.slice(0, 1000), updatedAt: new Date() })
+				.where(and(eq(bankEarnOps.id, op.id), eq(bankEarnOps.status, 'pending')))
+				.returning()
+			return r ?? (await db.select().from(bankEarnOps).where(eq(bankEarnOps.id, op.id)).limit(1))[0]!
 		})
-		logger.warn({ opId: op.id, reason }, '[bank-earn] deposit reversed')
-		return yield* patchOp(op.id, { status: 'failed', failureReason: reason.slice(0, 1000) })
 	})
 
 /**
@@ -342,18 +393,28 @@ const finalizeWithdraw = (op: BankEarnOp, owner: BankOwner, received: bigint, bu
 				metadata: { earnOpId: op.id },
 			})
 		const realized = received > principalPortion ? received - principalPortion : 0n
-		if (pos)
-			yield* bankDb((db) =>
-				db
-					.update(bankEarnPositions)
-					.set({
-						sharesMinor: sql`greatest(${bankEarnPositions.sharesMinor} - ${burned.toString()}::numeric, 0)`,
-						realizedYieldMinor: sql`${bankEarnPositions.realizedYieldMinor} + ${realized.toString()}::numeric`,
-						updatedAt: new Date(),
-					})
-					.where(eq(bankEarnPositions.savingsAccountId, op.savingsAccountId)),
-			)
-		return yield* patchOp(op.id, { status: 'confirmed', sharesMinor: burned.toString(), failureReason: null, metadata: { ...op.metadata, receivedMinor: received.toString(), realizedYieldMinor: realized.toString() } })
+		// MONEY-PATH: status flip (WHERE pending) + position update in one tx; a concurrent finalizer flips 0 rows => no-op.
+		const fin = yield* bankDb((db) =>
+			db.transaction(async (tx) => {
+				const [r] = await tx
+					.update(bankEarnOps)
+					.set({ status: 'confirmed', sharesMinor: burned.toString(), failureReason: null, metadata: { ...op.metadata, receivedMinor: received.toString(), realizedYieldMinor: realized.toString() }, updatedAt: new Date() })
+					.where(and(eq(bankEarnOps.id, op.id), eq(bankEarnOps.status, 'pending')))
+					.returning()
+				if (!r) return null
+				if (pos)
+					await tx
+						.update(bankEarnPositions)
+						.set({
+							sharesMinor: sql`greatest(${bankEarnPositions.sharesMinor} - ${burned.toString()}::numeric, 0)`,
+							realizedYieldMinor: sql`${bankEarnPositions.realizedYieldMinor} + ${realized.toString()}::numeric`,
+							updatedAt: new Date(),
+						})
+						.where(eq(bankEarnPositions.savingsAccountId, op.savingsAccountId))
+				return r
+			}),
+		)
+		return fin ?? (yield* bankDb((db) => db.select().from(bankEarnOps).where(eq(bankEarnOps.id, op.id)).limit(1).then((x) => x[0]!)))
 	})
 
 // ------------------------------------------------------------------ operations
@@ -437,7 +498,7 @@ const deposit = (i: DepositInput): Fx<EarnOpView> =>
 				account: checking,
 				to: vault.address,
 				data: call(vaultAbi, 'deposit', [amount, checking.address]),
-				onSigned: ({ txHash }) => patchOp(op.id, { txHash }).pipe(Effect.asVoid),
+				onSigned: ({ txHash }) => patchOpHashIfPending(op.id, txHash),
 			})
 		})
 		const sent = yield* onchainStep.pipe(
@@ -476,8 +537,9 @@ const confirmOp = (op: BankEarnOp): Fx<BankEarnOp> =>
 		if (op.kind === 'deposit') {
 			const ev = vaultEvent(r, op.vault, 'deposit')
 			if (!ev) return yield* patchOp(op.id, { metadata: { ...op.metadata, reviewRequired: 'no Deposit event in receipt' } })
-			yield* addShares(op.savingsAccountId, ev.shares)
-			return yield* patchOp(op.id, { status: 'confirmed', sharesMinor: ev.shares.toString(), failureReason: null })
+			const done = yield* confirmDepositOnce(op, ev.shares)
+			if (done) return done
+			return (yield* getOp({ ownerType: op.ownerType as BankOwner['ownerType'], ownerId: op.ownerId }, op.idempotencyKey)) ?? op
 		}
 		const ev = vaultEvent(r, op.vault, 'withdraw')
 		if (!ev) return yield* patchOp(op.id, { metadata: { ...op.metadata, reviewRequired: 'no Withdraw event in receipt' } })
@@ -537,7 +599,7 @@ const withdraw = (i: WithdrawInput): Fx<EarnOpView> =>
 			account: checking,
 			to: pos.vault,
 			data,
-			onSigned: ({ txHash }) => patchOp(op.id, { txHash }).pipe(Effect.asVoid),
+			onSigned: ({ txHash }) => patchOpHashIfPending(op.id, txHash),
 		})
 		if (sent.outcome === 'rejected') return yield* patchOp(op.id, { status: 'failed', failureReason: `withdraw rejected: ${sent.message ?? ''}` })
 		const cur = (yield* getOp(i.owner, i.idempotencyKey)) ?? op
@@ -657,7 +719,13 @@ const runSweep = (opts?: { now?: Date }): Fx<{ checked: number; swept: number; s
 			const outcome = yield* Effect.gen(function* () {
 				const acct = yield* ledger.getAccountById(s.accountId)
 				if (acct.status !== 'active' || earnBlocked(acct)) return 'skipped' as const
-				const bal = yield* ledger.balance(acct.id)
+				// MONEY-PATH: size the sweep from the AVAILABLE balance (holds, pending transfers, card shortfalls), not the ledger balance.
+				const bal = yield* bankDb((db) =>
+					db.transaction(async (tx) => {
+						await tx.execute(sql`select 1 from bank_accounts where id = ${acct.id} for update`)
+						return availableBalance(acct.id, tx)
+					}),
+				)
 				const idle = bal - BigInt(s.floorMinor)
 				if (idle <= 0n || idle < BigInt(s.minSweepMinor)) return 'skipped' as const
 				const op = yield* deposit({ owner, idempotencyKey: `sweep:${s.accountId}:${period}`, accountId: s.accountId, vault: s.vault, amountMinor: idle.toString(), source: 'sweep' })

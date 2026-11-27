@@ -29,7 +29,7 @@ import { logger } from '../../lib/logger'
 import { findAsset } from './assets'
 import { BankLedgerService, postInTx } from './BankLedgerService'
 import { BankTransferService, type BankDeps } from './BankTransferService'
-import { type BankOwner, bankDb, newId } from './db'
+import { type BankOwner, bankDb, newId, withDbLock } from './db'
 import {
 	MORPHO_API,
 	MORPHO_BLUE,
@@ -52,7 +52,7 @@ import {
 	waitReceipt,
 } from './earnCreditChain'
 import { BankError, bankErr } from './errors'
-import { type BankTx } from './holds'
+import { type BankTx, assertAvailable, registerHoldProvider, sumRow } from './holds'
 import { featureEnabled } from './segments'
 
 type Fx<A> = Effect.Effect<A, BankError, BankDeps | BankTransferService>
@@ -164,6 +164,22 @@ const up = <A>(f: () => Promise<A>, what: string): Effect.Effect<A, BankError> =
 		try: f,
 		catch: (e) => (e instanceof BankError ? e : bankErr('UPSTREAM', `${what}: ${e instanceof Error ? e.message : String(e)}`, { cause: e })),
 	})
+
+// MONEY-PATH: wallet-sourced collateral leaves the wallet (and Morpho holds it) while the ledger balance is unchanged, so it is registered as a
+// 'collateral' hold on the account that holds that token on the same wallet. It shrinks as withdrawCollateral confirmation lowers collateral_minor.
+registerHoldProvider('collateral', async (accountId, tx, excludeId) => {
+	const [a] = (await tx.execute(sql`select asset, chain, address from bank_accounts where id = ${accountId}`)) as unknown as Array<{ asset: string; chain: string; address: string | null }>
+	if (!a?.address) return 0n
+	const tok = findAsset(a.asset, a.chain)?.address
+	if (!tok) return 0n
+	return sumRow(
+		await tx.execute(
+			sql`select coalesce(sum(greatest(l.collateral_minor, coalesce((l.metadata->>'pendingCollateral')::numeric, 0))), 0)::text as s from bank_credit_lines l join bank_accounts b on b.id = l.account_id
+				where l.kind = 'collateralized' and l.status = 'active' and l.collateral_savings_account_id is null and lower(l.collateral_token) = lower(${tok})
+				and b.chain = ${a.chain} and lower(b.address) = lower(${a.address}) and l.id <> ${excludeId ?? ''}`,
+		),
+	)
+})
 
 const lineIdFor = (owner: BankOwner, key: string) => `cl_${hashOf(owner.ownerType, owner.ownerId, key).slice(0, 32)}`
 
@@ -427,7 +443,7 @@ const openLine = (i: OpenLineInput): Fx<LineView> =>
 		if (!savingsAccountId) {
 			const sameWallet = yield* bankDb((db) => db.select().from(bankAccounts).where(and(eq(bankAccounts.chain, acct.chain), eq(bankAccounts.address, acct.address!), eq(bankAccounts.status, 'active'))))
 			const collAcct = sameWallet.find((a) => lc(findAsset(a.asset, a.chain)?.address ?? '') === lc(params.collateralToken))
-			if (collAcct) yield* assertSpendable(collAcct.id, amount).pipe(Effect.tapError((e) => bankDb((db) => db.update(bankCreditLines).set({ status: 'closed', updatedAt: new Date(), metadata: { failed: e.message } }).where(eq(bankCreditLines.id, id))).pipe(Effect.ignore)))
+			if (collAcct) yield* bankDb((db) => db.transaction(async (tx) => { await tx.execute(sql`select 1 from bank_accounts where id = ${collAcct.id} for update`); await assertAvailable(collAcct.id, tx, amount, { provider: 'collateral', id }) })).pipe(Effect.tapError((e) => bankDb((db) => db.update(bankCreditLines).set({ status: 'closed', updatedAt: new Date(), metadata: { failed: e.message } }).where(eq(bankCreditLines.id, id))).pipe(Effect.ignore)))
 		}
 		yield* ensureAllowance(acct, params.collateralToken, MORPHO_BLUE, amount)
 		// MONEY-PATH: supplyCollateral pulls the collateral tokens from the wallet into Morpho Blue.
@@ -650,7 +666,7 @@ const poolRepay = (owner: BankOwner, line: BankCreditLine, amount: bigint, key: 
 
 // ------------------------------------------------------------------ draw / repay / withdraw
 
-const draw: BankCreditServiceInterface['draw'] = (i) =>
+const drawInner: BankCreditServiceInterface['draw'] = (i) =>
 	Effect.gen(function* () {
 		if (!MINOR_RE.test(i.amountMinor)) return yield* Effect.fail(bankErr('VALIDATION', 'amountMinor must be a positive integer string'))
 		const amount = BigInt(i.amountMinor)
@@ -702,6 +718,9 @@ const draw: BankCreditServiceInterface['draw'] = (i) =>
 		yield* addEvent(line, { type: 'draw', ltvBps: hh.ltvBps, healthFactorBps: hh.healthFactorBps, data: { amountMinor: amount.toString(), txHash: sent.txHash } })
 		return { line: yield* view(line), transferId: done.id, txHash: sent.txHash, status: 'confirmed' }
 	})
+
+/** MONEY-PATH: per-line serialisation (cross-replica advisory lock) so the 90%-of-LLTV buffer check cannot be raced. */
+const draw: BankCreditServiceInterface['draw'] = (i) => withDbLock(`credit-line:${i.lineId}`, drawInner(i))
 
 const repay: BankCreditServiceInterface['repay'] = (i) =>
 	Effect.gen(function* () {
@@ -760,11 +779,16 @@ const repay: BankCreditServiceInterface['repay'] = (i) =>
 		return { line: yield* view(line), transferId: done.id, txHash: sent.txHash, status: 'confirmed' }
 	})
 
-const withdrawCollateral: BankCreditServiceInterface['withdrawCollateral'] = (i) =>
+const withdrawCollateralInner: BankCreditServiceInterface['withdrawCollateral'] = (i) =>
 	Effect.gen(function* () {
 		let line = yield* loadLine(i.owner, i.lineId)
 		if (line.kind !== 'collateralized') return yield* Effect.fail(bankErr('VALIDATION', 'Only collateralized lines hold collateral'))
 		const acct = yield* loadBorrowAccount(i.owner, line.accountId)
+		// MONEY-PATH: honour the idempotency key (op row in bank_credit_ops; transfer_id holds the tx hash once applied).
+		const wKey = `withdraw:${i.idempotencyKey}`
+		const prior = yield* bankDb(async (db) => (await db.select().from(bankCreditOps).where(and(eq(bankCreditOps.lineId, line.id), eq(bankCreditOps.opKey, wKey))).limit(1))[0] ?? null)
+		if (prior?.status === 'applied') return { line: yield* view(yield* loadLineById(line.id)), txHash: prior.transferId ?? '' }
+		if (prior?.status === 'pending') return yield* Effect.fail(bankErr('CONFLICT', 'A withdrawal with this idempotencyKey is still in flight'))
 		const st = yield* marketState(line, acct.address!)
 		const amount = i.all ? st.pos.collateral : BigInt(i.amountMinor ?? '0')
 		if (amount <= 0n || amount > st.pos.collateral) return yield* Effect.fail(bankErr('VALIDATION', `amount must be 1..${st.pos.collateral}`))
@@ -775,10 +799,18 @@ const withdrawCollateral: BankCreditServiceInterface['withdrawCollateral'] = (i)
 			if (st.pos.borrowAssets > cap) return yield* Effect.fail(bankErr('LIMIT_EXCEEDED', `Withdrawal would push LTV above ${MAX_DRAW_LTV_OF_LLTV_BPS / 100}% of the market LLTV; repay first`))
 		}
 		const xfer = yield* BankTransferService
+		yield* bankDb((db) =>
+			db.insert(bankCreditOps).values({ id: newId('le').replace('le_', 'cop_'), lineId: line.id, opKey: wKey, kind: 'withdraw', status: 'pending', principalMinor: amount.toString(), interestMinor: '0' })
+				.onConflictDoUpdate({ target: [bankCreditOps.lineId, bankCreditOps.opKey], set: { status: 'pending', principalMinor: amount.toString(), updatedAt: new Date() } }),
+		)
 		// MONEY-PATH: collateral leaves Morpho back to the custody wallet only.
-		const sent = yield* xfer.sendEvm({ account: acct, to: MORPHO_BLUE, data: call(blueAbi, 'withdrawCollateral', [mpTuple(st.params), amount, acct.address, acct.address]) })
-		if (sent.outcome === 'rejected') return yield* Effect.fail(bankErr('UPSTREAM', `withdrawCollateral rejected: ${sent.message ?? ''}`))
-		yield* waitOk(line.chain, sent.txHash, 'withdrawCollateral')
+		const sent = yield* xfer.sendEvm({ account: acct, to: MORPHO_BLUE, data: call(blueAbi, 'withdrawCollateral', [mpTuple(st.params), amount, acct.address, acct.address]) }).pipe(Effect.tapError(() => failOp(line.id, wKey).pipe(Effect.ignore)))
+		if (sent.outcome === 'rejected') {
+			yield* failOp(line.id, wKey)
+			return yield* Effect.fail(bankErr('UPSTREAM', `withdrawCollateral rejected: ${sent.message ?? ''}`))
+		}
+		yield* waitOk(line.chain, sent.txHash, 'withdrawCollateral').pipe(Effect.tapError((e) => (e.message.includes('reverted') ? failOp(line.id, wKey).pipe(Effect.ignore) : Effect.void)))
+		yield* bankDb((db) => db.update(bankCreditOps).set({ status: 'applied', transferId: sent.txHash, updatedAt: new Date() }).where(and(eq(bankCreditOps.lineId, line.id), eq(bankCreditOps.opKey, wKey))))
 		const remainingCollateral = st.pos.collateral - amount
 		if (line.collateralSavingsAccountId)
 			yield* bankDb((db) =>
@@ -1137,6 +1169,7 @@ const settlePendingPoolOps = (): Fx<{ checked: number; applied: number }> =>
 	const ops = yield* bankDb((db) => db.select().from(bankCreditOps).where(eq(bankCreditOps.status, 'pending')).orderBy(bankCreditOps.createdAt).limit(500))
 	for (const op of ops) {
 		checked++
+		if (op.kind === 'withdraw') continue // collateral withdrawals are resolved by their own retry, never auto-failed
 		const kind = op.kind as 'draw' | 'repay'
 		if (op.opKey.startsWith('cardref:')) {
 			const line = yield* loadLineById(op.lineId)
@@ -1169,6 +1202,8 @@ const settlePendingPoolOps = (): Fx<{ checked: number; applied: number }> =>
 		}
 		return { checked, applied }
 	})
+
+const withdrawCollateral: BankCreditServiceInterface['withdrawCollateral'] = (i) => withDbLock(`credit-line:${i.lineId}`, withdrawCollateralInner(i))
 
 export const BankCreditServiceLive = Layer.succeed(BankCreditService, {
 	listMarkets,

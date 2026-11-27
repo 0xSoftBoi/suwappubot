@@ -845,6 +845,15 @@ export const BankTransferServiceLive = Layer.succeed(BankTransferService, {
 						)
 						.limit(1)
 					if (inflight.length > 0) return { creditedMinor: '0', transfer: null }
+					// MONEY-PATH: pending earn ops and pending credit ops move the wallet balance too (their own finalize books
+					// the ledger side); crediting the wallet delta now would double-count. Read-only check across the wallet group.
+					const idList = sql.join(ids.map((i) => sql`${i}`), sql`, `)
+					const opInflight = (await tx.execute(sql`
+						select 1 as x where
+							exists (select 1 from bank_earn_ops where status = 'pending' and (checking_account_id in (${idList}) or savings_account_id in (${idList})))
+							or exists (select 1 from bank_credit_ops co join bank_credit_lines cl on cl.id = co.line_id where co.status = 'pending' and cl.account_id in (${idList}))
+					`)) as unknown as unknown[]
+					if (opInflight.length > 0) return { creditedMinor: '0', transfer: null }
 					// Entry count makes the key unique per ledger state: a later identical balance (after spends) is a new deposit.
 					const [{ n }] = (await tx
 						.select({ n: sql<string>`count(*)::text` })

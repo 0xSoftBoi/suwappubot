@@ -13,8 +13,8 @@
 11. NOT STARTED (second builder)
 12. NOT STARTED (second builder)
 13. NOT STARTED (second builder)
-14. NOT STARTED
+14. DONE - BankCreditService.ts 'collateral' hold provider (wallet collateral on the same wallet/token, incl. pendingCollateral during open; shrinks when collateral_minor drops on withdraw confirmation); openLine checks assertAvailable with consumes under the account row lock. Note: a returned-collateral on-chain deposit being re-credited by syncDeposit is item 13 (other builder).
 15. DONE - reserveRepay caps at owed - pending repays under lock, op row reserved before transfer; settleReceivable always derives a deterministic ref (never the amount); excess is never moved (capped).
-16. NOT STARTED
+16. DONE - draw and withdrawCollateral run under withDbLock('credit-line:<id>'); withdrawCollateral honours idempotencyKey via bank_credit_ops (kind 'withdraw').
 
 Debit coverage: transfer / same-wallet / FX reserve -> insertTransferGuarded (assertAvailable); escrow funding -> BankEscrowService:321; agent-pay -> BankAgentPayService:175 (consumes own hold); earnCreditChain:324 -> :340. Exempt/uncovered: credit settleExternalOp 'out' (on-chain repay; only assertSpendable before broadcast), card settlement (debits external only), clearing/fx system legs (internal).
