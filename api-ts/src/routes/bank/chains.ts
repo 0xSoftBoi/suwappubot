@@ -19,6 +19,7 @@ export function register(app: BankRouteApp, deps: BankRouteDeps): void {
 	const bad = (c: Parameters<typeof run>[0], e: z.ZodError) => c.json({ error: 'Validation Error', error_code: 'VALIDATION_ERROR', fields: formatZodErrors(e) }, 400)
 
 	app.post('/chains/fee-model', async (c) => {
+		await resolveOwner(c) // authenticated callers only: this fans out chain RPC calls
 		const p = Fee.safeParse(await readJson(c))
 		if (!p.success) return bad(c, p.error)
 		const b = p.data

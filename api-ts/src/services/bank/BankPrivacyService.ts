@@ -7,15 +7,18 @@
  */
 import { and, eq } from 'drizzle-orm'
 import { Context, Effect, Layer } from 'effect'
-import { randomBytes } from 'node:crypto'
+import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'node:crypto'
 import { type DrizzleService, bankStealthPayouts, bankStealthViewKeys } from '../../db'
 import { RPC_ENDPOINTS } from '../../config/chains'
 import { jsonRpc, rpcUrlFor } from './chainRpc'
 import { type BankOwner, bankDb, newId } from './db'
 import { type BankError, bankErr } from './errors'
+import type { EnvService } from '../../config/EnvService'
+import { orgSecret } from './BankOrgService'
 import { ANNOUNCER, ANNOUNCEMENT_TOPIC, type AnnouncementLike, SCHEME_ID, type ScanMatch, announceCalldata, complianceEphemeralKey, decodeAnnouncementLog, deriveStealthAddress, generateStealthKeys, parseMetaAddress, registerKeysCalldata, scanAnnouncements } from './stealth'
 
 type Fx<A> = Effect.Effect<A, BankError, DrizzleService>
+type FxEnv<A> = Effect.Effect<A, BankError, DrizzleService | EnvService>
 
 export interface PrivatePayout {
 	payoutRef: string
@@ -30,24 +33,60 @@ export interface PrivatePayout {
 export interface BankPrivacyServiceInterface {
 	/** New recipient key set. Private keys are returned ONCE and never stored. */
 	readonly generateMetaAddress: () => Effect.Effect<ReturnType<typeof generateStealthKeys> & { registryCalldata: { to: string; data: string }; schemeId: string }>
-	readonly privatePayoutAddress: (owner: BankOwner, payeeMetaAddress: string, payoutRef: string, token?: { address: string; amountMinor: string }) => Fx<PrivatePayout>
+	readonly privatePayoutAddress: (owner: BankOwner, payeeMetaAddress: string, payoutRef: string, token?: { address: string; amountMinor: string }) => FxEnv<PrivatePayout>
 	readonly recordAnnouncement: (owner: BankOwner, payoutRef: string, txHash: string, chain: string) => Fx<{ ok: true }>
 	readonly scan: (i: { chain: string; fromBlock: string; toBlock?: string; viewPrivateKey: `0x${string}`; spendPublicKey: `0x${string}` }) => Effect.Effect<{ scanned: number; matches: ScanMatch[] }, BankError>
-	readonly complianceExport: (owner: BankOwner) => Fx<{ viewSecret: string; payouts: Array<{ payoutRef: string; payeeMetaAddress: string; stealthAddress: string; chain: string | null; announceTx: string | null }> }>
+	readonly complianceExport: (owner: BankOwner) => FxEnv<{ viewSecret: string; payouts: Array<{ payoutRef: string; payeeMetaAddress: string; stealthAddress: string; chain: string | null; announceTx: string | null }> }>
 }
 export class BankPrivacyService extends Context.Tag('BankPrivacyService')<BankPrivacyService, BankPrivacyServiceInterface>() {}
 
 const REF = /^[A-Za-z0-9_.:-]{1,128}$/
 
-const viewSecretFor = (owner: BankOwner): Fx<`0x${string}`> =>
-	bankDb(async (db) => {
-		const id = `${owner.ownerType}:${owner.ownerId}`
-		const [row] = await db.select().from(bankStealthViewKeys).where(eq(bankStealthViewKeys.id, id)).limit(1)
-		if (row) return row.secret as `0x${string}`
-		const secret = `0x${randomBytes(32).toString('hex')}`
-		await db.insert(bankStealthViewKeys).values({ id, ownerType: owner.ownerType, ownerId: owner.ownerId, secret }).onConflictDoNothing()
-		const [again] = await db.select().from(bankStealthViewKeys).where(eq(bankStealthViewKeys.id, id)).limit(1)
-		return again!.secret as `0x${string}`
+// MONEY-PATH: envelope encryption of the compliance view secret at rest. A random per-row DEK (AES-256-GCM) encrypts the
+// secret; the DEK is wrapped by a KEK HKDF-derived from the bank's managed signing secret (orgSecret = EnvService.JWT_SECRET,
+// the same managed secret bank approval tokens use). api-ts has no KMS client (KMS_* lives in the Python bot), so no new key
+// is introduced. Format: env1:<b64 wrapIv>.<b64 wrapped DEK+tag>.<b64 iv>.<b64 ciphertext+tag>. The plaintext is never logged.
+const kekFrom = (root: string): Buffer => Buffer.from(hkdfSync('sha256', root, 'suwappu-bank', 'stealth-view-secret-kek-v1', 32))
+const gcmEnc = (key: Buffer, pt: Buffer): [Buffer, Buffer] => {
+	const iv = randomBytes(12)
+	const c = createCipheriv('aes-256-gcm', key, iv)
+	return [iv, Buffer.concat([c.update(pt), c.final(), c.getAuthTag()])]
+}
+const gcmDec = (key: Buffer, iv: Buffer, blob: Buffer): Buffer => {
+	const d = createDecipheriv('aes-256-gcm', key, iv)
+	d.setAuthTag(blob.subarray(blob.length - 16))
+	return Buffer.concat([d.update(blob.subarray(0, blob.length - 16)), d.final()])
+}
+const sealSecret = (root: string, secret: string): string => {
+	const dek = randomBytes(32)
+	const [wiv, wrapped] = gcmEnc(kekFrom(root), dek)
+	const [iv, ct] = gcmEnc(dek, Buffer.from(secret, 'utf8'))
+	return `env1:${[wiv, wrapped, iv, ct].map((b) => b.toString('base64')).join('.')}`
+}
+const openSecret = (root: string, stored: string): string => {
+	if (!stored.startsWith('env1:')) return stored // legacy plaintext row; re-sealed by viewSecretFor
+	const [wiv, wrapped, iv, ct] = stored.slice(5).split('.').map((x) => Buffer.from(x, 'base64'))
+	if (!wiv || !wrapped || !iv || !ct) throw bankErr('DB', 'Malformed sealed view secret')
+	return gcmDec(gcmDec(kekFrom(root), wiv, wrapped), iv, ct).toString('utf8')
+}
+
+// Single decrypt point; both call sites (privatePayoutAddress, complianceExport) go through here.
+const viewSecretFor = (owner: BankOwner): FxEnv<`0x${string}`> =>
+	Effect.gen(function* () {
+		const root = yield* orgSecret
+		return yield* bankDb(async (db) => {
+			const id = `${owner.ownerType}:${owner.ownerId}`
+			const [row] = await db.select().from(bankStealthViewKeys).where(eq(bankStealthViewKeys.id, id)).limit(1)
+			if (row) {
+				const plain = openSecret(root, row.secret) as `0x${string}`
+				if (!row.secret.startsWith('env1:')) await db.update(bankStealthViewKeys).set({ secret: sealSecret(root, plain) }).where(and(eq(bankStealthViewKeys.id, id), eq(bankStealthViewKeys.secret, row.secret)))
+				return plain
+			}
+			const secret = `0x${randomBytes(32).toString('hex')}`
+			await db.insert(bankStealthViewKeys).values({ id, ownerType: owner.ownerType, ownerId: owner.ownerId, secret: sealSecret(root, secret) }).onConflictDoNothing()
+			const [again] = await db.select().from(bankStealthViewKeys).where(eq(bankStealthViewKeys.id, id)).limit(1)
+			return openSecret(root, again!.secret) as `0x${string}`
+		})
 	})
 
 export const BankPrivacyServiceLive = Layer.succeed(BankPrivacyService, {

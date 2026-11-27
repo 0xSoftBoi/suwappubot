@@ -27,6 +27,7 @@ bankInvoiceAcceptances,
 } from '../../db'
 import { logger } from '../../lib/logger'
 import { findAsset } from './assets'
+import { resolveRate } from './BankBooksService'
 import { BankLedgerService, postInTx } from './BankLedgerService'
 import { BankTransferService, type BankDeps } from './BankTransferService'
 import { type BankOwner, bankDb, newId, withDbLock } from './db'
@@ -269,11 +270,23 @@ const healthFor = (line: BankCreditLine, params: MarketParams, pos: Awaited<Retu
 	return { ...m, liquidationPriceHuman: liquidationPriceHuman(m.liquidationPrice, loan?.decimals ?? 6), level: levelOf(m) }
 }
 
-/** Interest owed on a pool line as of `now` (integer math, floor). */
-export const accruedSince = (principal: bigint, aprBps: number, from: Date, now: Date): bigint => {
-	const secs = BigInt(Math.max(0, Math.floor((now.getTime() - from.getTime()) / 1000)))
-	return (principal * BigInt(aprBps) * secs) / (10_000n * YEAR_SECONDS)
+/**
+ * Interest owed on a pool line as of `now` (integer math). MONEY-PATH: rounds UP (seconds and interest), so the sub-unit
+ * remainder lost when lastAccrualAt resets on every applied op never favours the borrower. `refunds` are card refunds the
+ * provider already returned but that are not yet applied to the debt: no interest accrues on them from the refund time.
+ */
+export const accruedSince = (principal: bigint, aprBps: number, from: Date, now: Date, refunds: ReadonlyArray<{ amountMinor: bigint; at: Date }> = []): bigint => {
+	const secsOf = (t0: Date) => BigInt(Math.ceil(Math.max(0, now.getTime() - t0.getTime()) / 1000))
+	let weighted = principal * secsOf(from)
+	for (const r of refunds) weighted -= r.amountMinor * secsOf(r.at.getTime() > from.getTime() ? r.at : from)
+	if (weighted <= 0n) return 0n
+	const den = 10_000n * YEAR_SECONDS
+	return (weighted * BigInt(aprBps) + den - 1n) / den
 }
+
+/** Pending (unapplied) card-refund ops of a line: the provider returned the cash, the pool has not received it yet. */
+const refundReductions = async (tx: BankTx, lineId: string): Promise<Array<{ amountMinor: bigint; at: Date }>> =>
+	((await tx.execute(sql`select principal_minor::text as p, (extract(epoch from created_at) * 1000)::bigint::text as t from bank_credit_ops where line_id = ${lineId} and kind = 'repay' and status = 'pending' and op_key like 'cardref:%'`)) as unknown as Array<{ p: string; t: string }>).map((r) => ({ amountMinor: BigInt(r.p), at: new Date(Number(r.t)) }))
 
 const view = (line: BankCreditLine): Fx<LineView> =>
 	Effect.gen(function* () {
@@ -283,7 +296,8 @@ const view = (line: BankCreditLine): Fx<LineView> =>
 			const health = healthFor(line, s.params, s.pos, s.price)
 			return { line, health, owed: { principalMinor: s.pos.borrowAssets.toString(), accruedInterestMinor: '0', totalMinor: s.pos.borrowAssets.toString() } }
 		}
-		const accrued = BigInt(line.accruedInterestMinor) + accruedSince(BigInt(line.principalMinor), line.aprBps, line.lastAccrualAt, new Date())
+		const reds = yield* bankDb((db) => refundReductions(db as unknown as BankTx, line.id))
+		const accrued = BigInt(line.accruedInterestMinor) + accruedSince(BigInt(line.principalMinor), line.aprBps, line.lastAccrualAt, new Date(), reds)
 		return { line, health: null, owed: { principalMinor: line.principalMinor, accruedInterestMinor: accrued.toString(), totalMinor: (BigInt(line.principalMinor) + accrued).toString() } }
 	})
 
@@ -495,8 +509,8 @@ const findPool = (asset: string, chain: string, needMinor: bigint): Fx<BankAccou
 
 const poolOwner = (pool: BankAccount): BankOwner => ({ ownerType: pool.ownerType as BankOwner['ownerType'], ownerId: pool.ownerId })
 
-const accrue = (line: BankCreditLine, now: Date) => {
-	const add = accruedSince(BigInt(line.principalMinor), line.aprBps, line.lastAccrualAt, now)
+const accrue = async (tx: BankTx, line: BankCreditLine, now: Date) => {
+	const add = accruedSince(BigInt(line.principalMinor), line.aprBps, line.lastAccrualAt, now, await refundReductions(tx, line.id))
 	return { accrued: BigInt(line.accruedInterestMinor) + add, now }
 }
 
@@ -539,7 +553,7 @@ const reserveDraw = (lineId: string, amount: bigint, key: string): Fx<void> =>
 			const [ex] = await tx.select().from(bankCreditOps).where(and(eq(bankCreditOps.lineId, lineId), eq(bankCreditOps.opKey, opKey))).limit(1)
 			if (ex && ex.status !== 'failed') return
 			const markup = markupOf(amount, lineMarkupBps(l))
-			const { accrued } = accrue(l, new Date())
+			const { accrued } = await accrue(tx, l, new Date())
 			const pend = await pendingTotals(tx, lineId, 'draw')
 			const used = BigInt(l.principalMinor) + accrued + pend.principal + pend.interest
 			if (used + amount + markup > BigInt(l.limitMinor)) throw bankErr('LIMIT_EXCEEDED', `Draw ${amount} exceeds available credit ${BigInt(l.limitMinor) - used > 0n ? BigInt(l.limitMinor) - used : 0n}`)
@@ -562,7 +576,7 @@ const reserveRepay = (lineId: string, amount: bigint, key: string): Fx<{ pay: bi
 				const i = BigInt(ex.interestMinor)
 				return { pay: p + i, split: { principal: p, interest: i } }
 			}
-			const { accrued } = accrue(l, new Date())
+			const { accrued } = await accrue(tx, l, new Date())
 			const pend = await pendingTotals(tx, lineId, 'repay')
 			const owed = BigInt(l.principalMinor) + accrued - pend.principal - pend.interest
 			if (owed <= 0n) throw bankErr('VALIDATION', 'Nothing owed on this line (or pending repayments already cover it)')
@@ -617,6 +631,7 @@ const applyPoolDelta = (lineId: string, kind: 'draw' | 'repay', key: string, spl
 		db.transaction(async (tx) => {
 			const line = await lockLine(tx, lineId)
 			if (((line.metadata.applied ?? []) as string[]).includes(key)) return false // legacy applied-key list
+			const preReds = await refundReductions(tx, lineId) // taken BEFORE the op flips to 'applied' so an applied refund still stops accruing from its refund time
 			const marked = await tx
 				.insert(bankCreditOps)
 				.values({ id: newId('le').replace('le_', 'cop_'), lineId, opKey: key, kind, status: 'applied', principalMinor: split.principal.toString(), interestMinor: split.interest.toString() })
@@ -624,7 +639,7 @@ const applyPoolDelta = (lineId: string, kind: 'draw' | 'repay', key: string, spl
 				.returning({ id: bankCreditOps.id })
 			if (marked.length === 0) return false
 			const now = new Date()
-			const { accrued } = accrue(line, now)
+			const accrued = BigInt(line.accruedInterestMinor) + accruedSince(BigInt(line.principalMinor), line.aprBps, line.lastAccrualAt, now, preReds)
 			const principal = kind === 'draw' ? BigInt(line.principalMinor) + split.principal : BigInt(line.principalMinor) - split.principal
 			// draw: split.interest is the fixed markup agreed up front (0 for interest-bearing lines)
 			const interest = kind === 'repay' ? accrued - split.interest : accrued + split.interest
@@ -923,7 +938,7 @@ const score = (o: BankOwner, q: { asset: string; chain: string }): Fx<{ score: B
 	})
 
 const openUnsecuredLine = (i: { owner: BankOwner; idempotencyKey: string; accountId: string }): Fx<LineView> =>
-	Effect.gen(function* () {
+	withRootLock(i.owner, (root) => Effect.gen(function* () {
 		const id = lineIdFor(i.owner, i.idempotencyKey)
 		const ex = yield* bankDb(async (db) => (await db.select().from(bankCreditLines).where(eq(bankCreditLines.id, id)).limit(1))[0] ?? null)
 		if (ex) return yield* view(ex)
@@ -935,9 +950,9 @@ const openUnsecuredLine = (i: { owner: BankOwner; idempotencyKey: string; accoun
 		if (act) return yield* Effect.fail(bankErr('CONFLICT', 'An active unsecured credit line already exists for this asset/chain'))
 		const delinquent = yield* bankDb(async (db) => (await db.execute(sql`select 1 as x from bank_credit_lines l where l.owner_type = ${i.owner.ownerType} and l.owner_id = ${i.owner.ownerId} and l.kind <> 'collateralized' and l.status = 'active' and l.principal_minor > 0 and exists (select 1 from bank_credit_events e where e.line_id = l.id and e.type = 'delinquent') limit 1`)) as unknown as unknown[])
 		if (delinquent.length > 0) return yield* Effect.fail(bankErr('POLICY_BLOCKED', 'Existing credit is delinquent; repay it before opening new credit'))
-		const expo = yield* bankDb(async (db) => (await db.execute(sql`select coalesce(sum(limit_minor), 0)::text as s from bank_credit_lines where owner_type = ${i.owner.ownerType} and owner_id = ${i.owner.ownerId} and kind <> 'collateralized' and status = 'active' and loan_asset = ${acct.asset} and chain = ${acct.chain}`)) as unknown as Array<{ s: string }>)
-		const capMinor = UNSECURED_CAP_UNITS * 10n ** BigInt(findAsset(acct.asset, acct.chain)?.decimals ?? 6)
-		const room = capMinor - BigInt(expo[0]?.s ?? '0')
+		// MONEY-PATH: ONE exposure cap per root principal (USD, all assets/chains, all owned agents/orgs); serialised by the root lock.
+		const prices = yield* rootPrices(root, acct.asset)
+		const room = yield* bankDb((db) => db.transaction((tx) => rootRoomMinor(tx, root, prices, acct.asset, acct.chain)))
 		const proposed = BigInt(s.proposedLimitMinor)
 		const effLimit = proposed < room ? proposed : room
 		if (effLimit <= 0n && proposed > 0n) return yield* Effect.fail(bankErr('LIMIT_EXCEEDED', 'Total credit exposure cap reached for this owner'))
@@ -948,7 +963,7 @@ const openUnsecuredLine = (i: { owner: BankOwner; idempotencyKey: string; accoun
 		if (!line) return yield* Effect.fail(bankErr('CONFLICT', 'An active unsecured credit line already exists for this asset/chain'))
 		yield* addEvent(line, { type: 'opened', data: { limitMinor: effLimit.toString(), aprBps: mode === 'markup' ? 0 : s.aprBps, ...(mode === 'markup' ? { financing: FIXED_MARKUP, markupBps: fixedMarkupBps(s.aprBps) } : {}), score: s.score, tier: s.tier } })
 		return yield* view(line)
-	})
+	}))
 
 // ------------------------------------------------------------------ receivables
 
@@ -982,8 +997,82 @@ Effect.gen(function* () {
 	return { invoiceId: i.invoiceId, accepted: true }
 })
 
-const financeReceivable: BankCreditServiceInterface['financeReceivable'] = (i) =>
+
+// ---- MONEY-PATH: root principal (the human behind users / agents / orgs) used for relatedness and the global exposure cap.
+
+/** user -> itself; agent -> agents.owner_user_id; org -> bank_orgs.owner_user_id. Unresolvable owners keep their own identity. */
+const ownerRoot = async (tx: BankTx, t: string, id: string): Promise<string> => {
+	const r = (t === 'agent'
+		? await tx.execute(sql`select 'u:' || owner_user_id::text as r from agents where (id::text = ${id} or uuid::text = ${id}) and owner_user_id is not null limit 1`)
+		: t === 'org'
+			? await tx.execute(sql`select 'u:' || owner_user_id::text as r from bank_orgs where id = ${id} limit 1`)
+			: null) as unknown as Array<{ r: string | null }> | null
+	return r?.[0]?.r ?? (t === 'user' ? `u:${id}` : `${t}:${id}`)
+}
+
+/** The root plus, for an org, every member's root: two owners are RELATED when these sets intersect. */
+const relatedRoots = async (tx: BankTx, t: string, id: string): Promise<Set<string>> => {
+	const out = new Set([await ownerRoot(tx, t, id)])
+	if (t === 'org') for (const m of (await tx.execute(sql`select 'u:' || user_id::text as r from bank_org_members where org_id = ${id}`)) as unknown as Array<{ r: string }>) out.add(m.r)
+	return out
+}
+
+/** Every owner a root principal controls: the user, their agents, the orgs they own. */
+const controlledOwners = async (tx: BankTx, root: string): Promise<Array<{ t: string; id: string }>> => {
+	if (!root.startsWith('u:')) { const [t, ...rest] = root.split(':'); return [{ t: t!, id: rest.join(':') }] }
+	const uid = root.slice(2)
+	if (!/^[0-9]{1,18}$/.test(uid)) return [{ t: 'user', id: uid }]
+	const ags = (await tx.execute(sql`select id::text as a, uuid::text as b from agents where owner_user_id = ${Number(uid)}`)) as unknown as Array<{ a: string; b: string }>
+	const orgs = (await tx.execute(sql`select id from bank_orgs where owner_user_id = ${Number(uid)}`)) as unknown as Array<{ id: string }>
+	return [{ t: 'user', id: uid }, ...ags.flatMap((a) => [{ t: 'agent', id: a.a }, { t: 'agent', id: a.b }]), ...orgs.map((o) => ({ t: 'org', id: o.id }))]
+}
+
+/** Assets (symbols) the root currently has non-collateral lines in, plus `extra`, priced in USD micros via the books price source. Fails closed. */
+const rootPrices = (root: string, extra: string): Fx<Map<string, bigint>> =>
 	Effect.gen(function* () {
+		const owners = yield* bankDb((db) => db.transaction((tx) => controlledOwners(tx, root)))
+		const assets = new Set([extra])
+		if (owners.length) {
+			const cond = sql.join(owners.map((o) => sql`(owner_type = ${o.t} and owner_id = ${o.id})`), sql` or `)
+			for (const r of (yield* bankDb(async (db) => await db.execute(sql`select distinct loan_asset as a from bank_credit_lines where kind <> 'collateralized' and status = 'active' and (${cond})`))) as unknown as Array<{ a: string }>) assets.add(r.a)
+		}
+		const m = new Map<string, bigint>()
+		for (const a of assets) {
+			const rate = yield* resolveRate(a, 'USD')
+			m.set(a, BigInt(Math.round(Number(rate.rate) * 1_000_000)))
+		}
+		return m
+	})
+
+/**
+ * MONEY-PATH: remaining room (in `asset` minor units) under ONE global cap per root principal across all non-collateralized lines
+ * (unsecured + receivable advances), every asset/chain, summed in USD. Callers hold the root lock (withRootLock).
+ */
+const rootRoomMinor = async (tx: BankTx, root: string, prices: Map<string, bigint>, asset: string, chain: string): Promise<bigint> => {
+	const owners = await controlledOwners(tx, root)
+	const cond = sql.join(owners.map((o) => sql`(l.owner_type = ${o.t} and l.owner_id = ${o.id})`), sql` or `)
+	const rows = (await tx.execute(sql`select l.loan_asset as a, l.chain as c, coalesce(sum(l.limit_minor), 0)::text as s from bank_credit_lines l where l.kind <> 'collateralized' and l.status = 'active' and (${cond}) group by 1, 2`)) as unknown as Array<{ a: string; c: string; s: string }>
+	let used = 0n
+	for (const r of rows) {
+		const px = prices.get(r.a)
+		if (!px) throw bankErr('UPSTREAM', `No USD price for ${r.a}; cannot evaluate the exposure cap`)
+		used += (BigInt(r.s) * px) / 10n ** BigInt(findAsset(r.a, r.c)?.decimals ?? 6)
+	}
+	const roomMicro = UNSECURED_CAP_UNITS * 1_000_000n - used
+	const px = prices.get(asset)
+	if (!px || px <= 0n) throw bankErr('UPSTREAM', `No USD price for ${asset}; cannot evaluate the exposure cap`)
+	return roomMicro <= 0n ? 0n : (roomMicro * 10n ** BigInt(findAsset(asset, chain)?.decimals ?? 6)) / px
+}
+
+/** Serialises credit-opening for everything one root principal controls (cross-process advisory lock). */
+const withRootLock = <A>(owner: BankOwner, inner: (root: string) => Fx<A>): Fx<A> =>
+	Effect.gen(function* () {
+		const root = yield* bankDb((db) => db.transaction((tx) => ownerRoot(tx, owner.ownerType, owner.ownerId)))
+		return yield* withDbLock(`credit-root:${root}`, inner(root))
+	})
+
+const financeReceivable: BankCreditServiceInterface['financeReceivable'] = (i) =>
+	withRootLock(i.owner, (root) => Effect.gen(function* () {
 		const id = lineIdFor(i.owner, i.idempotencyKey)
 		const ex = yield* bankDb(async (db) => (await db.select().from(bankCreditLines).where(eq(bankCreditLines.id, id)).limit(1))[0] ?? null)
 		if (ex) return { line: yield* view(ex), advanceMinor: (ex.limitMinor) }
@@ -1014,6 +1103,7 @@ const financeReceivable: BankCreditServiceInterface['financeReceivable'] = (i) =
 		const advance = (face * BigInt(RECEIVABLE_ADVANCE_BPS)) / 10_000n
 		const { score: sc } = yield* score(i.owner, { asset: acct.asset, chain: acct.chain })
 		const pool = yield* findPool(acct.asset, acct.chain, advance)
+		const prices = yield* rootPrices(root, acct.asset)
 		const line = yield* bankDb((db) => db.transaction(async (tx) => {
 			// MONEY-PATH: lock the invoice row and re-check state/amount/payer/acceptance inside the finance transaction; void, payment credit and a
 			// concurrent finance all serialise on this row lock, so none can slip between the check and the line creation.
@@ -1024,16 +1114,12 @@ const financeReceivable: BankCreditServiceInterface['financeReceivable'] = (i) =
 			if (BigInt(cur.amount_minor) - BigInt(cur.paid_minor) !== face) throw bankErr('CONFLICT', 'Invoice amount or paid balance changed since it was read; retry')
 			const accNow = (await tx.execute(sql`select 1 as x from bank_invoice_acceptances where invoice_id = ${i.invoiceId} and payer_owner_type = ${String(pType)} and payer_owner_id = ${String(pId)} limit 1`)) as unknown as unknown[]
 			if (accNow.length === 0) throw bankErr('FORBIDDEN', 'Invoice acceptance no longer valid')
-			// MONEY-PATH: issuer and payer must be different PRINCIPALS (user behind an agent / org owner), not merely different owner ids.
-			const rootOf = async (t: string, id: string): Promise<string> => {
-				const r = (t === 'agent'
-					? await tx.execute(sql`select 'u:' || owner_user_id::text as r from agents where id::text = ${id} limit 1`)
-					: t === 'org'
-						? await tx.execute(sql`select 'u:' || owner_user_id::text as r from bank_orgs where id = ${id} limit 1`)
-						: null) as unknown as Array<{ r: string | null }> | null
-				return r?.[0]?.r ?? (t === 'user' ? `u:${id}` : `${t}:${id}`)
-			}
-			if ((await rootOf(i.owner.ownerType, i.owner.ownerId)) === (await rootOf(String(pType), String(pId)))) throw bankErr('FORBIDDEN', 'Issuer and payer resolve to the same principal; invoice cannot be financed')
+			// MONEY-PATH: issuer and payer must be unrelated principals: same root (user behind an agent / org owner) or either being a member of the other's org is refused.
+			const issuerSet = await relatedRoots(tx, i.owner.ownerType, i.owner.ownerId)
+			const payerSet = await relatedRoots(tx, String(pType), String(pId))
+			if ([...issuerSet].some((r) => payerSet.has(r))) throw bankErr('FORBIDDEN', 'Issuer and payer are related parties (same principal or org membership); invoice cannot be financed')
+			// MONEY-PATH: one USD exposure cap per root principal across all non-collateral credit.
+			if (advance > (await rootRoomMinor(tx, root, prices, acct.asset, acct.chain))) throw bankErr('LIMIT_EXCEEDED', 'Total credit exposure cap reached for this principal (all assets, chains and owned agents/orgs)')
 			// MONEY-PATH: no new advance while any of the issuer's non-collateral lines is delinquent.
 			const dq = (await tx.execute(sql`select 1 as x from bank_credit_lines l where l.owner_type = ${i.owner.ownerType} and l.owner_id = ${i.owner.ownerId} and l.kind <> 'collateralized' and l.status = 'active' and l.principal_minor > 0 and exists (select 1 from bank_credit_events e where e.line_id = l.id and e.type = 'delinquent') limit 1`)) as unknown as unknown[]
 			if (dq.length > 0) throw bankErr('POLICY_BLOCKED', 'Existing credit is delinquent; repay it before financing receivables')
@@ -1050,7 +1136,7 @@ const financeReceivable: BankCreditServiceInterface['financeReceivable'] = (i) =
 		const r = yield* poolDraw(i.owner, line, advance, 'advance')
 		yield* recordPoolOp(line, 'draw', 'draw:advance', r.transferId, r.status, { principal: advance, interest: markupOf(advance, lineMarkupBps(line)) })
 		return { line: yield* view(yield* loadLineById(id)), advanceMinor: advance.toString() }
-	})
+	}))
 
 const settleReceivable: BankCreditServiceInterface['settleReceivable'] = (invoiceId, amountMinor, paymentRef) =>
 	Effect.gen(function* () {

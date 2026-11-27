@@ -1,3 +1,9 @@
 # neobank verify-d fix status
 1. DONE: BankApprovalService org lock now uses withDbLock (key org-xfer:<org>); rolling 24h counts all transfer types except fx/earn. No other blocking pg_advisory_lock( outside db.ts/jobs.ts (rest are xact locks / jobs try-lock).
    Spend-path decisions: cards (user-owned, org tag only; not org-account spend), earn/fx/remittance (owner-scoped routes, user/agent owner only; org accounts unreachable), treasury sweep (role-gated treasury.manage, moves to own earn vault, not an outflow), bills (performOrgTransfer), payroll (payroll.run + approval action).
+2. DONE: BankAgentPayService.ts paid-branch no longer confirms from seller header; spend stays auth_unsettled, transfer 'submitted' (claimedSettlement in metadata); agent-pay-auth job confirms from chain.
+3. DONE: FacilitatorService.crossCheckSignedRequirements enforces network+scheme equality (when supplied; facilitatorVerifyAndSettle always supplies); verify/settle receive server scheme/network/payTo/asset/extra. v1: stopped advertising (x402Versions: [2]) - smaller change.
+4. DONE (no DDL): sale state encoded in tx_hash (pending:<nonce> -> unserved:<tx|nonce:..> -> <tx>); re-serve by same payer+nonce, exactly-once flip; job agent-pay-sales reconciles pending; creditSales excludes pending.
+6. DONE: agent-pay-auth reads authorizationState at head-depth block (per-chain depths mirroring reconciler), release only if that block's timestamp > validBefore+60s; catch restores for submitted/pending.
+5. DONE: BankPrivacyService envelope-encrypts view secret (per-row DEK AES-256-GCM, KEK = HKDF of orgSecret/JWT_SECRET; api-ts has no KMS client); legacy plaintext re-sealed lazily; DDL 0042 widens column to text (+journal idx 39, database/bank_ddl/verify_d.py).
+Extras: /chains/fee-model now requires resolveOwner (auth). Segments row-lock: NOT DONE.

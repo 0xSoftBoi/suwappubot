@@ -150,7 +150,7 @@ export const bankStealthViewKeys = pgTable('bank_stealth_view_keys', {
 	ownerType: varchar('owner_type', { length: 24 }).notNull(),
 	ownerId: varchar('owner_id', { length: 64 }).notNull(),
 	/** Compliance (sender-side) view secret: derives per-payout ephemeral keys. Cannot spend. */
-	secret: varchar('secret', { length: 66 }).notNull(),
+	secret: text('secret').notNull(), // envelope-encrypted ('env1:...'); legacy rows were plaintext 0x+64hex
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 })
 
