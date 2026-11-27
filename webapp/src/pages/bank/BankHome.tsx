@@ -53,7 +53,7 @@ function NeedsAttention() {
     <div role="status" className="rounded-suwappu-xl border border-yellow-500/40 bg-yellow-500/10 p-3 space-y-1">
       <p className="text-sm font-semibold text-yellow-700">Needs attention ({list.length})</p>
       {list.slice(0, 5).map((a) => (
-        <p key={`${a.kind}${a.id}`} className="text-xs break-words">{KIND[a.kind] ?? a.kind}: {a.reason} · {a.status} for {a.ageMinutes >= 120 ? `${Math.round(a.ageMinutes / 60)} h` : `${a.ageMinutes} min`}</p>
+        <p key={`${a.kind}${a.id}`} className="text-xs break-words">{a.kind === 'ramp_transfer' && a.cancelOwed ? 'Cash-out failed — provider transfer being cancelled' : `${KIND[a.kind] ?? a.kind}: ${a.reason}`} · {a.status} for {a.ageMinutes >= 120 ? `${Math.round(a.ageMinutes / 60)} h` : `${a.ageMinutes} min`}</p>
       ))}
       {list.length > 5 && <p className="text-xs text-suwappu-text-secondary">and {list.length - 5} more</p>}
       <p className="text-[11px] text-suwappu-text-secondary">These items have been flagged for review.</p>

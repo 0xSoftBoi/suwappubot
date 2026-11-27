@@ -117,6 +117,8 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (!isAuthenticated) {
+    // Remember the deep link (e.g. /bank/claim/<token>) so it survives a reload or onboarding and we can return to it.
+    try { sessionStorage.setItem('suwappu_return_to', location.pathname + location.search) } catch { /* storage unavailable */ }
     return <Navigate to="/" state={{ from: location }} replace />
   }
 
@@ -138,7 +140,10 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
 
   if (isAuthenticated) {
     // Redirect to the page they were trying to visit, or home
-    const from = (location.state as { from?: { pathname: string } })?.from?.pathname || '/home'
+    let stored: string | null = null
+    try { stored = sessionStorage.getItem('suwappu_return_to'); sessionStorage.removeItem('suwappu_return_to') } catch { /* storage unavailable */ }
+    const st = (location.state as { from?: { pathname: string; search?: string } })?.from
+    const from = (st ? st.pathname + (st.search ?? '') : null) || (stored && stored.startsWith('/') && !stored.startsWith('//') ? stored : null) || '/home'
     return <Navigate to={from} replace />
   }
 

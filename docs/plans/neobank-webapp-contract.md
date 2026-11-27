@@ -107,9 +107,11 @@ Verification: 390x844 screenshots with intercepted responses (script in scratchp
 6. Payroll: BUILT (My pay uses scheduleId/payeeId from my-payouts, manual ids removed; run approve takes approval token when approvalRequired)
 7. Business: BUILT (Send tab org transfer with approval-required result + token resubmit; policy thresholdCurrency/Decimals; invite by email or Telegram id)
 8. Developers: BUILT (org picker for owner/admin; platform config/usage/customers with ?orgId=; API keys list/create with scopes/revoke via /enterprise/orgs/:orgId/api-keys, secret shown once with copy)
-9. Privacy local scanning: NOT STARTED
+9. Privacy local scanning: BUILT (lib/stealthScan.ts via @noble/curves (viem transitive dep) + viem keccak; hex fromBlock, follows nextCursor, no toBlock sent, progress + cancel; key in component state only; server scan kept as warned fallback). NOTE: assumes server picks the bounded window when toBlock is omitted
 10. Cards: BUILT (capCurrency/capDecimals via GET /cards/:id; refund state; shortfall note inferred from frozen + failed settlement since no explicit field; merchantAllow editor with exact-match/id: copy)
-11. Ops alerts banner: BUILT
+11. Ops alerts banner: BUILT (incl. ramp_transfer cancelOwed copy)
 12. Cosmetics: BUILT (vault name truncates, tap expands; Select padding/ellipsis)
 
 Build after items 1,2,4,8,10: passes. Remaining: 3,5,6,7,9,11,12 NOT STARTED; deep-link cold-open of /bank/claim/:token and /pay/:slug NOT CHECKED.
+
+Deep links: /pay/:slug is public; /bank/claim/:token is behind ProtectedRoute, which now stores the return path in sessionStorage (and state.from) and PublicRoute returns to it after auth. Onboarding page itself not audited.

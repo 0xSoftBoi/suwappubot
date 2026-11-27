@@ -43,3 +43,16 @@
 4. `routes/bank/business.ts` L34 invite schema omitted `telegramId` (service `createInvite` binds invites to `tg:<id>`; HTTP could only invite by email, requiring users with recoveryEmail). Fix: add optional `telegramId` to the zod schema. FIXED.
 
 5. `BankAgentPayService.ts` ~L93 `requireAgent` used `throw bankErr('FORBIDDEN')` synchronously inside `Effect.gen`, which is a defect: a webapp (non-agent) caller of `/agents/accounts` etc. got HTTP 500 'Unhandled error' instead of 403 FORBIDDEN. Fix: return `Effect.fail(bankErr(...))` / `Effect.void` and `yield*` it at the 5 call sites (`// MONEY-PATH`). FIXED, verified 403 after restart. Other `throw bankErr` lines in the file are inside async/sync helper callbacks that are wrapped (not re-audited).
+
+## Regression on HEAD
+
+Setup: Postgres :5433, Hardhat fork :8545, signer stand-in up. `drizzle-kit migrate` on `suwappu_drizzle_first` succeeded with no error (40 rows in `__drizzle_migrations` = 40 journal entries incl. 0035-0037 re-sequence, 0041, 0042); no switch to `bank_proof_a` needed. api-ts started from source on HEAD (90cc477) :8123. Scripts reused with idempotency keys renamed `live-*` -> `reg-*` (copies in scratchpad `reg/`). A leftover `submitted` 174M transfer from the old run was confirmed by mining 12 blocks; A re-funded 500 USDC on the fork via storage + sync-deposit.
+
+| Step | Result | Notes |
+|---|---|---|
+| 3b transfer A->B + 5x concurrent same-key replay | PASS (CHANGED detail) | 10 USDC transfer submitted (debit A / credit clearing, net 0) then confirmed after mining. 5 concurrent same-key: exactly 1 row, 1 tx hash; the 4 losing concurrent calls return the row as `pending` (snapshot while the winner is still signing) vs the winner's `submitted`; late replay returns `confirmed`. Different body same key: 409 CONFLICT. No unbalanced transfer. |
+| 3c 10 concurrent transfers | PASS | 10x200, 10 distinct tx hashes, all confirmed, wallet nonce consecutive (0x30), ledger 530000000 = onchain 530000000, reconcile `in_sync` delta 0, no unbalanced transfer. |
+| 3a concurrent sync-deposit | PASS | 100M injected on chain, 6 concurrent syncs over 2 accounts of one wallet: exactly one credited 100000000, five 0; reconcile in_sync. |
+| 3a' deposit during in-flight outgoing | PASS | 5M outgoing `submitted`, 30M arrives, 4 concurrent syncs: one credited 25000000 (30M minus 5M in flight), three 0; after confirmation a sync credited the remaining 5000000; total 30M once; reconcile in_sync delta 0, no unbalanced transfer. |
+| 3d overdraft, bad recipients, self-address, cross-owner | PASS | Overdraft 422 INSUFFICIENT_AVAILABLE; zero/precompile, USDC contract, malformed -> 400 VALIDATION; amount 0/negative 400; own wallet address 400 VALIDATION ("use toAccountId"); B/agent on A's resources 404 NOT_FOUND; no auth/bad sig 401; no rows persisted for rejected keys. |
+| 3f escrow holds | PASS | 50M escrow funded (A -50M, escrow acct 50M); payer debiting escrow account to external or own account -> 409 ACCOUNT_STATE; payer refund 403 FORBIDDEN; payee refund 200 -> escrow 0, A balance restored, 40M internal transfer confirmed; all net 0. The explicit "transfer above available refused" case is covered in n1 below (r1.ts's 160M case was within balance this time since A held 429M). |

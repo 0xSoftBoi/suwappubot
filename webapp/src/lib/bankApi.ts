@@ -383,7 +383,7 @@ export interface RampQuote {
 }
 export interface RoutedQuotes { best: RampQuote; quotes: RampQuote[]; failures: Array<{ provider: string; error: string }> }
 export interface ApiKeyRow { id: string; name: string; keyPrefix: string; scopes: string[]; expiresAt?: string | null; revokedAt?: string | null; lastUsedAt?: string | null; createdAt?: string }
-export interface OpsAlert { kind: 'transfer' | 'earn_op' | 'credit_op' | string; id: string; status: string; reason: string; amountMinor: string; ageMinutes: number; createdAt: string }
+export interface OpsAlert { cancelOwed?: boolean; kind: 'transfer' | 'earn_op' | 'credit_op' | 'ramp_transfer' | string; id: string; status: string; reason: string; amountMinor: string; ageMinutes: number; createdAt: string }
 export interface Announcement { stealthAddress: string; ephemeralPublicKey: string; viewTag: string; metadata?: string | null; txHash?: string | null; blockNumber?: string | number | null; logIndex?: number | null }
 export interface RailRow { currency?: string; decimals?: number; rail: string; sourceProviders: string[]; destinationProviders: string[]; unconfigured: Array<{ provider: string; missing: string }> }
 export interface ProviderRow { id: string; configured: boolean; missing: string | null; capabilities: Json }

@@ -463,3 +463,16 @@ capabilities:
       set either to 0 to disable that limit.
     evidence: "bot/config/settings.py (LLM_* fields), bot/config/llm_providers.py, bot/config/llm_models.py, bot/services/llm_credit_service.py, bot/utils/llm_budget.py, bot/services/nl_intent_service.py"
     verify: "send an ambiguous NL message to the bot and grep logs for 'llm_cost provider='; python3 scripts/check_llm_prices.py"
+
+  - name: bank_mcp_tools
+    description: >
+      Suwappu Bank tools on the hosted MCP endpoint (bank_list_accounts ... bank_ops_alerts, 20 tools). Each
+      dispatches in-process through the /v1/agent/bank routes with the caller's agent credentials, so all
+      bank policy/mandate/limit checks apply. Money-moving tools require idempotency_key. Individual flows
+      still return NOT_CONFIGURED when their provider env (ramps, cards, custody) is unset.
+    service: api-ts
+    env_vars: []
+    enabled_when: >
+      Always advertised on tools/list; calls require an agent API key (agent bearer auth), same as /v1/agent/bank.
+    evidence: "api-ts/src/routes/mcpTools.ts (BANK_TOOL_SPECS), api-ts/src/routes/mcp.ts (handleBankTool)"
+    verify: "POST /mcp tools/list and confirm 20 names starting with bank_"
