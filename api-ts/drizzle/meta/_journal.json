@@ -211,6 +211,27 @@
       "when": 1790900000000,
       "tag": "0029_bank_cards",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1791000000000,
+      "tag": "0030_bank_payments_payroll",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1791100000000,
+      "tag": "0031_bank_business",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1791300000000,
+      "tag": "0032_bank_agents_platform",
+      "breakpoints": true
     }
   ]
 }
