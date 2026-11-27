@@ -30,6 +30,7 @@ import { BankLedgerService } from './BankLedgerService'
 import { BankTransferService } from './BankTransferService'
 import { type BankOwner, bankDb, newId } from './db'
 import { type BankError, bankErr } from './errors'
+import { assertSpendable } from './systemDebit'
 import { guardedFetch } from './ssrfFetch'
 import { type CreditTransferBatch } from './iso20022'
 
@@ -194,6 +195,7 @@ export const BankPartnerServiceLive: Layer.Layer<BankPartnerService> = Layer.suc
 			yield* assertCustomer(partnerId, i.customerId)
 			const ledger = yield* BankLedgerService
 			const from = yield* ledger.getAccount(owner(i.customerId), i.fromAccountId) // ownership-checked
+			{ const sysErr = assertSpendable(from); if (sysErr) return yield* Effect.fail(sysErr) } // MONEY-PATH: system-kind accounts are never user-spendable
 			if (i.toAccountId && !(yield* accountInPartner(partnerId, i.toAccountId))) return yield* Effect.fail(bankErr('NOT_FOUND', 'Destination account not found')) // cross-partner isolation
 			if (!!i.toAccountId === !!i.toExternal) return yield* Effect.fail(bankErr('VALIDATION', 'provide exactly one of toAccountId or toExternal'))
 			if (!/^[1-9][0-9]{0,77}$/.test(i.amountMinor)) return yield* Effect.fail(bankErr('VALIDATION', 'amountMinor must be a positive integer string'))
@@ -215,6 +217,7 @@ export const BankPartnerServiceLive: Layer.Layer<BankPartnerService> = Layer.suc
 			yield* assertCustomer(partnerId, i.customerId)
 			const ledger = yield* BankLedgerService
 			const from = yield* ledger.getAccount(owner(i.customerId), i.fromAccountId)
+			{ const sysErr = assertSpendable(from); if (sysErr) return yield* Effect.fail(sysErr) } // MONEY-PATH: system-kind accounts are never user-spendable
 			const to = yield* ledger.getAccount(owner(i.customerId), i.toAccountId)
 			void to
 			const cfg = yield* bankDb(async (db) => (await db.select().from(bankPartners).where(eq(bankPartners.orgId, partnerId)).limit(1))[0])

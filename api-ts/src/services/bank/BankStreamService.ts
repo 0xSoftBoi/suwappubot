@@ -16,6 +16,7 @@ import { registerHoldProvider, sumRow } from './holds'
 import { BankTransferService } from './BankTransferService'
 import { type BankOwner, bankDb } from './db'
 import { type BankError, bankErr } from './errors'
+import { assertSpendable } from './systemDebit'
 import { guard, idemKey, type PayFx, parseMinor, sameOwner, subErr, toOwner, uid } from './paymentsCommon'
 import { accruedMinor, foldCheckpoint, settleAmount, type StreamAccrualState } from './streamMath'
 
@@ -200,6 +201,7 @@ export const BankStreamServiceLive = Layer.succeed(BankStreamService, {
 			const ledger = yield* BankLedgerService
 			if (!/^[A-Za-z0-9_.:-]{8,128}$/.test(input.idempotencyKey)) return yield* Effect.fail(bankErr('VALIDATION', 'idempotencyKey must be 8-128 chars of A-Za-z0-9_.:-'))
 			const from = yield* ledger.getAccount(payer, input.payerAccountId)
+			{ const sysErr = assertSpendable(from); if (sysErr) return yield* Effect.fail(sysErr) } // MONEY-PATH: system-kind accounts are never user-spendable
 			const to = yield* ledger.getAccountById(input.payeeAccountId)
 			if (to.ownerType === 'system') return yield* Effect.fail(bankErr('VALIDATION', 'Cannot stream to a system account'))
 			if (from.asset !== to.asset || from.chain !== to.chain) return yield* Effect.fail(bankErr('VALIDATION', 'Accounts must share asset and chain'))

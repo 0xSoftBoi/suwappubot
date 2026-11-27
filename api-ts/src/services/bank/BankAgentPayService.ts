@@ -34,6 +34,7 @@ import { BankTransferService } from './BankTransferService'
 import { jsonRpc, rpcUrlFor } from './chainRpc'
 import { type BankOwner, bankDb, newId } from './db'
 import { type BankError, bankErr } from './errors'
+import { assertSpendable } from './systemDebit'
 import { guardedFetch } from './ssrfFetch'
 import { signDigestForAccount } from './typedSigning'
 import { type X402Requirement, authorizationDigest, buildChallenge, decodePayment, decodeSettlement, encodePayment, encodeSettlement, parsePaymentRequired } from './x402Codec'
@@ -224,6 +225,7 @@ export const BankAgentPayServiceLive = Layer.succeed(BankAgentPayService, {
 			if (mandate.allowedHosts.length && !hostAllowed(host, mandate.allowedHosts)) return yield* Effect.fail(bankErr('POLICY_BLOCKED', `Host ${host} is not in the mandate's allowed hosts`))
 			const ledger = yield* BankLedgerService
 			const account = yield* ledger.getAccount(owner, mandate.accountId)
+			{ const sysErr = assertSpendable(account); if (sysErr) return yield* Effect.fail(sysErr) } // MONEY-PATH: system-kind accounts are never user-spendable
 			if (account.status !== 'active') return yield* Effect.fail(bankErr('ACCOUNT_STATE', 'Agent account is not active'))
 			const method = (i.method ?? 'GET').toUpperCase()
 			const reqInit = { method, headers: i.headers, body: i.body }
@@ -317,6 +319,7 @@ export const BankAgentPayServiceLive = Layer.succeed(BankAgentPayService, {
 			if (!UINT.test(i.priceMinor)) return yield* Effect.fail(bankErr('VALIDATION', 'priceMinor must be a positive integer string'))
 			const ledger = yield* BankLedgerService
 			const account = yield* ledger.getAccount(owner, i.accountId)
+			{ const sysErr = assertSpendable(account); if (sysErr) return yield* Effect.fail(sysErr) } // MONEY-PATH: system-kind accounts are never user-spendable
 			const asset = findAsset(account.asset, account.chain)
 			if (!asset || asset.family !== 'evm' || !account.address) return yield* Effect.fail(bankErr('ASSET_UNSUPPORTED', 'Seller account must be an EVM account with a custody address'))
 			yield* Effect.tryPromise({ try: () => assertUrlSafeForFetch(i.upstreamUrl), catch: (e) => bankErr('POLICY_BLOCKED', `upstreamUrl rejected by SSRF guard: ${(e as Error).message}`) })

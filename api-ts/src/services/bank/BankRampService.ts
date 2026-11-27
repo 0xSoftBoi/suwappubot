@@ -31,6 +31,7 @@ import { BankLedgerService } from './BankLedgerService'
 import { type BankDeps, BankTransferService } from './BankTransferService'
 import { type BankOwner, bankDb, newId } from './db'
 import { type BankError, bankErr } from './errors'
+import { assertSpendable } from './systemDebit'
 import { BridgeProvider } from './ramps/BridgeProvider'
 import { DueProvider } from './ramps/DueProvider'
 import { FIAT_DECIMALS, RAIL_INFO, type Rail, isRail } from './ramps/rails'
@@ -311,6 +312,7 @@ export const BankRampServiceLive = Layer.succeed(BankRampService, {
 			const ledger = yield* BankLedgerService
 			const transfers = yield* BankTransferService
 			const acct = yield* ledger.getAccount(i.owner, i.fromAccountId)
+			{ const sysErr = assertSpendable(acct); if (sysErr) return yield* Effect.fail(sysErr) } // MONEY-PATH: system-kind accounts are never user-spendable
 			const asset = findAsset(acct.asset, acct.chain)
 			if (!asset) return yield* Effect.fail(bankErr('ASSET_UNSUPPORTED', `Unsupported asset ${acct.asset} on ${acct.chain}`))
 			if (!/^[1-9][0-9]{0,77}$/.test(i.amountMinor)) return yield* Effect.fail(bankErr('VALIDATION', 'amountMinor must be a positive integer string'))

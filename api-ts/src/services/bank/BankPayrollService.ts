@@ -33,6 +33,7 @@ import { BankTransferService } from './BankTransferService'
 import { isEvmAddress, isSolanaAddress } from './chain'
 import { type BankOwner, bankDb } from './db'
 import { type BankError, bankErr } from './errors'
+import { assertSpendable } from './systemDebit'
 import { guard, idemKey, ownerKey, type PayFx, parseMinor, sameOwner, subErr, toOwner, uid } from './paymentsCommon'
 import { firstRun, localDateOf, nextAfter, parseLocalDate, periodBounds, type ScheduleSpec, validateSpec } from './payrollSchedule'
 
@@ -458,6 +459,7 @@ export const BankPayrollServiceLive = Layer.succeed(BankPayrollService, {
 		Effect.gen(function* () {
 			const ledger = yield* BankLedgerService
 			const fund = yield* ledger.getAccount(owner, input.fundingAccountId)
+			{ const sysErr = assertSpendable(fund); if (sysErr) return yield* Effect.fail(sysErr) } // MONEY-PATH: system-kind accounts are never user-spendable
 			if (fund.status !== 'active') return yield* Effect.fail(bankErr('ACCOUNT_STATE', `Funding account is ${fund.status}`))
 			const fa = findAsset(fund.asset, fund.chain)
 			if (!fa) return yield* Effect.fail(bankErr('ASSET_UNSUPPORTED', 'Unsupported funding asset'))
@@ -559,6 +561,7 @@ export const BankPayrollServiceLive = Layer.succeed(BankPayrollService, {
 		Effect.gen(function* () {
 			const ledger = yield* BankLedgerService
 			const fund = yield* ledger.getAccount(owner, input.fundingAccountId)
+			{ const sysErr = assertSpendable(fund); if (sysErr) return yield* Effect.fail(sysErr) } // MONEY-PATH: system-kind accounts are never user-spendable
 			const spec: ScheduleSpec = { frequency: input.frequency, timezone: input.timezone, dayOfWeek: input.dayOfWeek, dayOfMonth: input.dayOfMonth, localTime: input.localTime ?? '09:00' }
 			const first = yield* guard(() => {
 				validateSpec(spec)

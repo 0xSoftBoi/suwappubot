@@ -24,6 +24,8 @@ import { type BankDeps, BankTransferService } from './BankTransferService'
 import { findAsset } from './assets'
 import { type BankOwner, bankDb, newId } from './db'
 import { type BankError, bankErr } from './errors'
+import { assertSpendable } from './systemDebit'
+import { systemDebit } from './systemDebit'
 import { RAIL_INFO, type Rail } from './ramps/rails'
 
 type Deps = BankDeps | BankTransferService | BankRampService | EnvService | BankEarnService
@@ -253,7 +255,7 @@ const impl: BankRemittanceServiceInterface = {
 			).pipe(Effect.catchAll(revert))
 			if (won.autoEarn === 'true' && i.accountId) yield* enrolAutoEarn(to.id, claimer, true)
 			const bt = yield* transfers
-				.transfer({ owner: sender, idempotencyKey: `remit:${won.id}:claim`, type: 'remittance', fromAccountId: won.escrowAccountId as string, toAccountId: to.id, amountMinor: won.amountMinor, metadata: { remittanceId: won.id, claim: true } })
+				.transfer({ owner: sender, idempotencyKey: `remit:${won.id}:claim`, type: 'remittance', fromAccountId: won.escrowAccountId as string, systemDebit: systemDebit('remittance-escrow'), toAccountId: to.id, amountMinor: won.amountMinor, metadata: { remittanceId: won.id, claim: true } })
 				.pipe(Effect.catchAll(revert))
 			if (bt.status === 'failed') return yield* revert(bankErr('UPSTREAM', 'Claim transfer failed; link is still valid'))
 			let rem = yield* setRem(won.id, { status: 'completed', recipientType: claimer.ownerType, recipientId: claimer.ownerId, toAccountId: to.id, bankTransferId: bt.id, completedAt: new Date() })
@@ -370,7 +372,7 @@ const refundEscrow = (id: string, reason: string, requireExpired: boolean): Fx<B
 		if (!won) return yield* Effect.fail(bankErr('CONFLICT', 'Remittance is not refundable (already claimed, refunded or not an open claim)'))
 		const sender: BankOwner = { ownerType: won.senderType as BankOwner['ownerType'], ownerId: won.senderId }
 		const bt = yield* transfers
-			.transfer({ owner: sender, idempotencyKey: `remit:${won.id}:refund`, type: 'remittance', fromAccountId: won.escrowAccountId as string, toAccountId: won.fromAccountId, amountMinor: won.amountMinor, metadata: { remittanceId: won.id, refund: reason } })
+			.transfer({ owner: sender, idempotencyKey: `remit:${won.id}:refund`, type: 'remittance', fromAccountId: won.escrowAccountId as string, systemDebit: systemDebit('remittance-escrow'), toAccountId: won.fromAccountId, amountMinor: won.amountMinor, metadata: { remittanceId: won.id, refund: reason } })
 			.pipe(Effect.tapError(() => setRem(won.id, { status: 'awaiting_claim' }).pipe(Effect.ignore)))
 		if (bt.status === 'failed') {
 			yield* setRem(won.id, { status: 'awaiting_claim' })

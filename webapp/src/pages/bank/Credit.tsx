@@ -68,7 +68,8 @@ function LineAction({ v, mode, onClose }: { v: CreditLineView; mode: 'draw' | 'r
       </Sheet>
     )
   }
-  const tid = m.data && 'transferId' in m.data ? transferIdOf.credit(m.data) : null
+  const md = m.data as { transferId?: string | null } | undefined
+  const tid = md && typeof md.transferId === 'string' ? transferIdOf.credit({ transferId: md.transferId }) : null
   return (
     <ConfirmSheet
       title={`Confirm: ${title.toLowerCase()}`}

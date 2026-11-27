@@ -18,6 +18,7 @@ import { findAsset, fromMinor } from './assets'
 import { currencyDecimals, fxExposure, runway, sweepAmount } from './bankOrgPure'
 import { type BankOwner, bankDb } from './db'
 import { type BankError, bankErr } from './errors'
+import { assertSpendable } from './systemDebit'
 
 type LedgerDeps = DrizzleService | BankLedgerService
 
@@ -85,6 +86,7 @@ const sweepPlanFor = (c: OrgCtx) =>
 		const lines = []
 		for (const p of policies) {
 			const acct = yield* ledger.getAccount(orgOwner(c.org.id), p.accountId)
+			{ const sysErr = assertSpendable(acct); if (sysErr) return yield* Effect.fail(sysErr) } // MONEY-PATH: system-kind accounts are never user-spendable
 			const bal = yield* ledger.balance(acct.id)
 			const amt = sweepAmount(bal, BigInt(p.floorMinor), BigInt(p.minSweepMinor))
 			lines.push({

@@ -17,6 +17,7 @@ import { BankLedgerService } from './BankLedgerService'
 import { BankTransferService } from './BankTransferService'
 import { type BankOwner, bankDb } from './db'
 import { type BankError, bankErr } from './errors'
+import { systemDebit } from './systemDebit'
 import { guard, idemKey, ownerKey, type PayFx, parseMinor, sameOwner, subErr, toOwner, uid } from './paymentsCommon'
 
 export interface PoolView {
@@ -197,6 +198,7 @@ export const BankPayoutPoolServiceLive = Layer.succeed(BankPayoutPoolService, {
 					idempotencyKey: idemKey('poolpay', rec.id),
 					type: 'payout',
 					fromAccountId: pool.poolAccountId,
+					systemDebit: systemDebit('pool-payout'), // MONEY-PATH: service-only capability to debit the pool account
 					toAccountId: input.toAccountId,
 					toExternal: input.toExternal,
 					amountMinor: amount.toString(),

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { bank, transferIdOf, formatMinor, parseToMinor, str } from '../../lib/bankApi'
+import { bank, transferIdOf, formatMinor, parseToMinor } from '../../lib/bankApi'
 import { useBankAccounts } from '../../hooks/bank/useBankCore'
 import { useIdempotencyKey } from '../../hooks/bank/useIdempotencyKey'
 import { BankPage, Btn, Card, ErrorBox, Field, Row } from '../../components/bank/BankUI'

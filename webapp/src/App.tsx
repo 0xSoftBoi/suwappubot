@@ -37,6 +37,7 @@ const Battle = lazy(() => import('./pages/Battle').then(m => ({ default: m.Battl
 const Stocks = lazy(() => import('./pages/Stocks').then(m => ({ default: m.Stocks })))
 const Rewards = lazy(() => import('./pages/Rewards').then(m => ({ default: m.Rewards })))
 const MarketData = lazy(() => import('./pages/MarketData'))
+const PayInvoice = lazy(() => import('./pages/bank/PayInvoice').then(m => ({ default: m.PayInvoice })))
 const BankRoutes = lazy(() => import('./pages/bank').then(m => ({ default: m.BankRoutes })))
 import { DesktopLayout } from './components/layout'
 import { HotkeyOverlay } from './components/desktop/HotkeyOverlay'
@@ -198,6 +199,8 @@ function AppContent() {
             </PublicRoute>
           }
         />
+        {/* Public invoice page: unauthenticated payers (pay from bank account when signed in, else URI + QR) */}
+        <Route path="/pay/:slug" element={<PayInvoice />} />
         <Route
           path="/discover"
           element={

@@ -5,7 +5,8 @@ const human = z.string().regex(/^\d+(\.\d+)?$/, 'must be a decimal string')
 const idem = z.string().regex(/^[A-Za-z0-9_.:-]{8,128}$/, '8-128 chars of A-Za-z0-9_.:-')
 
 export const OpenAccountSchema = z.object({
-	kind: z.enum(['checking', 'savings', 'credit', 'escrow', 'pool', 'treasury']).default('checking'),
+	// MONEY-PATH: escrow/pool are service-opened only (a user-opened escrow/pool account would be un-spendable by design).
+	kind: z.enum(['checking', 'savings', 'credit', 'treasury']).default('checking'),
 	asset: z.string().min(2).max(16),
 	chain: z.string().min(2).max(32),
 	label: z.string().max(80).optional(),

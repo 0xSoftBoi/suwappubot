@@ -17,6 +17,7 @@ import { BankLedgerService } from './BankLedgerService'
 import { BankTransferService } from './BankTransferService'
 import { type BankOwner, bankDb } from './db'
 import { BankError, bankErr } from './errors'
+import { systemDebit } from './systemDebit'
 import { actorOf, guard, idemKey, type PayFx, parseMinor, sameOwner, subErr, toOwner, uid } from './paymentsCommon'
 
 type Entry = BankEscrowMilestone['settlement'][number]
@@ -172,6 +173,7 @@ const executeMoves = (escrowId: string, milestoneId: string): PayFx<number> =>
 				idempotencyKey: idemKey('escrow', e.id, m.id, en.kind, String(en.attempt)),
 				type: 'escrow',
 				fromAccountId: e.escrowAccountId,
+				systemDebit: systemDebit('escrow-settlement'), // MONEY-PATH: service-only capability to debit the escrow account
 				toAccountId: en.kind === 'release' ? e.payeeAccountId : e.payerAccountId,
 				amountMinor: en.amountMinor,
 				memo: `Escrow ${en.kind}`,

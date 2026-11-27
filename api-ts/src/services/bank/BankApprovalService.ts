@@ -45,6 +45,7 @@ import {
 } from './bankOrgPure'
 import { type BankOwner, bankDb } from './db'
 import { type BankError, bankErr } from './errors'
+import { assertSpendable } from './systemDebit'
 
 type Fx<A, R = DrizzleService> = Effect.Effect<A, BankError, R>
 type FxE<A> = Effect.Effect<A, BankError, DrizzleService | EnvService>
@@ -189,6 +190,7 @@ export const performOrgTransfer = (
 		const ledger = yield* BankLedgerService
 		// Source account must be this org's (getAccount is owner-scoped: foreign ids read as NOT_FOUND).
 		const from = yield* ledger.getAccount(orgOwner, i.fromAccountId)
+		{ const sysErr = assertSpendable(from); if (sysErr) return yield* Effect.fail(sysErr) } // MONEY-PATH: system-kind accounts are never user-spendable
 		const toAcct = i.toAccountId ? yield* ledger.getAccountById(i.toAccountId) : null
 		const toExternal = i.toExternal ? { address: normAddr(i.toExternal.address), chain: from.chain } : null
 		const ownToOwn = !!toAcct && toAcct.ownerType === 'org' && toAcct.ownerId === ctx.org.id

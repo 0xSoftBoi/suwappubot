@@ -7,6 +7,7 @@ import { useEscrow, useEscrows, useInvoices, useStreams } from '../../hooks/bank
 import { BankPage, Btn, Card, Chip, Empty, ErrorBox, Field, Input, QueryState, Row, SectionTitle, Sheet, Tabs } from '../../components/bank/BankUI'
 import { AccountSelect } from '../../components/bank/AccountSelect'
 import { AmountInput } from '../../components/bank/Amount'
+import { EscrowDetail } from '../../components/bank/EscrowDetail'
 import { MoneyAction } from '../../components/bank/MoneyAction'
 import { a11yToast } from '@/lib/a11yToast'
 
@@ -98,49 +99,12 @@ function Invoices() {
             { label: 'Fee', value: 'None shown by the API' },
           ]}
           confirmLabel="Pay"
+          trackId={transferIdOf.invoicePay}
           run={(k) => bank.payInvoice({ invoiceId: paying.id, fromAccountId: from, amountMinor: paying.amountMinor }, k)}
           onClose={() => { setPaying(null); setFrom('') }}
         />
       )}
     </div>
-  )
-}
-
-function EscrowDetail({ e, onClose }: { e: Escrow; onClose: () => void }) {
-  const d = useEscrow(e.id)
-  const accounts = useBankAccounts()
-  const [reason, setReason] = useState('')
-  const [act, setAct] = useState<{ seq: number; a: 'confirm' | 'dispute'; amount: string } | null>(null)
-  const raw = (d.data ?? {}) as Record<string, any>
-  const ms: Array<Record<string, any>> = raw.milestones ?? raw.escrow?.milestones ?? []
-  const decs = dec(accounts.data, e.asset, e.chain)
-  return (
-    <Sheet title="Escrow" onClose={onClose}>
-      <div className="space-y-2">
-        <Row label="Status" value={<Chip status={e.status} />} />
-        {e.description && <Row label="For" value={e.description} />}
-        {d.isLoading && <p className="text-sm animate-pulse">Loading milestones…</p>}
-        {d.isError && <ErrorBox error={d.error} />}
-        {ms.map((m) => (
-          <Card key={String(m.id ?? m.seq)} className="!p-3">
-            <div className="flex justify-between"><p className="text-sm font-semibold">Milestone {m.seq}</p><Chip status={String(m.status)} /></div>
-            {m.description && <p className="text-xs text-suwappu-text-secondary">{String(m.description)}</p>}
-            <Row label="Amount" value={`${formatMinor(str(m.amountMinor), decs)} ${e.asset}`} />
-            {m.status === 'delivered' && <div className="grid grid-cols-2 gap-2 mt-1"><Btn onClick={() => setAct({ seq: m.seq, a: 'confirm', amount: str(m.amountMinor) ?? '' })}>Release</Btn><Btn variant="danger" onClick={() => setAct({ seq: m.seq, a: 'dispute', amount: str(m.amountMinor) ?? '' })}>Dispute</Btn></div>}
-          </Card>
-        ))}
-        {act?.a === 'dispute' && <Field label="Reason for dispute"><Input value={reason} onChange={(x) => setReason(x.target.value)} /></Field>}
-      </div>
-      {act && (act.a === 'confirm' || reason.trim()) && (
-        <MoneyAction
-          title={act.a === 'confirm' ? 'Confirm delivery and release' : 'Open dispute'}
-          rows={[{ label: 'Milestone', value: String(act.seq) }, { label: 'Amount', value: `${formatMinor(act.amount, decs)} ${e.asset}` }, { label: 'Fee', value: 'None shown by the API' }, ...(act.a === 'dispute' ? [{ label: 'Reason', value: reason }] : [])]}
-          confirmLabel={act.a === 'confirm' ? 'Release funds' : 'Dispute'}
-          run={() => bank.escrowAction(e.id, act.seq, act.a, act.a === 'dispute' ? { reason } : undefined)}
-          onClose={() => { setAct(null); void d.refetch() }}
-        />
-      )}
-    </Sheet>
   )
 }
 

@@ -16,6 +16,7 @@ import { type BankDeps, type BankTransferService } from './BankTransferService'
 import { ageingBucket, AGEING_BUCKETS, DUNNING_SCHEDULE_DAYS, dunningStage, hashPayload, matchPolicy, mintApprovalToken, type PolicyLite } from './bankOrgPure'
 import { type BankOwner, bankDb } from './db'
 import { type BankError, bankErr } from './errors'
+import { assertSpendable } from './systemDebit'
 
 const orgOwner = (id: string): BankOwner => ({ ownerType: 'org', ownerId: id })
 const normAddr = (a: string): string => (a.startsWith('0x') ? a.toLowerCase() : a)
@@ -125,6 +126,7 @@ const impl = {
 			if (!bill) return yield* Effect.fail(bankErr('NOT_FOUND', 'Bill not found'))
 			if (!['unpaid', 'failed', 'scheduled', 'pending_approval'].includes(bill.status)) return yield* Effect.fail(bankErr('CONFLICT', `Bill is ${bill.status}`))
 			const acct = yield* (yield* BankLedgerService).getAccount(orgOwner(orgId), i.payFromAccountId)
+			{ const sysErr = assertSpendable(acct); if (sysErr) return yield* Effect.fail(sysErr) } // MONEY-PATH: system-kind accounts are never user-spendable
 			if (acct.asset !== bill.asset || acct.chain !== bill.chain) return yield* Effect.fail(bankErr('VALIDATION', `Pay-from account is ${acct.asset}/${acct.chain}, bill is ${bill.asset}/${bill.chain}`))
 			const vendor = yield* bankDb(async (db) => (await db.select().from(bankOrgVendors).where(eq(bankOrgVendors.id, bill.vendorId)).limit(1))[0])
 			if (!vendor?.payAddress || vendor.payChain !== bill.chain) return yield* Effect.fail(bankErr('VALIDATION', 'Vendor needs a payment address on the bill chain', { missing: 'vendor.payAddress/payChain' }))

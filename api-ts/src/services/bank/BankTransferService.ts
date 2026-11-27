@@ -34,6 +34,7 @@ import { BankLedgerService, type LedgerLeg, postInTx } from './BankLedgerService
 import * as chain from './chain'
 import { type BankOwner, bankDb, newId, withDbLock } from './db'
 import { BankError, bankErr } from './errors'
+import { assertSpendable, type SystemDebit } from './systemDebit'
 
 export type BankDeps = DrizzleService | BankLedgerService | TurnkeyService | PolicyService
 type Fx<A> = Effect.Effect<A, BankError, BankDeps>
@@ -51,6 +52,8 @@ export interface TransferInput {
 	metadata?: Record<string, unknown> | undefined
 	/** Hold-releasing transfers (card capture, escrow release/fund, stream settlement) name the hold they consume so it is not subtracted from available balance. */
 	consumesHold?: ConsumesHold | undefined
+	/** MONEY-PATH: required to debit system-kind accounts (escrow/pool). Only services mint it (see systemDebit.ts); routes never pass it. */
+	systemDebit?: SystemDebit | undefined
 }
 
 export interface SendEvmInput {
@@ -707,6 +710,9 @@ export const BankTransferServiceLive = Layer.succeed(BankTransferService, {
 
 			const from = yield* ledger.getAccount(input.owner, input.fromAccountId)
 			if (from.status !== 'active') return yield* Effect.fail(bankErr('ACCOUNT_STATE', `Source account is ${from.status}`))
+			// MONEY-PATH: escrow/pool accounts are owned by the payer/operator but are not theirs to spend.
+			const sysErr = assertSpendable(from, input.systemDebit)
+			if (sysErr) return yield* Effect.fail(sysErr)
 			const asset = yield* Effect.try({ try: () => requireAsset(from.asset, from.chain), catch: (e) => e as BankError })
 
 			let to: BankAccount | null = null

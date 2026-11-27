@@ -23,6 +23,7 @@ import { findAsset, fromMinor } from './assets'
 import { erc20ApproveData, evmAllowance, evmReceipt } from './chain'
 import { type BankOwner, bankDb, newId } from './db'
 import { type BankError, bankErr } from './errors'
+import { assertSpendable, type SystemDebit } from './systemDebit'
 
 type Deps = BankDeps | BankTransferService | EnvService | SwapService
 type Fx<A> = Effect.Effect<A, BankError, Deps>
@@ -37,6 +38,8 @@ export interface FxRequest {
 	slippage?: number | undefined
 	/** Reject routes that touch any third token. */
 	requireDirect?: boolean | undefined
+	/** MONEY-PATH: service-minted capability to convert from a system-kind account; never forwarded from routes. */
+	systemDebit?: SystemDebit | undefined
 }
 
 export interface FxQuote {
@@ -96,6 +99,9 @@ const prepare = (req: FxRequest) =>
 			return yield* Effect.fail(bankErr('VALIDATION', 'amountMinor must be a positive integer string'))
 		const from = yield* ledger.getAccount(req.owner, req.fromAccountId)
 		const to = yield* ledger.getAccount(req.owner, req.toAccountId)
+		// MONEY-PATH: no user-initiated conversion out of escrow/pool accounts.
+		const sysErr = assertSpendable(from, req.systemDebit)
+		if (sysErr) return yield* Effect.fail(sysErr)
 		if (from.status !== 'active' || to.status !== 'active') return yield* Effect.fail(bankErr('ACCOUNT_STATE', 'Both accounts must be active'))
 		if (from.asset === to.asset) return yield* Effect.fail(bankErr('VALIDATION', 'Accounts hold the same asset; use a transfer'))
 		if (from.chain !== to.chain)

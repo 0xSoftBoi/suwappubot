@@ -346,7 +346,7 @@ const loadBorrowAccount = (owner: BankOwner, accountId: string): Fx<BankAccount>
 	Effect.gen(function* () {
 		const ledger = yield* BankLedgerService
 		const a = yield* ledger.getAccount(owner, accountId)
-		if (a.kind === 'savings' || a.kind === 'pool') return yield* Effect.fail(bankErr('VALIDATION', `Use a checking/treasury account (got ${a.kind})`))
+		if (a.kind === 'savings' || a.kind === 'pool' || a.kind === 'escrow') return yield* Effect.fail(bankErr('VALIDATION', `Use a checking/treasury account (got ${a.kind})`))
 		if (a.status !== 'active') return yield* Effect.fail(bankErr('ACCOUNT_STATE', `Account is ${a.status}`))
 		if (!a.address || a.walletId === null || a.walletUserId === null) return yield* Effect.fail(bankErr('WALLET_UNAVAILABLE', 'Account has no custody wallet'))
 		return a

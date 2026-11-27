@@ -25,6 +25,7 @@ import { BankTransferService } from './BankTransferService'
 import { b58encode } from './chain'
 import { type BankOwner, bankDb } from './db'
 import { bankErr } from './errors'
+import { assertSpendable } from './systemDebit'
 import { evmHead, evmTransferLogs, MAX_LOG_RANGE, solReceivedBy, solReferenceSignatures } from './onchainScan'
 import { buildEip681Erc20, buildSolanaPay, qrPayload } from './paymentRequest'
 import { BankCreditLookup, guard, idemKey, newSlug, type PayFx, optional, parseMinor, sameOwner, toOwner, uid } from './paymentsCommon'
@@ -429,6 +430,7 @@ export const BankPaymentsServiceLive = Layer.succeed(BankPaymentsService, {
 			if (inv.payerOwnerType && !sameOwner(owner, toOwner(inv.payerOwnerType, inv.payerOwnerId!)))
 				return yield* Effect.fail(bankErr('FORBIDDEN', 'This invoice is addressed to a different payer'))
 			const from = yield* ledger.getAccount(owner, input.fromAccountId)
+			{ const sysErr = assertSpendable(from); if (sysErr) return yield* Effect.fail(sysErr) } // MONEY-PATH: system-kind accounts are never user-spendable
 			if (from.asset !== inv.asset || from.chain !== inv.chain)
 				return yield* Effect.fail(bankErr('VALIDATION', `Invoice is denominated in ${inv.asset} on ${inv.chain}; convert with /fx first or pay from a matching account`))
 			const remaining = BigInt(inv.amountMinor) - BigInt(inv.paidMinor)

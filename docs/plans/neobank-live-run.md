@@ -12,9 +12,9 @@
 
 | Step | Result | Notes |
 |---|---|---|
-| 3a accounts, statement, concurrent sync-deposit | NOT RUN | |
-| 3b A to B transfer, receipt-verified, 5x idempotent replay | NOT RUN | |
-| 3c 10 concurrent transfers, nonce, reconcile | NOT RUN | |
+| 3a accounts, statement, concurrent sync-deposit | PASS | 4 concurrent syncs over 2 accounts of one wallet: one credit of 100000000 (one deposit transfer, ledger net 0). 200s. |
+| 3b A to B transfer, receipt-verified, 5x idempotent replay | PASS | submitted (ledger debit A/credit clearing) then confirmed by reconciler only after 10 confirmations (Base depth; local chain needed evm_mine x12, expected behaviour). 5 concurrent same-key: 1 row, 1 tx; different body same key: 409 CONFLICT. All transfers net 0. |
+| 3c 10 concurrent transfers, nonce, reconcile | PASS | 10 distinct tx hashes, wallet nonce 12 (consecutive), 10 confirmed; ledger 79000000 = onchain 79000000; reconcile in_sync delta 0; no unbalanced transfer. |
 | 3d overdraft, bad recipients, cross-owner 4xx | NOT RUN | |
 | 3e kill -9 mid-flight and pre-broadcast | NOT RUN | |
 | 3f holds block and release | NOT RUN | |
