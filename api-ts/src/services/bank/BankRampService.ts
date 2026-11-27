@@ -502,11 +502,17 @@ const processEvent = (provider: ProviderId, category: string, obj: Record<string
 			const row = yield* bankDb(async (db) => {
 				// MONEY-PATH: a ramp row we already failed (send failed/reversed) is never revived or paid out by a late provider event: record the provider state and flag for ops only.
 				const [cur] = await db.select().from(bankRampTransfers).where(and(eq(bankRampTransfers.provider, provider), eq(bankRampTransfers.providerId, id))).limit(1)
-				if (cur && cur.status === 'failed' && cur.direction !== 'deposit') {
-					const [f] = await db.update(bankRampTransfers).set({ providerState: state, metadata: mergeMeta(bankRampTransfers.metadata, { staleProviderTransfer: { state, at: new Date().toISOString() } }) as never, updatedAt: new Date() }).where(eq(bankRampTransfers.id, cur.id)).returning()
+				const flagStale = async (rowId: string) => {
+					const [f] = await db.update(bankRampTransfers).set({ providerState: state, metadata: mergeMeta(bankRampTransfers.metadata, { staleProviderTransfer: { state, at: new Date().toISOString() } }) as never, updatedAt: new Date() }).where(eq(bankRampTransfers.id, rowId)).returning()
 					return f
 				}
-				const [r] = await db.update(bankRampTransfers).set({ providerState: state, status: mapBridgeState(state), updatedAt: new Date() }).where(and(eq(bankRampTransfers.provider, provider), eq(bankRampTransfers.providerId, id))).returning()
+				if (cur && cur.status === 'failed' && cur.direction !== 'deposit') return flagStale(cur.id)
+				// MONEY-PATH (P5): the UPDATE itself refuses to overwrite a row a concurrent send failure marked failed between the read above and now.
+				const [r] = await db.update(bankRampTransfers).set({ providerState: state, status: mapBridgeState(state), updatedAt: new Date() }).where(and(eq(bankRampTransfers.provider, provider), eq(bankRampTransfers.providerId, id), sql`not (${bankRampTransfers.status} = 'failed' and ${bankRampTransfers.direction} <> 'deposit')`)).returning()
+				if (!r && cur) {
+					const [again] = await db.select().from(bankRampTransfers).where(eq(bankRampTransfers.id, cur.id)).limit(1)
+					if (again && again.status === 'failed' && again.direction !== 'deposit') return flagStale(again.id)
+				}
 				return r
 			})
 			if (!row) return 'unknown_transfer'

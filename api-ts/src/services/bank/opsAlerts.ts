@@ -37,6 +37,11 @@ export async function flagStuckOps(): Promise<number> {
 				update bank_earn_ops set metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object('needsOpsReview', now()::text)
 				where status = 'pending' and not (coalesce(metadata, '{}'::jsonb) ? 'needsOpsReview') and updated_at < now() - ${th}
 				returning id, owner_type, owner_id, assets_minor`)) as unknown as Array<Record<string, string>>
+			// MONEY-PATH: paywall claims still 'pending:' long after the authorization expired (e.g. the settlement search window missed the tx) are never auto-rejected; surface them here.
+			const sales = (await db.execute(sql`
+				select id, resource_id, chain, auth_nonce, amount_minor from bank_agent_resource_sales
+				where tx_hash like 'pending:%' and created_at < now() - interval '3 hours' order by created_at limit 20`)) as unknown as Array<Record<string, string>>
+			for (const r of sales) logger.warn({ saleId: r.id, resourceId: r.resource_id, chain: r.chain, nonce: r.auth_nonce, amountMinor: r.amount_minor }, '[bank] paywall sale stuck pending; needs manual settlement lookup')
 			for (const r of t) logger.warn({ transferId: r.id, owner: `${r.owner_type}:${r.owner_id}`, amountMinor: r.amount_minor }, '[bank] transfer needs ops review')
 			for (const r of e) logger.warn({ earnOpId: r.id, owner: `${r.owner_type}:${r.owner_id}`, amountMinor: r.assets_minor }, '[bank] earn op needs ops review')
 			return t.length + e.length

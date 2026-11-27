@@ -56,3 +56,17 @@ Setup: Postgres :5433, Hardhat fork :8545, signer stand-in up. `drizzle-kit migr
 | 3a' deposit during in-flight outgoing | PASS | 5M outgoing `submitted`, 30M arrives, 4 concurrent syncs: one credited 25000000 (30M minus 5M in flight), three 0; after confirmation a sync credited the remaining 5000000; total 30M once; reconcile in_sync delta 0, no unbalanced transfer. |
 | 3d overdraft, bad recipients, self-address, cross-owner | PASS | Overdraft 422 INSUFFICIENT_AVAILABLE; zero/precompile, USDC contract, malformed -> 400 VALIDATION; amount 0/negative 400; own wallet address 400 VALIDATION ("use toAccountId"); B/agent on A's resources 404 NOT_FOUND; no auth/bad sig 401; no rows persisted for rejected keys. |
 | 3f escrow holds | PASS | 50M escrow funded (A -50M, escrow acct 50M); payer debiting escrow account to external or own account -> 409 ACCOUNT_STATE; payer refund 403 FORBIDDEN; payee refund 200 -> escrow 0, A balance restored, 40M internal transfer confirmed; all net 0. The explicit "transfer above available refused" case is covered in n1 below (r1.ts's 160M case was within balance this time since A held 429M). |
+| 3e kill -9 after broadcast / during signing | PASS | (1) kill -9 while `submitted` -> restart -> confirmed once, ledger submit+confirm net 0, receipt present. (2) signer stalled 40s, kill -9 mid-sign (pending, claimed, no hash) -> restart; after `CLAIM_STALE_MS` (2 min, BankTransferService.ts:112) the reconciler re-claimed, signed and broadcast once; confirmed; no pending/submitted leftovers; reconcile in_sync (489000000 = onchain); no unbalanced transfer. |
+| g8 earn | NOT RUN (yet) | |
+| g1 invoice | NOT RUN (yet) | |
+| g2 payroll | NOT RUN (yet) | |
+| g4 remittance | NOT RUN (yet) | |
+| g3 stream | NOT RUN (yet) | |
+| g5 org approvals | NOT RUN (yet) | |
+| g6 FX | NOT RUN (yet) | |
+| g7 cards | NOT RUN (yet) | |
+| 3h jobs | NOT RUN (yet) | |
+| n1 escrow split failed leg | NOT RUN (yet) | |
+| n2 payout pool retry | NOT RUN (yet) | |
+| n3 partner fee | NOT RUN (yet) | |
+| n4 ops alerts | NOT RUN (yet) | |

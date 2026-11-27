@@ -2,7 +2,7 @@ import { Effect, Either } from 'effect'
 import { Hono, type Context } from 'hono'
 import { z } from 'zod'
 import { runEffectEither } from '../../runtime'
-import { BankAgentPayService } from '../../services/bank/BankAgentPayService'
+import { BankAgentPayService, recoverPaidResource } from '../../services/bank/BankAgentPayService'
 import { BankError } from '../../services/bank/errors'
 import { formatZodErrors } from '../validators'
 import { readJson } from './core'
@@ -55,6 +55,19 @@ async function servePaywall(c: Context): Promise<Response> {
 /** Public x402 paywall: `app.route('/x402/bank', bankX402PublicRoutes)` -> ALL /x402/bank/pay/:slug. Only this handler. */
 export const bankX402PublicRoutes = new Hono()
 bankX402PublicRoutes.all('/pay/:slug', servePaywall)
+// MONEY-PATH: payer recovery for sales settled by the reconcile job: {chain, nonce} -> challenge; + {signature} (EIP-191 over it) -> one-shot retrieval token.
+const Recover = z.object({ chain: z.string().min(2).max(32), nonce: z.string().regex(/^0x[0-9a-fA-F]{64}$/), signature: z.string().regex(/^0x[0-9a-fA-F]{130}$/).optional() })
+bankX402PublicRoutes.post('/pay/:slug/recover', async (c) => {
+	const parsed = Recover.safeParse(await readJson(c))
+	if (!parsed.success) return c.json({ success: false, error: 'VALIDATION', message: 'Invalid request', details: formatZodErrors(parsed.error) }, 400)
+	const r = await runEffectEither(Effect.gen(function* () { return yield* recoverPaidResource(c.req.param('slug') as string, parsed.data) }))
+	if (Either.isLeft(r)) {
+		const e = r.left as unknown
+		if (e instanceof BankError) return c.json({ success: false, error: e.code, message: e.message }, e.status as 400)
+		return c.json({ success: false, error: 'INTERNAL', message: String(e) }, 500)
+	}
+	return c.json({ success: true, ...r.right })
+})
 
 export function register(app: BankRouteApp, deps: BankRouteDeps): void {
 	const { resolveOwner, run } = deps

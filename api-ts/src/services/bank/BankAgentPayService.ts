@@ -8,9 +8,9 @@
  */
 import { assertAvailable, registerHoldProvider, sumRow } from './holds'
 import { createHash, randomBytes } from 'node:crypto'
-import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, like, sql } from 'drizzle-orm'
 import { Context, Effect, Layer, Option } from 'effect'
-import { decodeAbiParameters, keccak256, toHex } from 'viem'
+import { decodeAbiParameters, keccak256, recoverMessageAddress, toHex } from 'viem'
 import {
 	type BankAccount,
 	type BankAgentMandate,
@@ -531,10 +531,14 @@ const AUTH_STATE_SELECTOR = '0xe94a0102' // authorizationState(address,bytes32)
 const SAFE_DEPTH: Record<string, bigint> = { ethereum: 12n, polygon: 64n, bsc: 15n, base: 10n, optimism: 10n, arbitrum: 60n }
 const EXPIRY_MARGIN_SEC = 60
 /** Reads authorizationState at a block `depth` behind head and returns that block's timestamp, so expiry is judged by chain time. */
-const readAuthUsed = async (chain: string, token: string, from: string, nonce: string): Promise<{ used: boolean; chainTime: number }> => {
+/** MONEY-PATH: the SAFE block number (head minus per-chain depth); the log search and the authorization-state read must use the SAME one. */
+const safeBlockOf = async (chain: string): Promise<bigint> => {
+	const head = BigInt(await jsonRpc<string>(rpcUrlFor(chain), 'eth_blockNumber', []))
+	return head > (SAFE_DEPTH[chain] ?? 10n) ? head - (SAFE_DEPTH[chain] ?? 10n) : 0n
+}
+const readAuthUsed = async (chain: string, token: string, from: string, nonce: string, atBlock?: bigint): Promise<{ used: boolean; chainTime: number }> => {
 	const url = rpcUrlFor(chain)
-	const head = BigInt(await jsonRpc<string>(url, 'eth_blockNumber', []))
-	const safe = head > (SAFE_DEPTH[chain] ?? 10n) ? head - (SAFE_DEPTH[chain] ?? 10n) : 0n
+	const safe = atBlock ?? (await safeBlockOf(chain))
 	const tag = `0x${safe.toString(16)}`
 	const blk = await jsonRpc<{ timestamp: string } | null>(url, 'eth_getBlockByNumber', [tag, false])
 	if (!blk) throw new Error('safe block unavailable')
@@ -591,15 +595,14 @@ type RpcLog = { address: string; topics: string[]; data: string; transactionHash
 
 /** MONEY-PATH: finds the tx where the token emitted AuthorizationUsed(authorizer=from, nonce) AND Transfer(from, payTo, value >= min)
  * in the SAME successful transaction. authorizationState alone is never proof (the pair may have paid anyone). Scans backwards in bounded chunks. */
-const findSettlementTx = async (chain: string, token: string, from: string, nonce: string, payTo: string, minValue: bigint, createdSec: number): Promise<string | null> => {
+const findSettlementTx = async (chain: string, token: string, from: string, nonce: string, payTo: string, minValue: bigint, createdSec: number, safe: bigint, startBlock: bigint | null): Promise<{ tx: string | null; complete: boolean }> => {
 	const url = rpcUrlFor(chain)
-	const depth = SAFE_DEPTH[chain] ?? 10n
-	const head = BigInt(await jsonRpc<string>(url, 'eth_blockNumber', []))
-	const safe = head > depth ? head - depth : 0n
 	const CHUNK = 5000n
-	for (let i = 0n; i < 12n; i++) {
+	// Lower bound: the head block stored at claim time (minus slack); legacy rows without it fall back to the claim's creation time.
+	const lower = startBlock !== null ? (startBlock > 100n ? startBlock - 100n : 0n) : null
+	for (let i = 0n; i < 200n; i++) {
 		const to = safe - i * CHUNK
-		if (to < 0n) break
+		if (to < 0n) return { tx: null, complete: true }
 		const fromB = to >= CHUNK - 1n ? to - (CHUNK - 1n) : 0n
 		const logs = await jsonRpc<RpcLog[]>(url, 'eth_getLogs', [{ address: token, fromBlock: `0x${fromB.toString(16)}`, toBlock: `0x${to.toString(16)}`, topics: [AUTH_USED_TOPIC, pad32(from), nonce] }])
 		for (const l of logs ?? []) {
@@ -607,13 +610,14 @@ const findSettlementTx = async (chain: string, token: string, from: string, nonc
 			const rc = await jsonRpc<{ status: string; logs: RpcLog[] } | null>(url, 'eth_getTransactionReceipt', [l.transactionHash])
 			if (!rc || BigInt(rc.status) !== 1n) continue
 			const ok = rc.logs.some((x) => x.address.toLowerCase() === token.toLowerCase() && x.topics[0] === TRANSFER_TOPIC && x.topics[1]?.toLowerCase() === pad32(from) && x.topics[2]?.toLowerCase() === pad32(payTo) && BigInt(x.data) >= minValue)
-			if (ok) return l.transactionHash
+			if (ok) return { tx: l.transactionHash, complete: true }
 		}
-		if (fromB === 0n) break
+		if (fromB === 0n) return { tx: null, complete: true }
+		if (lower !== null) { if (fromB <= lower) return { tx: null, complete: true }; continue }
 		const blk = await jsonRpc<{ timestamp: string } | null>(url, 'eth_getBlockByNumber', [`0x${fromB.toString(16)}`, false])
-		if (blk && Number(BigInt(blk.timestamp)) < createdSec - 600) break
+		if (blk && Number(BigInt(blk.timestamp)) < createdSec - 600) return { tx: null, complete: true }
 	}
-	return null
+	return { tx: null, complete: false } // window exhausted before reaching the claim: NOT a negative result
 }
 
 /** MONEY-PATH: reconcile paywall claims left 'pending:<nonce>' (facilitator threw/timed out). Only validated claims exist (signature checked
@@ -635,14 +639,19 @@ export const reconcilePendingSales = async (): Promise<number> => {
 				if (ageSec > 3600) { await reject(sale); n++ } // can never be processed: terminal state
 				continue
 			}
-			const tx = await findSettlementTx(sale.chain, asset.address, payerAddr, sale.authNonce, account.address, BigInt(sale.amountMinor), Math.floor(sale.createdAt.getTime() / 1000))
+			const safe = await safeBlockOf(sale.chain)
+			const { tx, complete } = await findSettlementTx(sale.chain, asset.address, payerAddr, sale.authNonce, account.address, BigInt(sale.amountMinor), Math.floor(sale.createdAt.getTime() / 1000), safe, sale.headBlock ? BigInt(sale.headBlock) : null)
 			if (tx) {
 				await runEffect(bankDb((db) => db.update(bankAgentResourceSales).set({ txHash: `unserved:${tx}` }).where(and(eq(bankAgentResourceSales.id, sale.id), eq(bankAgentResourceSales.txHash, `pending:${sale.authNonce}`)))) as never)
 				n++
 			} else {
-				const st = await readAuthUsed(sale.chain, asset.address, payerAddr, sale.authNonce)
-				if (st.chainTime <= Math.floor(sale.createdAt.getTime() / 1000) + 900) continue
-				if (st.used) await reject(sale) // used, but not for this payee/price: terminal, never served
+				const st = await readAuthUsed(sale.chain, asset.address, payerAddr, sale.authNonce, safe) // same safe block as the log search
+				// MONEY-PATH: never release/reject before the SAFE block's timestamp is past the authorization's validBefore (+margin); legacy rows use the old 1h cap.
+				const horizon = sale.validBefore ? Number(sale.validBefore) + EXPIRY_MARGIN_SEC : Math.floor(sale.createdAt.getTime() / 1000) + 3600 + 900
+				if (st.chainTime <= horizon) continue
+				// used + search incomplete (window missed the tx): stay pending and let the ops-alerts job surface it; never reject on a partial search.
+				if (st.used && !complete) continue
+				if (st.used) await reject(sale) // used, and a COMPLETE search found no payee/price match: terminal, never served
 				else await runEffect(bankDb((db) => db.delete(bankAgentResourceSales).where(and(eq(bankAgentResourceSales.id, sale.id), eq(bankAgentResourceSales.txHash, `pending:${sale.authNonce}`)))) as never)
 				n++
 			}
@@ -653,3 +662,34 @@ export const reconcilePendingSales = async (): Promise<number> => {
 	return n
 }
 registerBankJob('agent-pay-sales', 120, reconcilePendingSales)
+
+const RECOVER_TTL_MS = 5 * 60 * 1000
+/** MONEY-PATH: recovery for a sale that went `unserved` via the reconcile job (the payer holds no retrieval token).
+ * Without `signature`: returns a server-issued challenge bound to (sale, slug, nonce, expiry <= 5 min). With `signature`: an EIP-191
+ * personal_sign of that challenge must recover to the authorization's `from`; a one-shot retrieval token is then issued (sha256 stored). */
+export const recoverPaidResource = (slug: string, i: { chain: string; nonce: string; signature?: string }): Effect.Effect<{ challenge?: string; expiresAt?: string; retrievalToken?: string }, BankError, never> =>
+	bankDb(async (db) => {
+		const nonce = i.nonce.toLowerCase()
+		const [res] = await db.select().from(bankAgentResources).where(and(eq(bankAgentResources.slug, slug), eq(bankAgentResources.status, 'active'))).limit(1)
+		const [sale] = res && res.chain === i.chain ? await db.select().from(bankAgentResourceSales).where(and(eq(bankAgentResourceSales.chain, res.chain), eq(bankAgentResourceSales.authNonce, nonce), eq(bankAgentResourceSales.resourceId, res.id))).limit(1) : []
+		if (!res || !sale || !sale.txHash.startsWith('unserved:')) throw bankErr('NOT_FOUND', 'No recoverable sale for this resource/nonce')
+		const payerAddr = sale.payer.split('#')[0] ?? ''
+		const now = Date.now()
+		if (!i.signature) {
+			if (sale.recoverChallenge && sale.recoverExpires && sale.recoverExpires.getTime() > now) return { challenge: sale.recoverChallenge, expiresAt: sale.recoverExpires.toISOString() } // idempotent: an observer cannot invalidate the payer's challenge
+			const expires = new Date(now + RECOVER_TTL_MS)
+			const challenge = `Suwappu x402 recovery\nsale:${sale.id}\nresource:${slug}\nnonce:${nonce}\nexpires:${expires.toISOString()}\nr:${randomBytes(16).toString('hex')}`
+			const set = await db.update(bankAgentResourceSales).set({ recoverChallenge: challenge, recoverExpires: expires }).where(and(eq(bankAgentResourceSales.id, sale.id), like(bankAgentResourceSales.txHash, 'unserved:%'))).returning({ id: bankAgentResourceSales.id })
+			if (!set.length) throw bankErr('CONFLICT', 'Sale state changed; retry')
+			return { challenge, expiresAt: expires.toISOString() }
+		}
+		if (!sale.recoverChallenge || !sale.recoverExpires || sale.recoverExpires.getTime() <= now) throw bankErr('VALIDATION', 'Challenge missing or expired; request a new one')
+		let signer: string
+		try { signer = await recoverMessageAddress({ message: sale.recoverChallenge, signature: i.signature as `0x${string}` }) } catch { throw bankErr('VALIDATION', 'Signature unrecoverable') }
+		if (signer.toLowerCase() !== payerAddr.toLowerCase()) throw bankErr('POLICY_BLOCKED', 'Signature is not from the payer')
+		const token = randomBytes(32).toString('hex')
+		// single-use challenge: consumed atomically with token issuance
+		const ok = await db.update(bankAgentResourceSales).set({ retrievalHash: createHash('sha256').update(token).digest('hex'), recoverChallenge: null, recoverExpires: null }).where(and(eq(bankAgentResourceSales.id, sale.id), eq(bankAgentResourceSales.recoverChallenge, sale.recoverChallenge), like(bankAgentResourceSales.txHash, 'unserved:%'))).returning({ id: bankAgentResourceSales.id })
+		if (!ok.length) throw bankErr('CONFLICT', 'Challenge already used')
+		return { retrievalToken: token }
+	})

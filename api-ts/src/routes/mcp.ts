@@ -1190,8 +1190,9 @@ async function handleBankTool(name: string, args: Record<string, unknown>, c: Co
 				http_status: res.status,
 				...(json?.fields ? { fields: json.fields } : {}),
 				...(json?.missing ? { missing: json.missing } : {}),
-				retryable: res.status === 429 || (res.status === 503 && code === 'LOCK_BUSY'),
-				...(ra ? { retry_after_seconds: Number(ra) } : {}),
+				// MONEY-PATH: bank_agent_pay 409 "in progress / outcome pending" for the SAME key is retryable with the SAME key (never a new key); a different-terms 409 is not.
+				retryable: res.status === 429 || (res.status === 503 && code === 'LOCK_BUSY') || (res.status === 409 && /in progress or its outcome is pending/.test(String(json?.message ?? ''))),
+				...(ra ? { retry_after_seconds: Number(ra) } : res.status === 409 && /in progress or its outcome is pending/.test(String(json?.message ?? '')) ? { retry_after_seconds: 5 } : {}),
 			})
 		}
 		return { content: [{ type: 'text' as const, text }] }
