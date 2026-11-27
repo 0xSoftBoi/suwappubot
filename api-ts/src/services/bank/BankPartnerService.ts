@@ -28,7 +28,7 @@ import { findAsset } from './assets'
 import { BankFxService } from './BankFxService'
 import { BankLedgerService } from './BankLedgerService'
 import { ensureOrgCustodyWallet } from './BankOrgService'
-import { BankTransferService } from './BankTransferService'
+import { BankTransferService, feeKeyFor } from './BankTransferService'
 import { type BankOwner, bankDb, newId } from './db'
 import { type BankError, bankErr } from './errors'
 import { assertSpendable } from './systemDebit'
@@ -108,32 +108,40 @@ export const signWebhook = (secret: string, timestamp: number, body: string): st
  * MONEY-PATH: fee is charged FIRST (so no error can surface after principal moved); if the principal then fails, the fee
  * is refunded from the partner revenue account (compensation, idempotent per key). Returns the principal's result.
  */
-const withFeeFirst = <A>(partnerId: string, customerId: string, from: BankAccount, amount: bigint, bps: number, key: string, kind: 'transfer' | 'fx', principal: Effect.Effect<A, BankError, any>) =>
+/**
+ * MONEY-PATH: the fee is no longer charged first / refunded. It rides the principal as a `feeLeg`: both rows are inserted in one tx
+ * under the source-account lock (available >= amount + fee) and the fee row only moves after the principal confirms; a failed
+ * principal voids the fee (never charged). So there is no refund path to swallow and no fee-without-transfer crash window.
+ * Fee settlement choice: the fee is a real transfer to the partner revenue wallet (separate on-chain send when the wallet differs;
+ * ledger-only settle when it is the same wallet), not a ledger-only credit, so revenue balances stay backed on-chain.
+ * Fee = floor(amount * bps / 10000), bps validated integer 0..10000.
+ */
+const feeLegFor = (partnerId: string, from: BankAccount, amount: bigint, bps: number, key: string, kind: 'transfer' | 'fx') =>
 	Effect.gen(function* () {
-		const { fee, feeMinor } = yield* chargeFee(partnerId, customerId, from, amount, bps, key, kind)
-		const res = yield* Effect.either(principal)
-		if (res._tag === 'Left') {
-			if (fee && fee.toAccount) {
-				const t = yield* BankTransferService
-				yield* Effect.either(t.transfer({ owner: { ownerType: 'org', ownerId: partnerId }, idempotencyKey: `${key}:feerefund`, type: 'internal', fromAccountId: fee.toAccount, toAccountId: from.id, amountMinor: feeMinor, memo: `partner ${kind} fee refund`, metadata: { partnerFeeRefund: true, partnerId, kind } }))
-			}
-			return yield* Effect.fail(res.left)
-		}
-		return { result: res.right, fee, feeMinor }
-	})
-
-/** MONEY-PATH: fee = floor(amount * bps / 10000), charged as a separate internal transfer to the partner revenue account. */
-const chargeFee = (partnerId: string, customerId: string, fromAccount: BankAccount, amount: bigint, bps: number, key: string, kind: 'transfer' | 'fx') =>
-	Effect.gen(function* () {
+		if (!Number.isInteger(bps) || bps < 0 || bps > 10_000) return yield* Effect.fail(bankErr('VALIDATION', 'fee bps must be an integer 0..10000'))
 		const feeMinor = (amount * BigInt(bps)) / 10_000n
-		if (feeMinor <= 0n) return { fee: null as BankTransfer | null, feeMinor: '0' }
+		if (feeMinor <= 0n) return { feeLeg: undefined, feeMinor: '0' }
+		// Old-style in-flight rows: a legacy `${key}:fee` that is live and not refunded already collected the fee -> don't charge again;
+		// a failed/refunded one must NOT suppress a new fee.
+		const legacy = yield* bankDb(async (db) => {
+			const rows = await db.select().from(bankTransfers).where(and(eq(bankTransfers.ownerType, 'partner_customer'), inArray(bankTransfers.idempotencyKey, [`${key}:fee`, `${key}:feerefund`])))
+			return rows.filter((r) => r.fromAccount === from.id || r.toAccount === from.id)
+		})
+		const lf = legacy.find((r) => r.idempotencyKey === `${key}:fee`)
+		const refunded = legacy.some((r) => r.idempotencyKey === `${key}:feerefund` && r.status !== 'failed')
+		if (lf && lf.status !== 'failed' && !refunded) return { feeLeg: undefined, feeMinor: lf.amountMinor }
 		const ledger = yield* BankLedgerService
 		const wallet = yield* partnerWallet(partnerId)
-		const revenue = yield* ledger.openAccount({ owner: { ownerType: 'org', ownerId: partnerId }, kind: 'treasury', asset: fromAccount.asset, chain: fromAccount.chain, label: 'partner-revenue', wallet })
-		const t = yield* BankTransferService
-		const fee = yield* t.transfer({ owner: owner(customerId), idempotencyKey: `${key}:fee`, type: 'internal', fromAccountId: fromAccount.id, toAccountId: revenue.id, amountMinor: feeMinor.toString(), memo: `partner ${kind} fee`, metadata: { partnerFee: true, partnerId, kind, bps, baseAmountMinor: amount.toString() } })
-		return { fee, feeMinor: feeMinor.toString() }
+		const revenue = yield* ledger.openAccount({ owner: { ownerType: 'org', ownerId: partnerId }, kind: 'treasury', asset: from.asset, chain: from.chain, label: 'partner-revenue', wallet })
+		return { feeLeg: { toAccountId: revenue.id, amountMinor: feeMinor.toString(), metadata: { partnerId, kind, bps, baseAmountMinor: amount.toString() } }, feeMinor: feeMinor.toString() }
 	})
+
+/** The fee row that rides a principal (new-style key, else a still-live legacy `${key}:fee`), or null. Read-only; never errors the caller. */
+const feeRowFor = (customerId: string, key: string): Effect.Effect<BankTransfer | null, never, MainLayerContext> =>
+	bankDb(async (db) => {
+		const rows = await db.select().from(bankTransfers).where(and(eq(bankTransfers.ownerType, owner(customerId).ownerType), eq(bankTransfers.ownerId, owner(customerId).ownerId), inArray(bankTransfers.idempotencyKey, [feeKeyFor(key), `${key}:fee`])))
+		return rows.find((r) => r.idempotencyKey === feeKeyFor(key)) ?? rows[0] ?? null
+	}).pipe(Effect.orElseSucceed(() => null))
 
 export const BankPartnerServiceLive: Layer.Layer<BankPartnerService> = Layer.succeed(BankPartnerService, {
 	assertCustomer,
@@ -215,12 +223,13 @@ export const BankPartnerServiceLive: Layer.Layer<BankPartnerService> = Layer.suc
 			const cfg = yield* bankDb(async (db) => (await db.select().from(bankPartners).where(eq(bankPartners.orgId, partnerId)).limit(1))[0])
 			const bps = cfg?.feeBpsTransfer ?? 0
 			const amount = BigInt(i.amountMinor)
-			const feeMinor = (amount * BigInt(bps)) / 10_000n
-			if ((yield* ledger.balance(from.id)) < amount + feeMinor) return yield* Effect.fail(bankErr('INSUFFICIENT_FUNDS', `Balance cannot cover amount plus partner fee (${feeMinor})`))
+			// MONEY-PATH: the funds check (amount + fee) happens atomically under the source row lock in BankTransferService.
+			const { feeLeg, feeMinor } = yield* feeLegFor(partnerId, from, amount, bps, i.idempotencyKey, 'transfer')
 			const t = yield* BankTransferService
-			const { result: transfer, fee } = yield* withFeeFirst(partnerId, i.customerId, from, amount, bps, i.idempotencyKey, 'transfer', t.transfer({ owner: owner(i.customerId), idempotencyKey: i.idempotencyKey, type: 'internal', fromAccountId: i.fromAccountId, toAccountId: i.toAccountId, toExternal: i.toExternal, amountMinor: i.amountMinor, memo: i.memo, metadata: { partnerId, partnerCustomerId: i.customerId } }))
-			yield* enqueue(partnerId, 'transfer.created', { transferId: transfer.id, customerId: i.customerId, status: transfer.status, amountMinor: i.amountMinor })
-			return { transfer, fee, feeMinor: feeMinor.toString() }
+			const transfer = yield* t.transfer({ owner: owner(i.customerId), idempotencyKey: i.idempotencyKey, type: 'internal', fromAccountId: i.fromAccountId, toAccountId: i.toAccountId, toExternal: i.toExternal, amountMinor: i.amountMinor, memo: i.memo, metadata: { partnerId, partnerCustomerId: i.customerId }, feeLeg })
+			const fee = feeLeg ? yield* feeRowFor(i.customerId, i.idempotencyKey) : null
+			yield* Effect.ignore(enqueue(partnerId, 'transfer.created', { transferId: transfer.id, customerId: i.customerId, status: transfer.status, amountMinor: i.amountMinor })) // never an error after money moved
+			return { transfer, fee, feeMinor }
 		}),
 
 	// MONEY-PATH
@@ -235,11 +244,11 @@ export const BankPartnerServiceLive: Layer.Layer<BankPartnerService> = Layer.suc
 			const cfg = yield* bankDb(async (db) => (await db.select().from(bankPartners).where(eq(bankPartners.orgId, partnerId)).limit(1))[0])
 			const bps = cfg?.feeBpsFx ?? 0
 			const amount = BigInt(i.amountMinor)
-			const feeMinor = (amount * BigInt(bps)) / 10_000n
-			if ((yield* ledger.balance(from.id)) < amount + feeMinor) return yield* Effect.fail(bankErr('INSUFFICIENT_FUNDS', `Balance cannot cover amount plus partner fx fee (${feeMinor})`))
-			const { result: r, fee } = yield* withFeeFirst(partnerId, i.customerId, from, amount, bps, i.idempotencyKey, 'fx', (yield* BankFxService).execute({ owner: owner(i.customerId), fromAccountId: i.fromAccountId, toAccountId: i.toAccountId, amountMinor: i.amountMinor, slippage: i.slippage, idempotencyKey: i.idempotencyKey } as never))
-			yield* enqueue(partnerId, 'fx.executed', { transferId: r.transfer.id, customerId: i.customerId })
-			return { transfer: r.transfer, fee, feeMinor: feeMinor.toString() }
+			const { feeLeg, feeMinor } = yield* feeLegFor(partnerId, from, amount, bps, i.idempotencyKey, 'fx')
+			const r = yield* (yield* BankFxService).execute({ owner: owner(i.customerId), fromAccountId: i.fromAccountId, toAccountId: i.toAccountId, amountMinor: i.amountMinor, slippage: i.slippage, idempotencyKey: i.idempotencyKey, feeLeg } as never)
+			const fee = feeLeg ? yield* feeRowFor(i.customerId, i.idempotencyKey) : null
+			yield* Effect.ignore(enqueue(partnerId, 'fx.executed', { transferId: r.transfer.id, customerId: i.customerId })) // never an error after money moved
+			return { transfer: r.transfer, fee, feeMinor }
 		}),
 
 	listTransfers: (partnerId, customerId, limit = 50) =>

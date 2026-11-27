@@ -19,7 +19,7 @@ import type { EnvService } from '../../config/EnvService'
 import { type BankTransfer, bankTransfers } from '../../db'
 import { SwapService, type SwapQuote } from '../SwapService'
 import { BankLedgerService } from './BankLedgerService'
-import { type BankDeps, BankTransferService, enforceSpendControls, insertTransferGuarded } from './BankTransferService'
+import { type BankDeps, BankTransferService, enforceSpendControls, feeKeyFor, insertTransferGuarded } from './BankTransferService'
 import { findAsset, fromMinor } from './assets'
 import { erc20ApproveData, evmAllowance, evmReceipt } from './chain'
 import { type BankOwner, bankDb, newId } from './db'
@@ -68,6 +68,8 @@ export interface FxExecuteRequest extends FxRequest {
 	idempotencyKey: string
 	/** Execution aborts if the fresh route's guaranteed minimum is below this (from a prior quote's minToMinor). */
 	minToMinor?: string | undefined
+	/** MONEY-PATH: optional partner fee in the FROM asset; inserted atomically with the fx row, settles only after the fx confirms (see BankTransferService feeLeg). */
+	feeLeg?: { toAccountId: string; amountMinor: string; metadata?: Record<string, unknown> | undefined } | undefined
 }
 
 export interface BankFxServiceInterface {
@@ -185,7 +187,7 @@ export const BankFxServiceLive = Layer.succeed(BankFxService, {
 			const ledger = yield* BankLedgerService
 			const transfers = yield* BankTransferService
 			const requestHash = createHash('sha256')
-				.update(JSON.stringify(['fx', req.fromAccountId, req.toAccountId, req.amountMinor]))
+				.update(JSON.stringify(['fx', req.fromAccountId, req.toAccountId, req.amountMinor, ...(req.feeLeg ? [req.feeLeg.toAccountId, req.feeLeg.amountMinor] : [])]))
 				.digest('hex')
 
 			const existing = yield* bankDb(async (db) => {
@@ -223,9 +225,33 @@ export const BankFxServiceLive = Layer.succeed(BankFxService, {
 			yield* enforceSpendControls({ owner: req.owner, from: p.from, asset: p.fa, amount, destination: p.to.address! })
 
 			const fxFrom = yield* ledger.ensureSystemAccount('fx', p.fa.symbol, p.from.chain)
+			const fxId = newId('xfer')
+			let feeRow: Parameters<typeof insertTransferGuarded>[3]
+			if (req.feeLeg) {
+				if (!/^[1-9][0-9]{0,77}$/.test(req.feeLeg.amountMinor)) return yield* Effect.fail(bankErr('VALIDATION', 'fee amountMinor must be a positive integer string'))
+				const feeTo = yield* ledger.getAccountById(req.feeLeg.toAccountId)
+				if (feeTo.status !== 'active' || !feeTo.address || feeTo.asset !== p.from.asset || feeTo.chain !== p.from.chain || feeTo.id === p.from.id)
+					return yield* Effect.fail(bankErr('VALIDATION', 'Invalid fee destination account'))
+				feeRow = {
+					id: newId('xfer'),
+					ownerType: req.owner.ownerType,
+					ownerId: req.owner.ownerId,
+					idempotencyKey: feeKeyFor(req.idempotencyKey),
+					requestHash: createHash('sha256').update(JSON.stringify(['fee', req.idempotencyKey, p.from.id, feeTo.id, req.feeLeg.amountMinor])).digest('hex'),
+					type: 'internal',
+					fromAccount: p.from.id,
+					toAccount: feeTo.id,
+					toExternal: null,
+					amountMinor: req.feeLeg.amountMinor,
+					asset: p.fa.symbol,
+					chain: p.from.chain,
+					memo: 'partner fee',
+					metadata: { ...(req.feeLeg.metadata ?? {}), partnerFee: true, feeOfTransferId: fxId, feeOfKey: req.idempotencyKey },
+				}
+			}
 			const inserted = yield* insertTransferGuarded(
 				{
-						id: newId('xfer'),
+						id: fxId,
 						ownerType: req.owner.ownerType,
 						ownerId: req.owner.ownerId,
 						idempotencyKey: req.idempotencyKey,
@@ -253,6 +279,8 @@ export const BankFxServiceLive = Layer.succeed(BankFxService, {
 						},
 				},
 				p.from,
+				undefined,
+				feeRow,
 			)
 			if (!inserted) return yield* Effect.fail(bankErr('CONFLICT', 'Concurrent request with the same idempotencyKey; retry'))
 

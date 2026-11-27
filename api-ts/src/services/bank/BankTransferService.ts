@@ -54,7 +54,15 @@ export interface TransferInput {
 	consumesHold?: ConsumesHold | undefined
 	/** MONEY-PATH: required to debit system-kind accounts (escrow/pool). Only services mint it (see systemDebit.ts); routes never pass it. */
 	systemDebit?: SystemDebit | undefined
+	/**
+	 * MONEY-PATH: optional fee taken from the same source account for the same unit. The fee row (`${key}:pfee`) is inserted in the SAME
+	 * transaction as the principal under the source-account row lock (available >= amount + fee) and only advances once the principal
+	 * is confirmed; if the principal fails the fee is failed unfunded (never charged). A replay with a different fee is a CONFLICT.
+	 */
+	feeLeg?: { toAccountId: string; amountMinor: string; metadata?: Record<string, unknown> | undefined } | undefined
 }
+
+export const feeKeyFor = (key: string): string => `${key}:pfee`
 
 export interface SendEvmInput {
 	account: Pick<BankAccount, 'walletId' | 'walletUserId' | 'address' | 'chain'>
@@ -327,6 +335,14 @@ const advance = (t0: BankTransfer): Fx<BankTransfer> =>
 		const ledger = yield* BankLedgerService
 		let t = t0
 		if (t.status !== 'pending') return t
+		// MONEY-PATH: a partner fee row only moves after its principal confirmed; a failed principal voids it (never reserved -> no legs).
+		const feeOf = t.metadata?.feeOfTransferId
+		if (typeof feeOf === 'string') {
+			const parent = yield* bankDb(async (db) => (await db.select({ status: bankTransfers.status }).from(bankTransfers).where(eq(bankTransfers.id, feeOf)).limit(1))[0])
+			if (!parent || parent.status === 'failed')
+				return yield* finalizeTransfer(t.id, { from: ['pending'], requireNoHash: true, patch: { status: 'failed', failureReason: 'principal failed; fee not charged' } })
+			if (parent.status !== 'confirmed') return t
+		}
 		const from = yield* ledger.getAccountById(t.fromAccount!)
 		const asset = requireAsset(t.asset, t.chain)
 		const amount = BigInt(t.amountMinor)
@@ -604,7 +620,7 @@ export const enforceSpendControls = (args: {
  * the source account row lock while it checks available balance (ledger - holds, see holds.ts) and the rolling-24h daily limit — concurrent transfers
  * from one account serialise here, so the limit cannot be raced. Returns null when the key already exists.
  */
-export const insertTransferGuarded = (values: typeof bankTransfers.$inferInsert, from: BankAccount, consumesHold?: ConsumesHold): Fx<BankTransfer | null> =>
+export const insertTransferGuarded = (values: typeof bankTransfers.$inferInsert, from: BankAccount, consumesHold?: ConsumesHold, feeRow?: typeof bankTransfers.$inferInsert): Fx<BankTransfer | null> =>
 	bankDb((db) =>
 		db.transaction(async (tx) => {
 			const [acct] = await tx
@@ -619,7 +635,7 @@ export const insertTransferGuarded = (values: typeof bankTransfers.$inferInsert,
 					sql`select coalesce(sum(amount_minor), 0)::text as s from bank_transfers where from_account = ${from.id} and status in ('pending','submitted','confirmed') and created_at > now() - interval '24 hours'`,
 				)
 				const spent = BigInt((r as unknown as Array<{ s: string }>)[0]?.s ?? '0')
-				if (spent + BigInt(values.amountMinor) > BigInt(daily)) throw bankErr('LIMIT_EXCEEDED', `Exceeds daily limit of ${daily}`)
+				if (spent + BigInt(values.amountMinor) + BigInt(feeRow?.amountMinor ?? '0') > BigInt(daily)) throw bankErr('LIMIT_EXCEEDED', `Exceeds daily limit of ${daily}`)
 			}
 			// MONEY-PATH: idempotent replay (key already used) returns null before any balance check.
 			const dup = await tx
@@ -630,8 +646,13 @@ export const insertTransferGuarded = (values: typeof bankTransfers.$inferInsert,
 			if (dup.length > 0) return null
 			// MONEY-PATH: under the source-account row lock, reject overdrafts / held funds / unreserved pending transfers (4xx).
 			// `consumesHold` is validated server-side (active, on this account, covers amount) inside assertAvailable.
-			await assertAvailable(from.id, tx, BigInt(values.amountMinor), consumesHold)
+			await assertAvailable(from.id, tx, BigInt(values.amountMinor) + BigInt(feeRow?.amountMinor ?? '0'), consumesHold)
 			const [row] = await tx.insert(bankTransfers).values(values).onConflictDoNothing().returning()
+			if (row && feeRow) {
+				// MONEY-PATH: fee row shares this tx; a key collision aborts the whole unit (principal rolls back too).
+				const [f] = await tx.insert(bankTransfers).values(feeRow).onConflictDoNothing().returning({ id: bankTransfers.id })
+				if (!f) throw bankErr('CONFLICT', 'partner fee key already used; retry with a new idempotencyKey')
+			}
 			return row ?? null
 		}),
 	)
@@ -697,9 +718,14 @@ export const BankTransferServiceLive = Layer.succeed(BankTransferService, {
 
 			const requestHash = createHash('sha256')
 				.update(
-					JSON.stringify([input.type, input.fromAccountId, input.toAccountId ?? null, input.toExternal?.address.toLowerCase() ?? null, input.amountMinor, input.memo ?? null]),
+					JSON.stringify([input.type, input.fromAccountId, input.toAccountId ?? null, input.toExternal?.address.toLowerCase() ?? null, input.amountMinor, input.memo ?? null, ...(input.feeLeg ? [input.feeLeg.toAccountId, input.feeLeg.amountMinor] : [])]),
 				)
 				.digest('hex')
+
+			if (input.feeLeg) {
+				if (!UINT_RE.test(input.feeLeg.amountMinor)) return yield* Effect.fail(bankErr('VALIDATION', 'fee amountMinor must be a positive integer string'))
+				if (input.consumesHold) return yield* Effect.fail(bankErr('VALIDATION', 'feeLeg cannot be combined with consumesHold'))
+			}
 
 			// Idempotent replay.
 			const existing = yield* bankDb(async (db) => {
@@ -748,9 +774,32 @@ export const BankTransferServiceLive = Layer.succeed(BankTransferService, {
 			// Per-tx limit + policy engine (agents). Daily limit is enforced atomically at insert.
 			yield* enforceSpendControls({ owner: input.owner, from, asset, amount, destination: to?.address ?? input.toExternal!.address })
 
+			const principalId = newId('xfer')
+			let feeRow: typeof bankTransfers.$inferInsert | undefined
+			if (input.feeLeg) {
+				const feeTo = yield* ledger.getAccountById(input.feeLeg.toAccountId)
+				if (feeTo.status !== 'active' || !feeTo.address || feeTo.asset !== from.asset || feeTo.chain !== from.chain || feeTo.id === from.id)
+					return yield* Effect.fail(bankErr('VALIDATION', 'Invalid fee destination account'))
+				feeRow = {
+					id: newId('xfer'),
+					ownerType: input.owner.ownerType,
+					ownerId: input.owner.ownerId,
+					idempotencyKey: feeKeyFor(input.idempotencyKey),
+					requestHash: createHash('sha256').update(JSON.stringify(['fee', input.idempotencyKey, from.id, feeTo.id, input.feeLeg.amountMinor])).digest('hex'),
+					type: 'internal',
+					fromAccount: from.id,
+					toAccount: feeTo.id,
+					toExternal: null,
+					amountMinor: input.feeLeg.amountMinor,
+					asset: asset.symbol,
+					chain: asset.chain,
+					memo: 'partner fee',
+					metadata: { ...(input.feeLeg.metadata ?? {}), partnerFee: true, feeOfTransferId: principalId, feeOfKey: input.idempotencyKey },
+				}
+			}
 			const inserted = yield* insertTransferGuarded(
 				{
-					id: newId('xfer'),
+					id: principalId,
 					ownerType: input.owner.ownerType,
 					ownerId: input.owner.ownerId,
 					idempotencyKey: input.idempotencyKey,
@@ -767,6 +816,7 @@ export const BankTransferServiceLive = Layer.succeed(BankTransferService, {
 				},
 				from,
 				input.consumesHold,
+				feeRow,
 			)
 			if (!inserted) {
 				// Lost a race on the idempotency key: return the winner.
@@ -780,7 +830,10 @@ export const BankTransferServiceLive = Layer.succeed(BankTransferService, {
 					return r
 				})
 			}
-			return yield* advance(inserted)
+			const principal = yield* advance(inserted)
+			// MONEY-PATH: best effort only (never an error after principal moved); the poller advances the fee row once the principal confirms.
+			if (feeRow && principal.status === 'confirmed') yield* Effect.ignore(bankDb((db) => db.select().from(bankTransfers).where(eq(bankTransfers.id, feeRow!.id!)).limit(1)).pipe(Effect.flatMap((r) => (r[0] ? advance(r[0]) : Effect.void))))
+			return principal
 		}),
 
 	confirmPending: (opts) =>
