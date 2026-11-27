@@ -11,6 +11,7 @@
  *         confirm = debit fx(toAsset) / credit TO   (amount = actual Transfer logs in the receipt)
  * Settlement is performed by BankTransferService.confirmPending() (type 'fx').
  */
+import { randomUUID } from 'node:crypto'
 import { createHash } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import { Context, Effect, Layer } from 'effect'
@@ -271,6 +272,16 @@ export const BankFxServiceLive = Layer.succeed(BankFxService, {
 				return yield* Effect.fail(reserve.left)
 			}
 
+			// MONEY-PATH: claim token (like advance()) so a stalled request can never persist 'submitted' after the reconciler reversed it.
+			const claimToken = randomUUID()
+			const claimedRows = yield* bankDb((db) =>
+				db
+					.update(bankTransfers)
+					.set({ claimToken, claimedAt: new Date(), updatedAt: new Date() })
+					.where(and(eq(bankTransfers.id, inserted.id), eq(bankTransfers.status, 'pending')))
+					.returning({ id: bankTransfers.id }),
+			)
+			if (claimedRows.length !== 1) return yield* Effect.fail(bankErr('CONFLICT', 'fx transfer no longer pending'))
 			const tx = p.q.transactionRequest
 			const fail = (reason: string) => transfers.failTransfer(inserted.id, reason)
 
@@ -310,14 +321,14 @@ export const BankFxServiceLive = Layer.succeed(BankFxService, {
 							const rows = await db
 								.update(bankTransfers)
 								.set({ status: 'submitted', txHash, metadata: { ...inserted.metadata, nonce }, updatedAt: new Date() })
-								.where(and(eq(bankTransfers.id, inserted.id), eq(bankTransfers.status, 'pending')))
+								.where(and(eq(bankTransfers.id, inserted.id), eq(bankTransfers.status, 'pending'), eq(bankTransfers.claimToken, claimToken)))
 								.returning({ id: bankTransfers.id })
 							if (rows.length !== 1) throw bankErr('CONFLICT', 'fx transfer is no longer pending; aborting before broadcast')
 						}),
 					guard: () =>
 						bankDb(async (db) => {
-							const [r] = await db.select({ s: bankTransfers.status }).from(bankTransfers).where(eq(bankTransfers.id, inserted.id)).limit(1)
-							if (r?.s !== 'pending') throw bankErr('CONFLICT', 'fx transfer is no longer pending; aborting before signing')
+							const [r] = await db.select({ s: bankTransfers.status, c: bankTransfers.claimToken }).from(bankTransfers).where(eq(bankTransfers.id, inserted.id)).limit(1)
+							if (r?.s !== 'pending' || r.c !== claimToken) throw bankErr('CONFLICT', 'fx transfer is no longer pending; aborting before signing')
 						}),
 				})
 				.pipe(
