@@ -125,7 +125,9 @@ const ensureAccount = (owner: BankOwner, asset: string, chain: string, autoEarn:
 		const ledger = yield* BankLedgerService
 		const existing = (yield* ledger.getAccounts(owner)).find((a) => a.kind === 'checking' && a.asset === asset && a.chain === chain && a.status === 'active' && !a.label)
 		if (existing) return yield* enrolAutoEarn(existing.id, owner, autoEarn)
-		const opened = yield* ledger.openAccount({ owner, kind: 'checking', asset, chain })
+		// MONEY-PATH: openAccount requires a resolved custody wallet; a first-time recipient had none, so claim/send-to-user failed.
+		const wallet = yield* ledger.resolveCustodyWallet(owner, chain === 'solana' ? 'solana' : 'evm')
+		const opened = yield* ledger.openAccount({ owner, kind: 'checking', asset, chain, wallet })
 		return yield* enrolAutoEarn(opened.id, owner, autoEarn)
 	})
 
@@ -203,7 +205,9 @@ const impl: BankRemittanceServiceInterface = {
 
 			if (rec.kind === 'claim') {
 				yield* insert({ recipientRef: rec.label ?? null })
-				const escrow = yield* ledger.openAccount({ owner, kind: 'escrow', asset: from.asset, chain: from.chain, label: `remit:${id}`.slice(0, 80), metadata: { remittanceId: id } }).pipe(Effect.tapError(fail('escrow account')))
+				// MONEY-PATH: the claim escrow needs a custody wallet like every other account (same as BankEscrowService): reuse the sender's.
+				if (from.walletId == null || from.walletUserId == null || !from.address) return yield* Effect.fail(bankErr('WALLET_UNAVAILABLE', 'Source account has no custody wallet'))
+				const escrow = yield* ledger.openAccount({ owner, kind: 'escrow', asset: from.asset, chain: from.chain, label: `remit:${id}`.slice(0, 80), metadata: { remittanceId: id }, wallet: { walletId: from.walletId, walletUserId: from.walletUserId, address: from.address } }).pipe(Effect.tapError(fail('escrow account')))
 				const bt = yield* transfers.transfer({ owner, idempotencyKey: `remit:${id}:fund`, type: 'remittance', fromAccountId: from.id, toAccountId: escrow.id, amountMinor: i.amountMinor, metadata: { remittanceId: id, escrow: true } }).pipe(Effect.tapError(fail('escrow funding')))
 				if (bt.status === 'failed') return yield* Effect.fail(bankErr('UPSTREAM', 'Escrow funding failed')).pipe(Effect.tapError(fail('escrow funding')))
 				const r = yield* setRem(id, { escrowAccountId: escrow.id, bankTransferId: bt.id, status: 'awaiting_claim' })
