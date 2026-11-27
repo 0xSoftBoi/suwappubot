@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { runEffectEither } from '../../runtime'
 import { BankError } from '../../services/bank/errors'
 import { BankEscrowService } from '../../services/bank/BankEscrowService'
+import { BankCreditService } from '../../services/bank/BankCreditService'
 import { BankPaymentsService } from '../../services/bank/BankPaymentsService'
 import { BankStreamService } from '../../services/bank/BankStreamService'
 import { parseEip681, parseSolanaPay } from '../../services/bank/paymentRequest'
@@ -94,6 +95,11 @@ export function register(app: BankRouteApp, deps: BankRouteDeps): void {
 	app.post('/payments/invoices/:id/publish', async (c) => {
 		const o = await resolveOwner(c)
 		return run(c, Effect.gen(function* () { return yield* (yield* BankPaymentsService).publishInvoice(o, c.req.param('id')) }))
+	})
+	// MONEY-PATH: thin alias of POST /credit/receivables/accept; only the invoice's named payer may accept (service enforces).
+	app.post('/payments/invoices/:id/accept', async (c) => {
+		const o = await resolveOwner(c)
+		return run(c, Effect.gen(function* () { return yield* (yield* BankCreditService).acceptReceivable({ owner: o, invoiceId: c.req.param('id') }) }))
 	})
 	app.post('/payments/invoices/:id/void', async (c) => {
 		const o = await resolveOwner(c)

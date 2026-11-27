@@ -90,9 +90,9 @@ export class BankAgentPayService extends Context.Tag('BankAgentPayService')<Bank
 // ------------------------------------------------------------ helpers
 
 const UINT = /^[1-9][0-9]{0,77}$/
-const requireAgent = (o: BankOwner) => {
-	if (o.ownerType !== 'agent') throw bankErr('FORBIDDEN', 'Agent payments require an agent bearer token')
-}
+// MONEY-PATH: must be a typed Effect failure (a sync throw inside Effect.gen is a defect -> HTTP 500, not 403).
+const requireAgent = (o: BankOwner) =>
+	o.ownerType !== 'agent' ? Effect.fail(bankErr('FORBIDDEN', 'Agent payments require an agent bearer token')) : Effect.void
 const hostOf = (url: string): string => {
 	try {
 		return new URL(url).hostname.toLowerCase()
@@ -195,7 +195,7 @@ const requestHash = (o: unknown) => createHash('sha256').update(JSON.stringify(o
 export const BankAgentPayServiceLive = Layer.succeed(BankAgentPayService, {
 	openAgentAccount: (owner, i) =>
 		Effect.gen(function* () {
-			requireAgent(owner)
+			yield* requireAgent(owner)
 			const asset = findAsset(i.asset, i.chain)
 			if (!asset || asset.family !== 'evm') return yield* Effect.fail(bankErr('ASSET_UNSUPPORTED', 'x402 agent accounts need an EVM bank asset'))
 			yield* Effect.try({ try: () => validateMandate(i.mandate), catch: (e) => e as BankError })
@@ -227,7 +227,7 @@ export const BankAgentPayServiceLive = Layer.succeed(BankAgentPayService, {
 	// MONEY-PATH
 	payForResource: (owner, i) =>
 		Effect.gen(function* () {
-			requireAgent(owner)
+			yield* requireAgent(owner)
 			const mandate = yield* loadMandate(owner, i.mandateId)
 			if (mandate.status !== 'active') return yield* Effect.fail(bankErr('POLICY_BLOCKED', 'Mandate is revoked'))
 			if (mandate.expiresAt && mandate.expiresAt.getTime() <= Date.now()) return yield* Effect.fail(bankErr('POLICY_BLOCKED', 'Mandate has expired'))
@@ -330,7 +330,7 @@ export const BankAgentPayServiceLive = Layer.succeed(BankAgentPayService, {
 
 	registerResource: (owner, i) =>
 		Effect.gen(function* () {
-			requireAgent(owner)
+			yield* requireAgent(owner)
 			if (!UINT.test(i.priceMinor)) return yield* Effect.fail(bankErr('VALIDATION', 'priceMinor must be a positive integer string'))
 			const ledger = yield* BankLedgerService
 			const account = yield* ledger.getAccount(owner, i.accountId)
@@ -449,7 +449,7 @@ export const BankAgentPayServiceLive = Layer.succeed(BankAgentPayService, {
 
 	openMeteredStream: (owner, i) =>
 		Effect.gen(function* () {
-			requireAgent(owner)
+			yield* requireAgent(owner)
 			const svc = yield* Effect.serviceOption(StreamTag)
 			if (Option.isNone(svc) || typeof svc.value.openStream !== 'function')
 				return yield* Effect.fail(bankErr('NOT_CONFIGURED', 'Metered streams are provided by the payments module', { missing: 'BankStreamService (payments module) with openStream()/reportUsage()' }))
@@ -465,7 +465,7 @@ export const BankAgentPayServiceLive = Layer.succeed(BankAgentPayService, {
 
 	reportMeteredUsage: (owner, i) =>
 		Effect.gen(function* () {
-			requireAgent(owner)
+			yield* requireAgent(owner)
 			const svc = yield* Effect.serviceOption(StreamTag)
 			if (Option.isNone(svc) || typeof svc.value.reportUsage !== 'function')
 				return yield* Effect.fail(bankErr('NOT_CONFIGURED', 'Metered streams are provided by the payments module', { missing: 'BankStreamService.reportUsage (payments module)' }))

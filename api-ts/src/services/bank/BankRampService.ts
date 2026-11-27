@@ -17,6 +17,7 @@ import { Context, Effect, Layer } from 'effect'
 import { EnvService } from '../../config/EnvService'
 import {
 	type BankRampTransfer,
+	bankTransfers,
 	bankExternalAccounts,
 	bankRampCustomers,
 	bankRampEvents,
@@ -59,6 +60,10 @@ export interface QuoteInput {
 	currency?: string | undefined
 }
 
+/** funded = stablecoin send recorded (bankTransferId set); awaiting_funding = provider transfer exists but no send recorded (bankTransferId null); failed = send failed, nothing sent. */
+export type OfframpStage = 'funded' | 'awaiting_funding' | 'failed'
+const stageOf = (r: { bankTransferId: string | null; status: string }): OfframpStage => (r.bankTransferId ? 'funded' : r.status === 'failed' ? 'failed' : 'awaiting_funding')
+
 export interface OfframpInput {
 	owner: BankOwner
 	provider?: ProviderId | undefined
@@ -78,7 +83,7 @@ export interface BankRampServiceInterface {
 	readonly listExternalAccounts: (owner: BankOwner) => Fx<Array<typeof bankExternalAccounts.$inferSelect>>
 	readonly createVirtualAccount: (owner: BankOwner, provider: ProviderId, accountId: string, sourceCurrency: string) => Fx<typeof bankVirtualAccounts.$inferSelect>
 	readonly listVirtualAccounts: (owner: BankOwner) => Fx<Array<typeof bankVirtualAccounts.$inferSelect>>
-	readonly offramp: (i: OfframpInput) => Fx<{ rampTransfer: BankRampTransfer; quote: RampQuote | null }>
+	readonly offramp: (i: OfframpInput) => Fx<{ rampTransfer: BankRampTransfer; quote: RampQuote | null; stage: OfframpStage }>
 	readonly getRampTransfer: (owner: BankOwner, id: string) => Fx<BankRampTransfer>
 	readonly listRampTransfers: (owner: BankOwner, limit?: number) => Fx<BankRampTransfer[]>
 	readonly handleWebhook: (provider: string, headers: Record<string, string | undefined>, rawBody: string) => Fx<{ duplicate: boolean; handled: string }>
@@ -327,12 +332,45 @@ export const BankRampServiceLive = Layer.succeed(BankRampService, {
 			const p = yield* pickProvider(providerId)
 			const cref = `rt_${hash(`${i.owner.ownerType}:${i.owner.ownerId}:${i.idempotencyKey}`).slice(0, 40)}`
 
-			// Idempotent replay: same key returns the existing ramp transfer.
+			// MONEY-PATH: reserve + send the stablecoin. The bank transfer key is derived from the provider reference, so any number of calls (retry, resume, crash recovery) yields ONE send.
+			const sendFor = (row: BankRampTransfer, depositAddress: string) =>
+				transfers
+					.transfer({ owner: i.owner, idempotencyKey: `ramp:${cref}`, type: 'payout', fromAccountId: acct.id, toExternal: { address: depositAddress }, amountMinor: i.amountMinor, memo: `offramp ${asset.symbol}->${ext.currency}`, metadata: { rampTransferId: row.id, provider: providerId } })
+					.pipe(
+						Effect.tapError((e) =>
+							bankDb(async (db) => {
+								// If a send was already recorded under this key it may still be in flight: link it, never mark failed.
+								const [ex] = await db.select({ id: bankTransfers.id }).from(bankTransfers).where(and(eq(bankTransfers.ownerType, i.owner.ownerType), eq(bankTransfers.ownerId, i.owner.ownerId), eq(bankTransfers.idempotencyKey, `ramp:${cref}`))).limit(1)
+								if (ex) await db.update(bankRampTransfers).set({ bankTransferId: ex.id, updatedAt: new Date() }).where(eq(bankRampTransfers.id, row.id))
+								else await db.update(bankRampTransfers).set({ status: 'failed', metadata: mergeMeta(bankRampTransfers.metadata, { fundingError: e.message }) as never, updatedAt: new Date() }).where(eq(bankRampTransfers.id, row.id))
+							}),
+						),
+					),
+				Effect.flatMap((bt) =>
+					bankDb(async (db) => {
+						// A definitively failed/reversed send must not leave the ramp transfer looking live.
+						const dead = bt.status === 'failed' || bt.status === 'reversed'
+						const [r] = await db.update(bankRampTransfers).set({ bankTransferId: bt.id, ...(dead ? { status: 'failed' as RampStatus } : {}), updatedAt: new Date() }).where(eq(bankRampTransfers.id, row.id)).returning()
+						return r as NonNullable<typeof r>
+					}),
+				),
+			)
+
+			// Idempotent replay: same key returns the existing ramp transfer, but only for the SAME terms; a crash between provider create and send is resumed (same bank-transfer key => no double send).
 			const prior = yield* bankDb(async (db) => {
 				const [r] = await db.select().from(bankRampTransfers).where(and(eq(bankRampTransfers.ownerType, i.owner.ownerType), eq(bankRampTransfers.ownerId, i.owner.ownerId), eq(bankRampTransfers.clientReferenceId, cref))).limit(1)
 				return r
 			})
-			if (prior) return { rampTransfer: prior, quote: null }
+			if (prior) {
+				if (prior.amountMinor !== i.amountMinor || prior.accountId !== acct.id || prior.externalAccountId !== ext.id)
+					return yield* Effect.fail(bankErr('CONFLICT', 'idempotencyKey was already used with different off-ramp terms'))
+				const dep = (prior.metadata as { depositAddress?: string } | null)?.depositAddress
+				if (!prior.bankTransferId && prior.status !== 'failed' && dep) {
+					const resumed = yield* sendFor(prior, dep)
+					return { rampTransfer: resumed, quote: null, stage: stageOf(resumed) }
+				}
+				return { rampTransfer: prior, quote: null, stage: stageOf(prior) }
+			}
 
 			const customer = yield* requireCustomer(i.owner, providerId)
 			const fiatDec = FIAT_DECIMALS[ext.currency] ?? 2
@@ -369,19 +407,8 @@ export const BankRampServiceLive = Layer.succeed(BankRampService, {
 				const [e] = await db.select().from(bankRampTransfers).where(and(eq(bankRampTransfers.provider, providerId), eq(bankRampTransfers.providerId, pt.providerId))).limit(1)
 				return e as NonNullable<typeof e>
 			})
-			// Reserve + send the stablecoin to the provider deposit address.
-			const bt = yield* transfers
-				.transfer({ owner: i.owner, idempotencyKey: `ramp:${cref}`, type: 'payout', fromAccountId: acct.id, toExternal: { address: pt.depositAddress }, amountMinor: i.amountMinor, memo: `offramp ${asset.symbol}->${ext.currency}`, metadata: { rampTransferId: row.id, provider: providerId } })
-				.pipe(
-					Effect.tapError((e) =>
-						bankDb((db) => db.update(bankRampTransfers).set({ status: 'failed', metadata: mergeMeta(bankRampTransfers.metadata, { fundingError: e.message }) as never, updatedAt: new Date() }).where(eq(bankRampTransfers.id, row.id))),
-					),
-				)
-			const updated = yield* bankDb(async (db) => {
-				const [r] = await db.update(bankRampTransfers).set({ bankTransferId: bt.id, updatedAt: new Date() }).where(eq(bankRampTransfers.id, row.id)).returning()
-				return r as NonNullable<typeof r>
-			})
-			return { rampTransfer: updated, quote }
+			const updated = yield* sendFor(row, pt.depositAddress)
+			return { rampTransfer: updated, quote, stage: stageOf(updated) }
 		}),
 
 	getRampTransfer: (owner, id) =>

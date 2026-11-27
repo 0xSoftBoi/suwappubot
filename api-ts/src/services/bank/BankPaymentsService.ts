@@ -14,6 +14,7 @@ import {
 	type BankInvoice,
 	type BankInvoicePayment,
 	bankInvoicePayments,
+	bankInvoiceAcceptances,
 	bankInvoices,
 	type InvoiceLineItem,
 	type InvoiceStatus,
@@ -65,6 +66,21 @@ export interface InvoiceView {
 	invoice: BankInvoice
 	paymentRequest: PaymentRequest
 	payments: BankInvoicePayment[]
+	/** Payer acceptance (receivables financing). required = the invoice names a payer. */
+	acceptance: InvoiceAcceptance
+}
+
+export interface InvoiceAcceptance {
+	required: boolean
+	acceptedAt: string | null
+}
+
+export interface PayInvoiceResult {
+	invoice: BankInvoice
+	payment: BankInvoicePayment
+	transferStatus: string
+	/** The bank transfer that carries this payment. */
+	transferId: string
 }
 
 /** Public, unauthenticated projection: only what the payee put on the invoice plus public pay-to details. */
@@ -74,7 +90,12 @@ export interface PublicInvoiceView {
 	amountMinor: string
 	paidMinor: string
 	asset: string
+	/** Display helpers so a signed-out payer sees a human amount: asset symbol, its decimals, the chain's display name. */
+	symbol: string
+	decimals: number
+	chainName: string
 	chain: string
+	acceptance: InvoiceAcceptance
 	lineItems: InvoiceLineItem[]
 	memo: string | null
 	dueAt: string | null
@@ -92,7 +113,7 @@ export interface BankPaymentsServiceInterface {
 	readonly payInvoice: (
 		owner: BankOwner,
 		input: { invoiceId?: string | undefined; slug?: string | undefined; fromAccountId: string; amountMinor?: string | undefined; idempotencyKey: string },
-	) => PayFx<{ invoice: BankInvoice; payment: BankInvoicePayment; transferStatus: string }>
+	) => PayFx<PayInvoiceResult>
 	/** Recurring job step: detect external payments, confirm pending bank payments, mark overdue. */
 	readonly runJob: () => PayFx<{ credited: number; confirmed: number; overdue: number }>
 }
@@ -161,12 +182,21 @@ const payToOf = (inv: BankInvoice): PayFx<string> =>
 		return acct.address
 	})
 
+const CHAIN_DISPLAY: Record<string, string> = { ethereum: 'Ethereum', base: 'Base', arbitrum: 'Arbitrum', optimism: 'Optimism', polygon: 'Polygon', bsc: 'BNB Chain', avalanche: 'Avalanche', solana: 'Solana', tempo: 'Tempo' }
+const chainName = (k: string): string => CHAIN_DISPLAY[k.toLowerCase()] ?? k.charAt(0).toUpperCase() + k.slice(1)
+
+const acceptanceOf = (inv: BankInvoice): PayFx<InvoiceAcceptance> =>
+	bankDb(async (db) => {
+		const [a] = await db.select({ at: bankInvoiceAcceptances.acceptedAt }).from(bankInvoiceAcceptances).where(eq(bankInvoiceAcceptances.invoiceId, inv.id)).limit(1)
+		return { required: inv.payerOwnerType != null, acceptedAt: a ? a.at.toISOString() : null }
+	})
+
 const view = (inv: BankInvoice): PayFx<InvoiceView> =>
 	Effect.gen(function* () {
 		const payTo = yield* payToOf(inv)
 		const payments = yield* bankDb((db) => db.select().from(bankInvoicePayments).where(eq(bankInvoicePayments.invoiceId, inv.id)).orderBy(desc(bankInvoicePayments.createdAt)))
 		const paymentRequest = yield* guard(() => buildPaymentRequest(inv, payTo))
-		return { invoice: inv, paymentRequest, payments }
+		return { invoice: inv, paymentRequest, payments, acceptance: yield* acceptanceOf(inv) }
 	})
 
 const ownedAsPayee = (owner: BankOwner, id: string): PayFx<BankInvoice> =>
@@ -440,7 +470,11 @@ export const BankPaymentsServiceLive = Layer.succeed(BankPaymentsService, {
 				amountMinor: inv.amountMinor,
 				paidMinor: inv.paidMinor,
 				asset: inv.asset,
+				symbol: inv.asset,
+				decimals: assetOf(inv.asset, inv.chain).decimals,
+				chainName: chainName(inv.chain),
 				chain: inv.chain,
+				acceptance: yield* acceptanceOf(inv),
 				lineItems: inv.lineItems,
 				memo: inv.memo,
 				dueAt: inv.dueAt ? inv.dueAt.toISOString() : null,
@@ -500,7 +534,7 @@ export const BankPaymentsServiceLive = Layer.succeed(BankPaymentsService, {
 				(await db.select().from(bankInvoicePayments).where(eq(bankInvoicePayments.id, payment.id)).limit(1))[0]!,
 				(await db.select().from(bankInvoices).where(eq(bankInvoices.id, inv.id)).limit(1))[0]!,
 			] as const)
-			return { invoice: inv2, payment: p2, transferStatus: t.status }
+			return { invoice: inv2, payment: p2, transferStatus: t.status, transferId: t.id }
 		}),
 
 	// MONEY-PATH
