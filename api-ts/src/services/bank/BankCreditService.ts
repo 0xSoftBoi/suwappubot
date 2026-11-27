@@ -38,6 +38,7 @@ import {
 	computeHealth,
 	erc20Abi,
 	hashOf,
+	postExternalLeg,
 	liquidationPriceHuman,
 	loadBluePosition,
 	loadMarketParams,
@@ -102,6 +103,10 @@ export interface BankCreditServiceInterface {
 	readonly financeReceivable: (i: { owner: BankOwner; idempotencyKey: string; accountId: string; invoiceId: string }) => Fx<{ line: LineView; advanceMinor: string }>
 	/** Called by M7 when an invoice is paid: collects principal+interest from the line's account. */
 	readonly settleReceivable: (invoiceId: string, amountMinor: string, paymentRef?: string) => Fx<{ settled: Array<{ lineId: string; collectedMinor: string; remainingOwedMinor: string }> }>
+	/** Card hooks (M6): remaining spendable credit, a draw funding a card capture, and a refund restoring credit. */
+	readonly undrawnLimit: (lineId: string) => Fx<bigint>
+	readonly drawForCard: (lineId: string, amountMinor: bigint, ctx: { cardId: string; providerTransactionId: string }) => Fx<unknown>
+	readonly repayForRefund: (lineId: string, amountMinor: bigint, ctx: { cardId: string; providerTransactionId: string }) => Fx<unknown>
 	readonly runLtvMonitor: () => Fx<{ checked: number; events: number }>
 	readonly settlePendingPoolOps: () => Fx<{ checked: number; applied: number }>
 }
@@ -844,6 +849,56 @@ const settleReceivable: BankCreditServiceInterface['settleReceivable'] = (invoic
 		return { settled }
 	})
 
+
+// ------------------------------------------------------------------ card hooks (M6)
+
+const undrawnLimit = (lineId: string): Fx<bigint> =>
+	Effect.gen(function* () {
+		const line = yield* loadLineById(lineId)
+		if (line.status !== 'active') return 0n
+		const v = yield* view(line)
+		if (v.health) {
+			const cap = (BigInt(v.health.maxBorrowMinor) * BigInt(MAX_DRAW_LTV_OF_LLTV_BPS)) / 10_000n
+			const left = cap - BigInt(v.health.borrowAssetsMinor)
+			return left > 0n ? left : 0n
+		}
+		const pend = Object.values((line.metadata.pending ?? {}) as Record<string, { kind: string; principal: string }>).filter((p) => p.kind === 'draw').reduce((a, p) => a + BigInt(p.principal), 0n)
+		const left = BigInt(line.limitMinor) - BigInt(v.owed!.totalMinor) - pend
+		return left > 0n ? left : 0n
+	})
+
+/** MONEY-PATH: draws against the line for a card capture; idempotent per provider transaction. */
+const drawForCard: BankCreditServiceInterface['drawForCard'] = (lineId, amount, ctx) =>
+	Effect.gen(function* () {
+		const line = yield* loadLineById(lineId)
+		if (line.kind === 'receivable') return yield* Effect.fail(bankErr('VALIDATION', 'Receivable advances cannot fund card spend'))
+		const owner = { ownerType: line.ownerType as BankOwner['ownerType'], ownerId: line.ownerId }
+		return yield* draw({ owner, idempotencyKey: `card:${ctx.providerTransactionId}`.slice(0, 128), lineId, amountMinor: amount.toString() })
+	})
+
+/**
+ * MONEY-PATH: a card refund returns cash to the settlement side, not the account, so the line's debt is reduced
+ * and the lender pool is credited from `external` (pool-funded lines). Collateralized lines cannot be repaid
+ * from refund cash without moving it into the wallet, which this module will not fake.
+ */
+const repayForRefund: BankCreditServiceInterface['repayForRefund'] = (lineId, amount, ctx) =>
+	Effect.gen(function* () {
+		const line = yield* loadLineById(lineId)
+		if (line.kind === 'collateralized')
+			return yield* Effect.fail(bankErr('NOT_CONFIGURED', 'CARD_REFUND_COLLATERALIZED_UNSUPPORTED: refund cash cannot be applied to a Morpho position', { missing: 'a refund settlement address owned by the custody wallet' }))
+		if (!line.poolAccountId) return yield* Effect.fail(bankErr('NOT_FOUND', 'Line has no pool account (nothing was drawn)'))
+		if (amount > BigInt(line.principalMinor)) return yield* Effect.fail(bankErr('VALIDATION', `Refund ${amount} exceeds drawn principal ${line.principalMinor}`))
+		const ledger = yield* BankLedgerService
+		const pool = yield* ledger.getAccountById(line.poolAccountId)
+		const key = `cardref:${ctx.providerTransactionId}`.slice(0, 120)
+		yield* postExternalLeg({
+			owner: poolOwner(pool), idempotencyKey: `credit:${line.id}:${key}`, type: 'credit', account: pool, direction: 'in', amountMinor: amount,
+			memo: 'card refund restores credit', metadata: { creditLineId: line.id, cardId: ctx.cardId, providerTransactionId: ctx.providerTransactionId },
+		})
+		const applied = yield* applyPoolDelta(line.id, 'repay', key, { principal: amount, interest: 0n })
+		return { applied }
+	})
+
 // ------------------------------------------------------------------ recurring job
 
 const runLtvMonitor = (): Fx<{ checked: number; events: number }> =>
@@ -929,6 +984,9 @@ export const BankCreditServiceLive = Layer.succeed(BankCreditService, {
 	openUnsecuredLine,
 	financeReceivable,
 	settleReceivable,
+	undrawnLimit,
+	drawForCard,
+	repayForRefund,
 	runLtvMonitor,
 	settlePendingPoolOps,
 })

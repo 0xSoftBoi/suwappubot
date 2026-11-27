@@ -15,6 +15,7 @@ import { register as remittance } from './remittance'
 import { register as cards } from './cards'
 import { register as earn } from './earn'
 import { register as credit } from './credit'
+import { register as business } from './business'
 
 export type BankRouteApp = Hono<{ Variables: { agent?: Agent } }>
 

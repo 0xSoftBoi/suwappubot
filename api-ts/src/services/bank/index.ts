@@ -8,6 +8,11 @@ import { BankRampServiceLive } from './BankRampService'
 import { BankRemittanceServiceLive } from './BankRemittanceService'
 import { BankEarnServiceLive } from './BankEarnService'
 import { BankCreditServiceLive } from './BankCreditService'
+import { BankOrgServiceLive } from './BankOrgService'
+import { BankApprovalServiceLive } from './BankApprovalService'
+import { BankTreasuryServiceLive } from './BankTreasuryService'
+import { BankBooksServiceLive } from './BankBooksService'
+import { BankPayablesServiceLive } from './BankPayablesService'
 import { BankLedgerServiceLive } from './BankLedgerService'
 import { BankTransferServiceLive } from './BankTransferService'
 
@@ -20,6 +25,11 @@ export const BankLayer = Layer.mergeAll(
 	BankCardServiceLive,
 	BankEarnServiceLive,
 	BankCreditServiceLive,
+	BankOrgServiceLive,
+	BankApprovalServiceLive,
+	BankTreasuryServiceLive,
+	BankBooksServiceLive,
+	BankPayablesServiceLive,
 	// <module services register here, one line each>
 )
 
