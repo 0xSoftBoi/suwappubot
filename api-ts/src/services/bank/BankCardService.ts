@@ -34,6 +34,7 @@ import { logger } from '../../lib/logger'
 import { findAsset } from './assets'
 import { BankLedgerService } from './BankLedgerService'
 import { type BankDeps, BankTransferService } from './BankTransferService'
+import { nextAttemptKey } from './paymentsCommon'
 import type {
 	AuthorizationDecision,
 	AuthorizationRequest,
@@ -161,6 +162,8 @@ export interface IssueCardInput {
 export interface SimulateInput {
 	amountMinor: string
 	merchantName?: string | undefined
+	/** Network/merchant id to test `id:` allowlist entries. */
+	merchantId?: string | undefined
 	mcc?: string | undefined
 	country?: string | undefined
 	/** ISO instant; defaults to now. Lets callers dry-run "what if I swipe on 2026-12-03". */
@@ -343,6 +346,7 @@ const decideAuthorization = (provider: CardProvider, req: AuthorizationRequest):
 				now,
 				amountMinor: req.amountMinor,
 				merchantName: req.merchantName,
+				merchantId: req.merchantId ?? null,
 				mcc: req.mcc,
 				country: req.merchantCountry,
 				...ctx,
@@ -498,10 +502,12 @@ const settleCapture = (card: BankCard, txn: BankCardTransaction): Fx<void> =>
 			const transfers = yield* BankTransferService
 			// MONEY-PATH: a retry of a capture that previously created a shortfall consumes that shortfall's hold (it would otherwise block itself).
 			const sf = yield* bankDb(async (db) => (await db.select().from(bankCardShortfalls).where(and(eq(bankCardShortfalls.cardTransactionId, txn.id), eq(bankCardShortfalls.status, 'open'))).limit(1))[0] ?? null)
+			// MONEY-PATH: the key rotates ONLY after a looked-up terminal failure (reversed, nothing sent) so a retry can settle but never sends twice.
+			const capKey = yield* nextAttemptKey(owner, `card_cap_${txn.providerTransactionId}`.slice(0, 120))
 			const t = yield* transfers.transfer({
 				...(sf ? { consumesHold: { provider: 'card_shortfall', id: sf.id } } : {}),
 				owner,
-				idempotencyKey: `card_cap_${txn.providerTransactionId}`.slice(0, 128),
+				idempotencyKey: capKey,
 				type: 'card',
 				fromAccountId: account.id,
 				toExternal: { address: addr },
@@ -509,6 +515,9 @@ const settleCapture = (card: BankCard, txn: BankCardTransaction): Fx<void> =>
 				memo: `Card ${txn.merchantName ?? ''}`.slice(0, 280),
 				metadata: { cardId: card.id, cardTransactionId: txn.id, providerTransactionId: txn.providerTransactionId },
 			})
+			// MONEY-PATH: never mark queued on a failed or reversed transfer (an idempotent replay can return one).
+			if (t.status === 'failed' || t.status === 'reversed')
+				return yield* Effect.fail(bankErr('UPSTREAM', `Card settlement transfer ${t.status}: ${t.failureReason ?? 'unknown'}`))
 			yield* bankDb((db) =>
 				db.update(bankCardTransactions).set({ transferId: t.id, settlementStatus: 'queued', settlementError: null }).where(eq(bankCardTransactions.id, txn.id)),
 			)
@@ -825,7 +834,7 @@ const impl: BankCardServiceInterface = {
 			if (Number.isNaN(at)) return yield* Effect.fail(bankErr('VALIDATION', 'at must be an ISO date-time'))
 			const ctx = yield* loadHistory(card, rules, at)
 			const amount = BigInt(input.amountMinor)
-			const d = evaluateAuthorization(rules, { now: at, amountMinor: amount, merchantName: input.merchantName, mcc: input.mcc, country: input.country, ...ctx })
+			const d = evaluateAuthorization(rules, { now: at, amountMinor: amount, merchantName: input.merchantName, merchantId: input.merchantId ?? null, mcc: input.mcc, country: input.country, ...ctx })
 			const ledger = yield* BankLedgerService
 			const account = yield* ledger.getAccountById(card.accountId)
 			const asset = findAsset(account.asset, account.chain)

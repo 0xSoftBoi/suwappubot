@@ -66,6 +66,8 @@ export interface AuthorizationRequest {
 	merchantAmountMinor: bigint | null
 	merchantCurrency: string | null
 	merchantName: string | null
+	/** Stable network/merchant id (Stripe merchant_data.network_id) matched by `id:` allowlist entries. */
+	merchantId?: string | null
 	mcc: string | null
 	merchantCountry: string | null
 	/** True when the issuer may approve a partial amount. */

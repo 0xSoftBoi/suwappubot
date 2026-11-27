@@ -103,6 +103,7 @@ function parseRequest(o: Obj): AuthorizationRequest | null {
 		merchantAmountMinor: bigOf(pr.merchant_amount),
 		merchantCurrency: str(pr.merchant_currency)?.toUpperCase() ?? null,
 		merchantName: str(m.name),
+		merchantId: str(m.network_id),
 		mcc: str(m.category_code),
 		merchantCountry: str(m.country),
 		amountControllable: pr.is_amount_controllable === true,

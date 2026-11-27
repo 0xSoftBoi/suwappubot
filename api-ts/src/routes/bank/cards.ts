@@ -52,6 +52,7 @@ const RulesSchema = z.object({ rules: z.record(z.string(), z.unknown()) })
 const SimulateSchema = z.object({
 	amountMinor: z.string().regex(/^\d{1,30}$/),
 	merchantName: z.string().max(200).optional(),
+	merchantId: z.string().max(100).optional(),
 	mcc: z.string().regex(/^\d{4}$/).optional(),
 	country: z.string().length(2).optional(),
 	at: z.string().max(40).optional(),

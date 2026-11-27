@@ -42,6 +42,10 @@ export interface EscrowView {
 	escrow: BankEscrow
 	milestones: BankEscrowMilestone[]
 	events: Array<typeof bankEscrowEvents.$inferSelect>
+	/** Funding transfer (null until the fund transfer row exists). */
+	fundingTransferId?: string | null
+	/** Release/refund transfers per milestone, so a client can track each one. */
+	transfers?: Array<{ milestoneSeq: number; kind: string; transferId: string; amountMinor: string; state: string }>
 }
 
 export interface BankEscrowServiceInterface {
@@ -72,7 +76,10 @@ const loadView = (id: string): PayFx<EscrowView> =>
 		if (!escrow) throw bankErr('NOT_FOUND', 'Escrow not found')
 		const milestones = await db.select().from(bankEscrowMilestones).where(eq(bankEscrowMilestones.escrowId, id)).orderBy(asc(bankEscrowMilestones.seq))
 		const events = await db.select().from(bankEscrowEvents).where(eq(bankEscrowEvents.escrowId, id)).orderBy(asc(bankEscrowEvents.createdAt))
-		return { escrow, milestones, events }
+		// MONEY-PATH: read-only lookup of the funding transfer (metadata written by ensureFunded).
+		const fr = (await db.execute(sql`select id from bank_transfers where metadata->>'escrowId' = ${id} and metadata->>'kind' = 'fund' order by created_at asc limit 1`)) as unknown as Array<{ id: string }>
+		const transfers = milestones.flatMap((m) => m.settlement.filter((x) => x.transferId).map((x) => ({ milestoneSeq: m.seq, kind: x.kind as string, transferId: x.transferId, amountMinor: x.amountMinor, state: x.state as string })))
+		return { escrow, milestones, events, fundingTransferId: fr[0]?.id ?? null, transfers }
 	})
 
 const roleOf = (e: BankEscrow, o: BankOwner): Array<'payer' | 'payee' | 'arbiter'> => {

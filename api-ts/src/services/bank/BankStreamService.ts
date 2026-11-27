@@ -47,6 +47,8 @@ export interface StreamView {
 	unsettledMinor: string
 	/** Earned-wage access available to the payee right now (0 if not enabled). */
 	advanceAvailableMinor: string
+	/** Settlement transfer created/replayed by this call (settle/cancel/pause); absent on plain reads. */
+	transferId?: string | null
 }
 
 export interface BankStreamServiceInterface {
@@ -193,7 +195,19 @@ const closeIfDone = (id: string): PayFx<boolean> =>
 		return true
 	})
 
-const viewOf = (id: string): PayFx<StreamView> => loadStream(id).pipe(Effect.map((s) => streamView(s)))
+// MONEY-PATH: if an intent is still in flight, replay its (same-key) transfer; once CONFIRMED settled_minor/settle_seq
+// advance exactly once (guarded by settle_seq), so a transfer that confirmed after cancel/settle returned is never missed.
+const viewOf = (id: string, transferId?: string | null): PayFx<StreamView> =>
+	Effect.gen(function* () {
+		let s = yield* loadStream(id)
+		const out: { transferId?: string } = {}
+		if (s.pendingMinor != null) {
+			yield* settleCore(id, { force: true, out }).pipe(Effect.catchAll(() => Effect.void))
+			s = yield* loadStream(id)
+		}
+		const tid = transferId ?? out.transferId
+		return tid !== undefined ? { ...streamView(s), transferId: tid } : streamView(s)
+	})
 
 export const BankStreamServiceLive = Layer.succeed(BankStreamService, {
 	createStream: (payer, input) =>
@@ -301,25 +315,30 @@ export const BankStreamServiceLive = Layer.succeed(BankStreamService, {
 		Effect.gen(function* () {
 			const s = yield* loadStream(id)
 			yield* authorise(s, owner, 'either')
-			if (s.status === 'cancelled') return streamView(s)
+			if (s.status === 'cancelled') return yield* viewOf(id)
 			const now = new Date()
 			const folded = s.kind === 'rate' && s.status === 'active' ? foldCheckpoint(stateOf(s), now) : BigInt(s.activeSeconds)
 			yield* bankDb((db) =>
 				db.update(bankStreams).set({ status: 'cancelled', activeSeconds: folded.toString(), resumedAt: null, updatedAt: now }).where(and(eq(bankStreams.id, id), inArray(bankStreams.status, ['active', 'paused', 'capped']))),
 			)
 			// Remainder is settled now; if that fails the job keeps retrying (cancelled streams stay open until settled).
-			yield* settleCore(id, { force: true })
+			const out: { transferId?: string } = {}
+			yield* settleCore(id, { force: true, out })
+			yield* viewOf(id) // reconcile any in-flight intent before closing
+			// An older in-flight intent may have consumed the first pass: settle the true remainder now (no-op if nothing is due).
+			yield* settleCore(id, { force: true, out }).pipe(Effect.catchAll(() => Effect.void))
 			yield* closeIfDone(id)
-			return yield* viewOf(id)
+			return yield* viewOf(id, out.transferId ?? null)
 		}),
 
 	settle: (owner, id) =>
 		Effect.gen(function* () {
 			const s = yield* loadStream(id)
 			yield* authorise(s, owner, 'either')
-			yield* settleCore(id, { force: false })
+			const out: { transferId?: string } = {}
+			yield* settleCore(id, { force: false, out })
 			yield* closeIfDone(id)
-			return yield* viewOf(id)
+			return yield* viewOf(id, out.transferId ?? null)
 		}),
 
 	reportUsage: (streamId, units, opts) =>
