@@ -52,7 +52,7 @@ const STATUS: Record<BankErrorCode, number> = {
 	RAIL_NO_PROVIDER: 422,
 	ISSUER_NOT_CONFIGURED: 503,
 	INSUFFICIENT_AVAILABLE: 422,
-	LOCK_BUSY: 503, // retryable: a per-wallet lock could not be acquired in time
+	LOCK_BUSY: 503, // retryable (Retry-After set by routes/bank.ts): a per-wallet lock could not be acquired in time; retry with the SAME idempotency key
 }
 
 /** Typed bank failure. `missing` names the exact external input when code is NOT_CONFIGURED. */

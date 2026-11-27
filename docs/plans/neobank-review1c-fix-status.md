@@ -1,5 +1,6 @@
-A: db.ts withDbLock bounded try-lock + semaphore (LOCK_BUSY 503) - code present, live run pending
-B: earnCreditChain.ts postExternalLeg tx insert+post + repair-on-existing - DONE
-C: BankEarnService.ts guarded confirm (deposit+withdraw), undo requires confirmed reservation, hash only while pending (aborts pre-broadcast) - DONE
-D: BankEarnService.ts auto-sweep uses availableBalance (row-locked) - DONE
-E: BankTransferService.ts syncDeposit in-flight includes pending earn/credit ops - DONE
+A: DONE - db.ts withDbLock (by credit fixer): try-lock + jitter, 6-conn cap, LOCK_BUSY 503; Retry-After:2 added in routes/bank.ts; live 40-call proof passed
+B: DONE - earnCreditChain.ts postExternalLeg: insert+postInTx in one tx (credit fixer); repair-on-existing (re-post 'settle', idempotent) added
+C: DONE - BankEarnService.ts: confirmDepositOnce (conditional pending + shares in one tx), finalizeWithdraw guarded tx, undoDeposit requires confirmed reservation, patchOpHashIfPending aborts pre-broadcast
+D: DONE - BankEarnService.ts auto-sweep uses availableBalance (row-locked) - floor
+E: DONE - BankTransferService.ts syncDeposit: pending bank_earn_ops + bank_credit_ops (via lines) for wallet group block credit; partner guard kept
+DDL: none needed, so no 0038 / journal / review1c.py
