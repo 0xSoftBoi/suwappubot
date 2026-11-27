@@ -41,6 +41,7 @@ export const useRemittance = (id: string | null | undefined) =>
 
 // cards
 export const useCards = () => useQuery({ queryKey: ['bank', 'cards'], queryFn: async () => (await bank.cards()).cards, ...q })
+export const useCardDetail = (id: string | undefined) => useQuery({ queryKey: ['bank', 'card', id], queryFn: async () => await bank.card(id as string), enabled: !!id, ...q })
 export const useCardAuths = (id: string | undefined) => useQuery({ queryKey: ['bank', 'card-auths', id], queryFn: async () => (await bank.cardAuthorizations(id as string)).authorizations, enabled: !!id, ...q })
 export const useCardTxs = (id: string | undefined) => useQuery({ queryKey: ['bank', 'card-txs', id], queryFn: async () => (await bank.cardTransactions(id as string)).transactions, enabled: !!id, ...q })
 

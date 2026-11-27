@@ -6,6 +6,7 @@ import { useEscrow } from '../../hooks/bank/useBankDomains'
 import { Btn, Card, Chip, ErrorBox, Field, Input, Row, Sheet } from './BankUI'
 import { AmountInput } from './Amount'
 import { MoneyAction } from './MoneyAction'
+import { TransferLine } from './TransferLine'
 
 type Role = 'payer' | 'payee' | 'arbiter'
 type Act = { seq: number; a: 'deliver' | 'confirm' | 'dispute' | 'resolve' | 'refund'; amount: string }
@@ -36,6 +37,7 @@ export function EscrowDetail({ e, onClose }: { e: Escrow; onClose: () => void })
         {roles.length > 0 && <Row label="Your role" value={roles.join(', ')} />}
         {e.description && <Row label="For" value={e.description} />}
         <Row label="Total" value={amt(e.amountMinor)} />
+        {view?.fundingTransferId && <TransferLine label="Funding transfer" transferId={view.fundingTransferId} />}
         {d.isLoading && <p className="text-sm animate-pulse">Loading milestones…</p>}
         {d.isError && <ErrorBox error={d.error} onRetry={() => void d.refetch()} />}
         {ms.map((m) => (
@@ -43,6 +45,7 @@ export function EscrowDetail({ e, onClose }: { e: Escrow; onClose: () => void })
             <div className="flex justify-between gap-2"><p className="text-sm font-semibold">Milestone {m.seq}</p><Chip status={m.status} /></div>
             {m.description && <p className="text-xs text-suwappu-text-secondary break-words">{m.description}</p>}
             <Row label="Amount" value={amt(m.amountMinor)} />
+            {(view?.transfers ?? []).filter((t) => t.milestoneSeq === m.seq).map((t) => <TransferLine key={t.transferId} label={`${t.kind === 'refund' ? 'Refund' : 'Release'} ${amt(t.amountMinor)}`} transferId={t.transferId} />)}
             {m.deliveryProof && <Row label="Proof" value={m.deliveryProof} />}
             {m.autoReleaseAt && m.status === 'delivered' && <Row label="Auto-releases" value={new Date(m.autoReleaseAt).toLocaleString()} />}
             <div className="grid grid-cols-2 gap-2 pt-1">

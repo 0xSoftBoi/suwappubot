@@ -14,6 +14,7 @@ from bot.services.referral_service import referral_service
 from bot.services.wallet import WalletService
 from bot.utils.templates import HELP_MESSAGE, TOS_KEYBOARD
 from bot.i18n import get_text, get_user_lang
+from bot.handlers.bank import handle_bank_start_payload
 
 logger = logging.getLogger(__name__)
 wallet_service = WalletService()
@@ -48,6 +49,7 @@ def _build_main_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("💼 Positions", callback_data="positions_menu"),
             InlineKeyboardButton("📜 History", callback_data="history_menu"),
         ],
+        [InlineKeyboardButton("🏛️ Bank", callback_data="bank_menu")],
         [
             InlineKeyboardButton("📂 More...", callback_data="more_menu"),
             InlineKeyboardButton("⚙️ Settings", callback_data="settings_menu"),
@@ -225,6 +227,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     Auto-creates EVM and Solana wallets for new users.
     """
     user = update.effective_user
+
+    # Bank deep links (claim_<token>, pay_<slug>) open the Mini App directly
+    if context.args and await handle_bank_start_payload(update, context.args[0]):
+        return
 
     # Check for referral code in deeplink arguments
     referral_code = None

@@ -393,7 +393,7 @@ export interface Remittance {
   recipientType?: string | null; recipientRef?: string | null; claimExpiresAt?: string | null; memo?: string | null; bankTransferId?: string | null; createdAt: string
 }
 export interface Card {
-  capCurrency?: string | null; capDecimals?: number | null; shortfallMinor?: string | null; id: string; accountId: string; provider: string; type: string; status: string; currency: string; brand?: string | null
+  id: string; accountId: string; provider: string; type: string; status: string; currency: string; brand?: string | null
   expMonth?: number | null; expYear?: number | null; label?: string | null; rules?: CardRules | null; singleUse?: boolean
 }
 export interface CardRules {
@@ -544,7 +544,7 @@ export const bank = {
 
   // cards
   cards: (q?: { accountId?: string }) => get<Ok<{ cards: Card[] }>>('/cards', q),
-  card: (id: string) => get<Ok<Json>>(`/cards/${id}`),
+  card: (id: string) => get<Ok<{ card: Card & { providerCardId?: string }; availableMinor: string | null; capCurrency: string; capDecimals: number }>>(`/cards/${id}`),
   issueCard: (b: Json, key: string) => post<Ok<{ card: Card; created?: boolean }>>('/cards', b, key),
   revealKey: (id: string, nonce: string) => post<Ok<{ ephemeralKeySecret: string; expiresAt: number | null; providerCardId: string; provider: string }>>(`/cards/${id}/reveal-key`, { nonce }),
   retryCardSettlements: () => post<Ok<{ attempted: number; settled: number; failed: number }>>('/cards/settlements/retry'),

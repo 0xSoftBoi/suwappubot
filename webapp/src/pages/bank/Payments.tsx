@@ -161,6 +161,7 @@ function Escrows() {
                 title="Confirm escrow funding"
                 rows={[{ label: 'Lock', value: `${formatMinor(minor, a.decimals)} ${a.asset}` }, { label: 'Payee', value: `user ${payeeId}` }, { label: 'Fee', value: 'None shown by the API' }, { label: 'For', value: desc || '—' }]}
                 confirmLabel="Fund escrow"
+                trackId={transferIdOf.escrowFunding}
                 run={(k) => bank.createEscrow({ payee: { ownerType: 'user', ownerId: payeeId }, payerAccountId: payer, payeeAccountId: payeeAcct, amountMinor: minor, description: desc || undefined }, k)}
                 onClose={() => setCreating(false)}
               />

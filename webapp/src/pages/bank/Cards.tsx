@@ -2,15 +2,16 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { bank, formatMinor, parseToMinor, str, type Card as BankCard, type CardRules } from '../../lib/bankApi'
 import { useBankAccounts } from '../../hooks/bank/useBankCore'
-import { useCardAuths, useCards, useCardTxs } from '../../hooks/bank/useBankDomains'
+import { useCardAuths, useCardDetail, useCards, useCardTxs } from '../../hooks/bank/useBankDomains'
 import { BankPage, Btn, Card, Chip, Empty, ErrorBox, Field, Input, QueryState, Row, SectionTitle, Tabs } from '../../components/bank/BankUI'
 import { IssueCard } from '../../components/bank/IssueCard'
+import { RevealCard } from '../../components/bank/RevealCard'
 import { a11yToast } from '@/lib/a11yToast'
 
 const list = (s: string) => s.split(',').map((x) => x.trim()).filter(Boolean)
 const join = (a?: string[]) => (a ?? []).join(', ')
 
-function Rules({ card, decimals }: { card: BankCard; decimals: number | null }) {
+function Rules({ card, decimals, capCurrency }: { card: BankCard; decimals: number | null; capCurrency?: string }) {
   const qc = useQueryClient()
   const r = card.rules ?? {}
   const win = ((r as { activeWindows?: Array<{ start: string; end: string; timezone?: string }> }).activeWindows ?? [])[0]
@@ -21,6 +22,7 @@ function Rules({ card, decimals }: { card: BankCard; decimals: number | null }) 
   const [end, setEnd] = useState(win?.end?.slice(0, 10) ?? '')
   const [mccAllow, setMccAllow] = useState(join(r.mccAllow))
   const [mccBlock, setMccBlock] = useState(join(r.mccBlock))
+  const [merchAllow, setMerchAllow] = useState(join(r.merchantAllow))
   const [merchBlock, setMerchBlock] = useState(join(r.merchantBlock))
   const [cAllow, setCAllow] = useState(join(r.countryAllow))
   const [cBlock, setCBlock] = useState(join(r.countryBlock))
@@ -31,7 +33,7 @@ function Rules({ card, decimals }: { card: BankCard; decimals: number | null }) 
 
   const build = (): { rules?: CardRules; error?: string } => {
     const out: Record<string, unknown> = { ...r }
-    for (const k of ['perTxCapMinor', 'dailyCapMinor', 'mccAllow', 'mccBlock', 'merchantBlock', 'countryAllow', 'countryBlock', 'activeWindows']) delete out[k]
+    for (const k of ['perTxCapMinor', 'dailyCapMinor', 'mccAllow', 'mccBlock', 'merchantAllow', 'merchantBlock', 'countryAllow', 'countryBlock', 'activeWindows']) delete out[k]
     const cap = (v: string, k: string) => {
       if (!v.trim()) return null
       const mn = decimals !== null ? parseToMinor(v, decimals) : null
@@ -47,6 +49,7 @@ function Rules({ card, decimals }: { card: BankCard; decimals: number | null }) 
     if (start && end) out.activeWindows = [{ start, end, timezone: 'UTC' }]
     if (list(mccAllow).length) out.mccAllow = list(mccAllow)
     if (list(mccBlock).length) out.mccBlock = list(mccBlock)
+    if (list(merchAllow).length) out.merchantAllow = list(merchAllow)
     if (list(merchBlock).length) out.merchantBlock = list(merchBlock)
     if (list(cAllow).length) out.countryAllow = list(cAllow).map((c) => c.toUpperCase())
     if (list(cBlock).length) out.countryBlock = list(cBlock).map((c) => c.toUpperCase())
@@ -69,13 +72,14 @@ function Rules({ card, decimals }: { card: BankCard; decimals: number | null }) 
       <Card className="space-y-3">
         <p className="text-sm font-semibold">Spending rules</p>
         <div className="grid grid-cols-2 gap-2">
-          <Field label="Per-transaction cap"><Input inputMode="decimal" value={perTx} onChange={(e) => setPerTx(e.target.value)} /></Field>
-          <Field label="Daily cap"><Input inputMode="decimal" value={daily} onChange={(e) => setDaily(e.target.value)} /></Field>
+          <Field label={`Per-transaction cap${capCurrency ? ` (${capCurrency})` : ''}`}><Input inputMode="decimal" value={perTx} onChange={(e) => setPerTx(e.target.value)} /></Field>
+          <Field label={`Daily cap${capCurrency ? ` (${capCurrency})` : ''}`}><Input inputMode="decimal" value={daily} onChange={(e) => setDaily(e.target.value)} /></Field>
           <Field label="Active from"><Input type="date" value={start} onChange={(e) => setStart(e.target.value)} /></Field>
           <Field label="Active until"><Input type="date" value={end} onChange={(e) => setEnd(e.target.value)} /></Field>
         </div>
         <Field label="Allowed categories (MCC)" hint="Comma separated. Ranges like 3000-3299 work."><Input value={mccAllow} onChange={(e) => setMccAllow(e.target.value)} /></Field>
         <Field label="Blocked categories (MCC)"><Input value={mccBlock} onChange={(e) => setMccBlock(e.target.value)} /></Field>
+        <Field label="Allowed merchants" hint="Exact match only: the merchant name must be identical to what the card network sends. To match reliably, use a merchant id with the id: prefix (for example id:acct_123). Leave empty to allow all."><Input value={merchAllow} onChange={(e) => setMerchAllow(e.target.value)} /></Field>
         <Field label="Blocked merchants"><Input value={merchBlock} onChange={(e) => setMerchBlock(e.target.value)} /></Field>
         <div className="grid grid-cols-2 gap-2">
           <Field label="Allowed countries"><Input value={cAllow} placeholder="US, GB" onChange={(e) => setCAllow(e.target.value)} /></Field>
@@ -119,7 +123,7 @@ function Activity({ card, decimals }: { card: BankCard; decimals: number | null 
       </QueryState>
       <SectionTitle>Transactions</SectionTitle>
       <QueryState query={txs} rows={1} isEmpty={(d) => d.length === 0} empty={<Empty title="No transactions" />}>
-        {(l) => <Card className="divide-y divide-suwappu-sakura-mid/20 !py-1">{l.map((t) => <div key={t.id} className="py-2.5 flex justify-between gap-2"><div className="min-w-0"><p className="text-sm truncate">{t.merchantName ?? t.type}</p><p className="text-[11px] text-suwappu-text-secondary">{new Date(t.createdAt).toLocaleString()}</p></div><div className="text-right shrink-0"><p className="text-sm tabular-nums">{formatMinor(t.amountMinor, decimals)} {t.currency}</p>{t.settlementStatus && <Chip status={t.settlementStatus} />}</div></div>)}</Card>}
+        {(l) => <Card className="divide-y divide-suwappu-sakura-mid/20 !py-1">{l.map((t) => <div key={t.id} className="py-2.5 flex justify-between gap-2"><div className="min-w-0"><p className="text-sm truncate">{t.merchantName ?? t.type}</p><p className="text-[11px] text-suwappu-text-secondary">{new Date(t.createdAt).toLocaleString()}</p>{t.refundState === 'AWAITING_REFUND_INFLOW' && <p className="text-[11px] text-yellow-600 break-words">Refund received by card program — awaiting settlement</p>}</div><div className="text-right shrink-0"><p className="text-sm tabular-nums">{formatMinor(t.amountMinor, decimals)} {t.currency}</p>{t.settlementStatus && <Chip status={t.settlementStatus} />}</div></div>)}</Card>}
       </QueryState>
     </div>
   )
@@ -134,7 +138,12 @@ export function Cards() {
   const [tab, setTab] = useState<'rules' | 'activity'>('rules')
   const card = cards.data?.find((c) => c.id === sel)
   useEffect(() => { if (!sel && cards.data?.[0]) setSel(cards.data[0].id) }, [cards.data, sel])
-  const decimals = accounts.data?.find((a) => a.id === card?.accountId)?.decimals ?? null
+  const detail = useCardDetail(card?.id)
+  const txs = useCardTxs(card?.id)
+  const decimals = detail.data?.capDecimals ?? accounts.data?.find((a) => a.id === card?.accountId)?.decimals ?? null
+  const capCurrency = detail.data?.capCurrency
+  // A capture the issuer already paid but we could not settle leaves the card frozen until it is repaid.
+  const shortfall = card?.status === 'frozen' && !!txs.data?.some((t) => t.settlementStatus === 'failed')
   const act = useMutation({
     mutationFn: (a: 'freeze' | 'unfreeze' | 'cancel') => bank.cardAction(card?.id as string, a),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['bank', 'cards'] }),
@@ -153,15 +162,18 @@ export function Cards() {
                 <Card>
                   <div className="flex justify-between"><p className="text-sm font-semibold">{card.label || card.brand || 'Virtual card'}</p><Chip status={card.status} /></div>
                   <Row label="Type" value={card.type} />
+                  {capCurrency && <Row label="Limits are in" value={capCurrency} />}
                   {card.expMonth && card.expYear && <Row label="Expires" value={`${String(card.expMonth).padStart(2, '0')}/${card.expYear}`} />}
+                  {shortfall && <p className="text-xs text-yellow-700 bg-yellow-500/10 rounded-suwappu-lg p-2 mt-2 break-words">This card is frozen because a purchase was paid by the card program beyond your available funds. It cannot be unfrozen until that amount is repaid. Add funds to the account to cover it.</p>}
                   {act.isError && <ErrorBox error={act.error} />}
                   <div className="grid grid-cols-2 gap-2 mt-2">
-                    {card.status === 'frozen' ? <Btn disabled={act.isPending} onClick={() => act.mutate('unfreeze')}>Unfreeze</Btn> : <Btn variant="ghost" disabled={card.status !== 'active' || act.isPending} onClick={() => act.mutate('freeze')}>Freeze</Btn>}
+                    {card.status === 'frozen' ? <Btn disabled={act.isPending || shortfall} onClick={() => act.mutate('unfreeze')}>Unfreeze</Btn> : <Btn variant="ghost" disabled={card.status !== 'active' || act.isPending} onClick={() => act.mutate('freeze')}>Freeze</Btn>}
                     <Btn variant="danger" disabled={card.status === 'canceled' || act.isPending} onClick={() => { if (window.confirm('Cancel this card permanently?')) act.mutate('cancel') }}>Cancel card</Btn>
                   </div>
                 </Card>
+                {card.status === 'active' && <RevealCard cardId={card.id} providerCardId={detail.data?.card.providerCardId} provider={card.provider} />}
                 <Tabs value={tab} onChange={setTab} tabs={[{ id: 'rules', label: 'Rules' }, { id: 'activity', label: 'Activity' }]} />
-                {tab === 'rules' ? <Rules key={card.id + JSON.stringify(card.rules)} card={card} decimals={decimals} /> : <Activity card={card} decimals={decimals} />}
+                {tab === 'rules' ? <Rules key={card.id + JSON.stringify(card.rules)} card={card} decimals={decimals} capCurrency={capCurrency} /> : <Activity card={card} decimals={decimals} />}
               </>
             )}
           </>
