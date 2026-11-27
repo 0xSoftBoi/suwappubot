@@ -9,7 +9,11 @@
  */
 import { and, desc, eq, inArray, lte, sql } from 'drizzle-orm'
 import { Context, Effect, Layer, Option } from 'effect'
+import { createHash } from 'node:crypto'
 import {
+	type BankTransfer,
+	bankRampTransfers,
+	bankTransfers,
 	type BankPayee,
 	type BankPayrollItem,
 	type BankPayrollRun,
@@ -214,6 +218,26 @@ const setItem = (id: string, patch: Partial<typeof bankPayrollItems.$inferInsert
 const failItem = (item: BankPayrollItem, message: string, patch: Partial<typeof bankPayrollItems.$inferInsert> = {}) =>
 	setItem(item.id, { status: 'failed', error: message.slice(0, 500), attempts: item.attempts + 1, ...patch })
 
+/**
+ * MONEY-PATH: before an unexpected error rotates the item key (failItem -> attempts+1 -> `:r{n}`), look up the bank transfer
+ * AND the ramp transfer under the CURRENT key. Only a definitely terminal-failed/reversed (or absent) record allows rotation.
+ * Returns 'rotate' | 'hold' (record pending/submitted/processing: keep item pending) | {paid} (confirmed bank transfer).
+ */
+const currentKeyState = (run: BankPayrollRun, item: BankPayrollItem): PayFx<'rotate' | 'hold' | { paid: BankTransfer }> =>
+	Effect.gen(function* () {
+		if (run.poolId) return 'hold' // pool payouts have their own receivable-keyed idempotency; never rotate here
+		const owner = runOwner(run)
+		const keys = [itemKey(run, item), itemKey(run, item, 'fx')]
+		const rows = yield* bankDb((db) => db.select().from(bankTransfers).where(and(eq(bankTransfers.ownerType, owner.ownerType), eq(bankTransfers.ownerId, owner.ownerId), inArray(bankTransfers.idempotencyKey, keys))))
+		const cref = `rt_${createHash('sha256').update(`${owner.ownerType}:${owner.ownerId}:${itemKey(run, item)}`).digest('hex').slice(0, 40)}`
+		const ramps = yield* bankDb((db) => db.select({ status: bankRampTransfers.status }).from(bankRampTransfers).where(and(eq(bankRampTransfers.ownerType, owner.ownerType), eq(bankRampTransfers.ownerId, owner.ownerId), eq(bankRampTransfers.clientReferenceId, cref))))
+		const pay = rows.find((t) => t.idempotencyKey === keys[0])
+		if (pay?.status === 'confirmed') return { paid: pay }
+		if (rows.some((t) => t.status !== 'failed' && t.status !== 'reversed')) return 'hold'
+		if (ramps.some((t) => t.status !== 'failed' && t.status !== 'returned' && t.status !== 'refunded')) return 'hold'
+		return 'rotate'
+	})
+
 /** MONEY-PATH. Advance one item as far as it can go right now. Never throws for item-level problems. */
 const driveItem = (run: BankPayrollRun, item: BankPayrollItem): PayFx<void> =>
 	Effect.gen(function* () {
@@ -304,7 +328,12 @@ const driveItem = (run: BankPayrollRun, item: BankPayrollItem): PayFx<void> =>
 		Effect.catchAll((e: BankError) =>
 			TRANSIENT.has(e.code) || e.code === 'NOT_CONFIGURED' || e.code === 'PROVIDER_NOT_CONFIGURED' || e.code === 'RAMP_UNAVAILABLE'
 				? setItem(item.id, { error: e.message.slice(0, 500) }) // stays pending/converting; the job re-drives it
-				: failItem(item, e.message),
+				: Effect.gen(function* () {
+						const st = yield* currentKeyState(run, item).pipe(Effect.catchAll(() => Effect.succeed('hold' as const)))
+						if (st === 'rotate') return yield* failItem(item, e.message)
+						if (st === 'hold') return yield* setItem(item.id, { error: `${e.message}`.slice(0, 500) }) // record exists/unknown: stay pending, job re-drives from the real record
+						return yield* setItem(item.id, { status: 'paid', transferId: st.paid.id, paidAt: new Date(), paidAmountMinor: st.paid.amountMinor, paidAsset: st.paid.asset, error: null })
+					}).pipe(Effect.catchAll(() => Effect.void)),
 		),
 		Effect.asVoid,
 	)

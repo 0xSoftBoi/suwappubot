@@ -50,9 +50,14 @@ bankNetworkPublicRoutes.get('/.well-known/suwappu-pay/:handle', wellKnownPay)
 export function register(app: BankRouteApp, deps: BankRouteDeps): void {
 	const { resolveOwner, run } = deps
 	/** Partner identity = org API key (sk_live_*). Agent bearer tokens and webapp sessions are not partners. */
+	// MONEY-PATH: dedicated scopes. GET needs bank:platform:read (or write); every other method needs bank:platform:write. No scopes = refused ('*' is not honoured here).
 	const partnerId = (c: Context): string => {
-		const k = c.get('apiKeyAuth') as { orgId?: string } | undefined
+		const k = c.get('apiKeyAuth') as { orgId?: string; scopes?: string[] } | undefined
 		if (!k?.orgId) throw new HTTPException(403, { message: 'Platform endpoints require an organization API key (sk_live_*)' })
+		const scopes = k.scopes ?? []
+		const isRead = c.req.method === 'GET' || c.req.method === 'HEAD'
+		const ok = scopes.includes('bank:platform:write') || (isRead && scopes.includes('bank:platform:read'))
+		if (!ok) throw new HTTPException(403, { message: `Missing required scope: ${isRead ? 'bank:platform:read' : 'bank:platform:write'}` })
 		return k.orgId
 	}
 	const bad = (c: Context, e: z.ZodError) => c.json({ error: 'Validation Error', error_code: 'VALIDATION_ERROR', fields: formatZodErrors(e) }, 400)
@@ -150,26 +155,26 @@ export function register(app: BankRouteApp, deps: BankRouteDeps): void {
 	// ---- branded stablecoin
 	const S = Effect.gen(function* () { return yield* BankStablecoinService })
 	app.post('/platform/stablecoin/mint', async (c) => {
-		partnerId(c)
+		const pid = partnerId(c)
 		const p = Mint.safeParse(await readJson(c))
 		if (!p.success) return bad(c, p.error)
-		return run(c, Effect.gen(function* () { return yield* (yield* S).mint(p.data) }))
+		return run(c, Effect.gen(function* () { return yield* (yield* S).mint(p.data, pid) }))
 	})
 	app.post('/platform/stablecoin/redeem', async (c) => {
-		partnerId(c)
+		const pid = partnerId(c)
 		const p = Redeem.safeParse(await readJson(c))
 		if (!p.success) return bad(c, p.error)
-		return run(c, Effect.gen(function* () { return yield* (yield* S).redeem(p.data) }))
+		return run(c, Effect.gen(function* () { return yield* (yield* S).redeem(p.data, pid) }))
 	})
 	app.get('/platform/stablecoin/reserve/:asset', (c) => { partnerId(c); return run(c, Effect.gen(function* () { return { reserve: yield* (yield* S).reserveReport(c.req.param('asset')) } })) })
 	app.post('/platform/stablecoin/yield-share', async (c) => {
-		partnerId(c)
+		const pid = partnerId(c)
 		const p = Yield.safeParse(await readJson(c))
 		if (!p.success) return bad(c, p.error)
 		return run(c, Effect.gen(function* () {
 			const from = yield* Effect.try({ try: () => dateParam(p.data.from, new Date()), catch: (e) => e as never })
 			const to = yield* Effect.try({ try: () => dateParam(p.data.to, new Date()), catch: (e) => e as never })
-			return { allocation: yield* (yield* S).yieldShare({ ...p.data, from, to }) }
+			return { allocation: yield* (yield* S).yieldShare({ ...p.data, from, to }, pid) }
 		}))
 	})
 

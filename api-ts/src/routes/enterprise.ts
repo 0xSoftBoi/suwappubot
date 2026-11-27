@@ -629,6 +629,8 @@ const GRANTABLE_SCOPES = [
 	'admin',
 	'swap:execute',
 	'trade:read',
+	'bank:platform:read',
+	'bank:platform:write',
 ] as const
 
 const CreateKeySchema = z.object({
