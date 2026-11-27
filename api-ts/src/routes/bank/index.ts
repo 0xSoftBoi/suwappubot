@@ -38,6 +38,7 @@ export const modules: Module[] = [
 	cards,
 	earn,
 	credit,
+	business,
 	// <module register fns go here, one line each>
 ]
 
