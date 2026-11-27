@@ -121,17 +121,6 @@ const chargeFee = (partnerId: string, customerId: string, fromAccount: BankAccou
 		return { fee, feeMinor: feeMinor.toString() }
 	})
 
-let timer: ReturnType<typeof setInterval> | null = null
-/** Recurring webhook retry job (lazy singleton; started when the platform routes register). */
-export function startPartnerWebhookJob(seconds = 30): void {
-	if (timer) return
-	timer = setInterval(() => {
-		// lazy import: runtime -> MainLayer -> bank index -> this file would otherwise be a cycle
-		void import('../../runtime').then(({ runEffect }) => runEffect(Effect.gen(function* () { return yield* (yield* BankPartnerService).deliverDueWebhooks(50) }))).catch((e) => logger.error({ err: String(e) }, 'bank: partner webhook tick failed'))
-	}, seconds * 1000)
-	;(timer as { unref?: () => void }).unref?.()
-}
-
 export const BankPartnerServiceLive: Layer.Layer<BankPartnerService> = Layer.succeed(BankPartnerService, {
 	assertCustomer,
 

@@ -36,7 +36,19 @@ const NOT_AVAILABLE_CODES = new Set([
   'SIGNING_UNAVAILABLE',
   'UNSUPPORTED',
   'WALLET_UNAVAILABLE',
+  'POOL_UNFUNDED',
+  'RAMP_UNAVAILABLE',
+  'ISSUER_NOT_CONFIGURED',
 ])
+
+/** Pull a transfer id out of heterogeneous money-action responses. */
+export function findTransferId(res: unknown): string | null {
+  const r = (res ?? {}) as Record<string, any>
+  const c = r.transferId ?? r.transfer?.id ?? r.transfers?.[0]?.id ?? r.operation?.transferId ?? r.remittance?.bankTransferId ?? r.line?.transferId
+  return typeof c === 'string' ? c : null
+}
+
+export const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : typeof v === 'number' ? String(v) : undefined)
 
 export function isNotAvailable(e: unknown): boolean {
   return e instanceof BankApiError && (NOT_AVAILABLE_CODES.has(e.code) || e.status === 503)

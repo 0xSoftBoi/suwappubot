@@ -7,7 +7,6 @@ import { BankError } from '../../services/bank/errors'
 import { BankEscrowService } from '../../services/bank/BankEscrowService'
 import { BankPaymentsService } from '../../services/bank/BankPaymentsService'
 import { BankStreamService } from '../../services/bank/BankStreamService'
-import { ensurePaymentsJob } from '../../services/bank/paymentsJob'
 import { parseEip681, parseSolanaPay } from '../../services/bank/paymentRequest'
 import { formatZodErrors } from '../validators'
 import { readJson } from './core'
@@ -59,7 +58,6 @@ const StreamCreate = z.object({
 
 export function register(app: BankRouteApp, deps: BankRouteDeps): void {
 	const { resolveOwner, run } = deps
-	ensurePaymentsJob()
 
 	const bad = (c: Parameters<typeof run>[0], fields: Record<string, string>) => c.json({ error: 'Validation Error', error_code: 'VALIDATION_ERROR', fields }, 400)
 	const withBody = async <S extends z.ZodType>(c: Parameters<typeof run>[0], schema: S): Promise<{ ok: true; data: z.output<S> } | { ok: false; res: Response }> => {

@@ -98,7 +98,7 @@ async function main() {
 	startAutopilotScheduler(env.AUTOPILOT_CYCLE_MINUTES, seeded ? undefined : env.AUTOPILOT_BOOTSTRAP)
 
 	// Bank pending-transfer reconciler (BANK_RECONCILE_SECONDS, 0 disables).
-	startBankReconciler(env.BANK_RECONCILE_SECONDS)
+	startBankReconciler(env)
 
 	// Graceful shutdown
 	const shutdown = async () => {

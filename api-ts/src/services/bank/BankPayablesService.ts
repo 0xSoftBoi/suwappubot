@@ -222,12 +222,3 @@ const loadInvoices = (orgId: string, now: Date) =>
 
 export class BankPayablesService extends Context.Tag('BankPayablesService')<BankPayablesService, typeof impl>() {}
 export const BankPayablesServiceLive = Layer.succeed(BankPayablesService, impl)
-
-// Recurring job (same pattern as reconciler.ts). Started from the route registry; idempotent.
-let timer: ReturnType<typeof setInterval> | null = null
-let running = false
-export function startBillRunner(tick: () => Promise<void>, seconds = 60): void {
-	if (timer) return
-	timer = setInterval(() => { if (running) return; running = true; void tick().finally(() => { running = false }) }, seconds * 1000)
-	timer.unref?.()
-}

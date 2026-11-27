@@ -38,6 +38,7 @@ import {
 	computeHealth,
 	erc20Abi,
 	hashOf,
+	isInterestFree,
 	postExternalLeg,
 	liquidationPriceHuman,
 	loadBluePosition,
@@ -48,6 +49,7 @@ import {
 	waitReceipt,
 } from './earnCreditChain'
 import { BankError, bankErr } from './errors'
+import { featureEnabled } from './segments'
 
 type Fx<A> = Effect.Effect<A, BankError, BankDeps | BankTransferService>
 
@@ -58,6 +60,29 @@ export const CRITICAL_LTV_OF_LLTV_BPS = 9300
 const YEAR_SECONDS = 31_536_000n
 const UNSECURED_CAP_UNITS = 5_000n // whole units of the loan asset
 const RECEIVABLE_ADVANCE_BPS = 8000
+/** Fixed-markup (interest-free) financing is priced as the product's APR over this standard term, charged ONCE up front. */
+const FIXED_MARKUP_TERM_DAYS = 30
+
+/** MONEY-PATH: flat markup bps disclosed up front; derived from the product APR over the standard term (ceil). */
+export const fixedMarkupBps = (aprBps: number): number => Math.ceil((aprBps * FIXED_MARKUP_TERM_DAYS) / 365)
+const FIXED_MARKUP = 'fixed_markup'
+const markupOf = (principal: bigint, bps: number): bigint => (principal * BigInt(bps) + 9_999n) / 10_000n
+const lineMarkupBps = (line: BankCreditLine): number => (line.metadata.financing === FIXED_MARKUP ? Number(line.metadata.markupBps ?? 0) : 0)
+
+/**
+ * Interest-free mode (sharia_compliant segment / interest-free metadata / any segment with interestCredit off).
+ * MONEY-PATH policy gate for every interest-bearing credit product. Returns 'interest' (normal) or 'markup'
+ * (fixed disclosed markup, no accrual, no late interest). Morpho collateralised borrow has no fixed-markup form.
+ */
+export const financingMode = (acct: BankAccount, product: 'collateralized' | 'pool'): Effect.Effect<'interest' | 'markup', BankError> => {
+	const interestFree = isInterestFree(acct) || !featureEnabled(acct, 'interestCredit')
+	if (!interestFree) return Effect.succeed('interest')
+	if (product === 'collateralized')
+		return Effect.fail(bankErr('POLICY_BLOCKED', `INTEREST_FREE_MODE: account segment '${acct.segmentProfile ?? 'default'}' disallows interest-bearing credit; Morpho borrowing accrues interest`))
+	if (!featureEnabled(acct, 'fixedMarkupFinancing'))
+		return Effect.fail(bankErr('POLICY_BLOCKED', `INTEREST_FREE_MODE: account segment '${acct.segmentProfile ?? 'default'}' disallows interest-bearing credit and does not enable fixed-markup financing`))
+	return Effect.succeed('markup')
+}
 const RECEIVABLE_APR_BPS = 1200
 
 export interface CreditMarket {
@@ -354,6 +379,7 @@ const openLine = (i: OpenLineInput): Fx<LineView> =>
 			return yield* view(existing)
 		}
 		const acct = yield* loadBorrowAccount(i.owner, i.accountId)
+		yield* financingMode(acct, 'collateralized')
 		const loan = findAsset(acct.asset, acct.chain)!
 		const params = yield* up(() => loadMarketParams(acct.chain, i.marketId), 'Morpho market')
 		if (lc(params.loanToken) !== lc(loan.address)) return yield* Effect.fail(bankErr('VALIDATION', `Market loan token ${params.loanToken} is not ${acct.asset} on ${acct.chain}`))
@@ -463,7 +489,8 @@ const poolDraw = (owner: BankOwner, line: BankCreditLine, amount: bigint, key: s
 		const limit = BigInt(line.limitMinor)
 		const { accrued } = accrue(line, new Date())
 		const used = BigInt(line.principalMinor) + accrued + BigInt(((line.metadata.pendingDrawTotal as string) ?? '0'))
-		if (used + amount > limit) return yield* Effect.fail(bankErr('LIMIT_EXCEEDED', `Draw ${amount} exceeds available credit ${limit - used > 0n ? limit - used : 0n}`))
+		const markup = markupOf(amount, lineMarkupBps(line))
+		if (used + amount + markup > limit) return yield* Effect.fail(bankErr('LIMIT_EXCEEDED', `Draw ${amount} exceeds available credit ${limit - used > 0n ? limit - used : 0n}`))
 		const t = yield* xfer.transfer({
 			owner: poolOwner(pool), idempotencyKey: `credit:draw:${line.id}:${key}`, type: 'credit', fromAccountId: pool.id, toAccountId: acct.id,
 			amountMinor: amount.toString(), memo: `credit draw ${line.kind}`, metadata: { creditLineId: line.id, op: 'draw' },
@@ -490,7 +517,8 @@ const applyPoolDelta = (lineId: string, kind: 'draw' | 'repay', key: string, spl
 		const line = yield* loadLineById(lineId)
 		const { accrued } = accrue(line, now)
 		const principal = kind === 'draw' ? BigInt(line.principalMinor) + split.principal : BigInt(line.principalMinor) - split.principal
-		const interest = kind === 'repay' ? accrued - split.interest : accrued
+		// draw: split.interest is the fixed markup agreed up front (0 for interest-bearing lines)
+		const interest = kind === 'repay' ? accrued - split.interest : accrued + split.interest
 		if (principal < 0n || interest < 0n) return yield* Effect.fail(bankErr('CONFLICT', 'repayment exceeds amount owed'))
 		const pendingNext = { ...(line.metadata.pending as Record<string, unknown> | undefined) }
 		delete pendingNext[key]
@@ -535,6 +563,9 @@ const draw: BankCreditServiceInterface['draw'] = (i) =>
 		let line = yield* loadLine(i.owner, i.lineId)
 		if (line.status !== 'active') return yield* Effect.fail(bankErr('ACCOUNT_STATE', 'Credit line is closed'))
 		const acct = yield* loadBorrowAccount(i.owner, line.accountId)
+		const mode = yield* financingMode(acct, line.kind === 'collateralized' ? 'collateralized' : 'pool')
+		if (mode === 'markup' && line.kind !== 'collateralized' && line.metadata.financing !== FIXED_MARKUP)
+			return yield* Effect.fail(bankErr('POLICY_BLOCKED', 'INTEREST_FREE_MODE: this line accrues interest; open a fixed-markup line instead'))
 
 		if (line.kind !== 'collateralized') {
 			const dkey = i.idempotencyKey
@@ -542,7 +573,7 @@ const draw: BankCreditServiceInterface['draw'] = (i) =>
 			const r = yield* poolDraw(i.owner, line, amount, dkey)
 			const pool = yield* bankDb(async (db) => (await db.select().from(bankTransfers).where(eq(bankTransfers.id, r.transferId)).limit(1))[0]!)
 			if (!line.poolAccountId) line = yield* bankDb(async (db) => (await db.update(bankCreditLines).set({ poolAccountId: pool.fromAccount, updatedAt: new Date() }).where(eq(bankCreditLines.id, line.id)).returning())[0]!)
-			yield* recordPoolOp(line, 'draw', `draw:${dkey}`, r.transferId, r.status, { principal: amount, interest: 0n })
+			yield* recordPoolOp(line, 'draw', `draw:${dkey}`, r.transferId, r.status, { principal: amount, interest: markupOf(amount, lineMarkupBps(line)) })
 			return { line: yield* view(yield* loadLineById(line.id)), transferId: r.transferId, txHash: pool.txHash, status: r.status }
 		}
 
@@ -768,12 +799,13 @@ const openUnsecuredLine = (i: { owner: BankOwner; idempotencyKey: string; accoun
 		const ex = yield* bankDb(async (db) => (await db.select().from(bankCreditLines).where(eq(bankCreditLines.id, id)).limit(1))[0] ?? null)
 		if (ex) return yield* view(ex)
 		const acct = yield* loadBorrowAccount(i.owner, i.accountId)
+		const mode = yield* financingMode(acct, 'pool')
 		const { score: s } = yield* score(i.owner, { asset: acct.asset, chain: acct.chain })
 		if (BigInt(s.proposedLimitMinor) <= 0n) return yield* Effect.fail(bankErr('POLICY_BLOCKED', `No unsecured limit available (score ${s.score}, tier ${s.tier}): ${JSON.stringify((s.factors as { declineReasons?: string[] }).declineReasons ?? [])}`))
 		const line = yield* bankDb(async (db) =>
-			(await db.insert(bankCreditLines).values({ id, ownerType: i.owner.ownerType, ownerId: i.owner.ownerId, kind: 'undercollateralized', chain: acct.chain, loanAsset: acct.asset, accountId: acct.id, limitMinor: s.proposedLimitMinor, aprBps: s.aprBps, metadata: { scoreId: s.id } }).onConflictDoNothing().returning())[0] ?? (await db.select().from(bankCreditLines).where(eq(bankCreditLines.id, id)))[0]!,
+			(await db.insert(bankCreditLines).values({ id, ownerType: i.owner.ownerType, ownerId: i.owner.ownerId, kind: 'undercollateralized', chain: acct.chain, loanAsset: acct.asset, accountId: acct.id, limitMinor: s.proposedLimitMinor, aprBps: mode === 'markup' ? 0 : s.aprBps, metadata: mode === 'markup' ? { scoreId: s.id, financing: FIXED_MARKUP, markupBps: fixedMarkupBps(s.aprBps), termDays: FIXED_MARKUP_TERM_DAYS } : { scoreId: s.id } }).onConflictDoNothing().returning())[0] ?? (await db.select().from(bankCreditLines).where(eq(bankCreditLines.id, id)))[0]!,
 		)
-		yield* addEvent(line, { type: 'opened', data: { limitMinor: s.proposedLimitMinor, aprBps: s.aprBps, score: s.score, tier: s.tier } })
+		yield* addEvent(line, { type: 'opened', data: { limitMinor: s.proposedLimitMinor, aprBps: mode === 'markup' ? 0 : s.aprBps, ...(mode === 'markup' ? { financing: FIXED_MARKUP, markupBps: fixedMarkupBps(s.aprBps) } : {}), score: s.score, tier: s.tier } })
 		return yield* view(line)
 	})
 
@@ -802,6 +834,7 @@ const financeReceivable: BankCreditServiceInterface['financeReceivable'] = (i) =
 		const ex = yield* bankDb(async (db) => (await db.select().from(bankCreditLines).where(eq(bankCreditLines.id, id)).limit(1))[0] ?? null)
 		if (ex) return { line: yield* view(ex), advanceMinor: (ex.limitMinor) }
 		const acct = yield* loadBorrowAccount(i.owner, i.accountId)
+		const mode = yield* financingMode(acct, 'pool')
 		const inv = yield* loadInvoice(i.invoiceId)
 		const status = String(pick(inv, 'status') ?? '').toLowerCase()
 		if (!['open', 'sent', 'issued', 'pending', 'unpaid', 'overdue'].includes(status)) return yield* Effect.fail(bankErr('VALIDATION', `Invoice ${i.invoiceId} is '${status || 'unknown'}'; only unpaid invoices can be financed`))
@@ -819,10 +852,10 @@ const financeReceivable: BankCreditServiceInterface['financeReceivable'] = (i) =
 		const advance = (face * BigInt(RECEIVABLE_ADVANCE_BPS)) / 10_000n
 		const pool = yield* findPool(acct.asset, acct.chain, advance)
 		const line = yield* bankDb(async (db) =>
-			(await db.insert(bankCreditLines).values({ id, ownerType: i.owner.ownerType, ownerId: i.owner.ownerId, kind: 'receivable', chain: acct.chain, loanAsset: acct.asset, accountId: acct.id, poolAccountId: pool.id, limitMinor: advance.toString(), aprBps: RECEIVABLE_APR_BPS, receivableId: i.invoiceId, faceMinor: face.toString(), metadata: { advanceRateBps: RECEIVABLE_ADVANCE_BPS } }).onConflictDoNothing().returning())[0] ?? (await db.select().from(bankCreditLines).where(eq(bankCreditLines.id, id)))[0]!,
+			(await db.insert(bankCreditLines).values({ id, ownerType: i.owner.ownerType, ownerId: i.owner.ownerId, kind: 'receivable', chain: acct.chain, loanAsset: acct.asset, accountId: acct.id, poolAccountId: pool.id, limitMinor: advance.toString(), aprBps: mode === 'markup' ? 0 : RECEIVABLE_APR_BPS, receivableId: i.invoiceId, faceMinor: face.toString(), metadata: mode === 'markup' ? { advanceRateBps: RECEIVABLE_ADVANCE_BPS, financing: FIXED_MARKUP, markupBps: fixedMarkupBps(RECEIVABLE_APR_BPS), termDays: FIXED_MARKUP_TERM_DAYS } : { advanceRateBps: RECEIVABLE_ADVANCE_BPS } }).onConflictDoNothing().returning())[0] ?? (await db.select().from(bankCreditLines).where(eq(bankCreditLines.id, id)))[0]!,
 		)
 		const r = yield* poolDraw(i.owner, line, advance, 'advance')
-		yield* recordPoolOp(line, 'draw', 'draw:advance', r.transferId, r.status, { principal: advance, interest: 0n })
+		yield* recordPoolOp(line, 'draw', 'draw:advance', r.transferId, r.status, { principal: advance, interest: markupOf(advance, lineMarkupBps(line)) })
 		return { line: yield* view(yield* loadLineById(id)), advanceMinor: advance.toString() }
 	})
 
@@ -856,6 +889,11 @@ const undrawnLimit = (lineId: string): Fx<bigint> =>
 	Effect.gen(function* () {
 		const line = yield* loadLineById(lineId)
 		if (line.status !== 'active') return 0n
+		// card credit funding obeys interest-free mode: blocked products expose no limit
+		const ledger = yield* BankLedgerService
+		const lineAcct = yield* ledger.getAccountById(line.accountId)
+		const mode = yield* financingMode(lineAcct, line.kind === 'collateralized' ? 'collateralized' : 'pool').pipe(Effect.catchAll(() => Effect.succeed(null)))
+		if (mode === null || (mode === 'markup' && line.metadata.financing !== FIXED_MARKUP)) return 0n
 		const v = yield* view(line)
 		if (v.health) {
 			const cap = (BigInt(v.health.maxBorrowMinor) * BigInt(MAX_DRAW_LTV_OF_LLTV_BPS)) / 10_000n
@@ -864,7 +902,9 @@ const undrawnLimit = (lineId: string): Fx<bigint> =>
 		}
 		const pend = Object.values((line.metadata.pending ?? {}) as Record<string, { kind: string; principal: string }>).filter((p) => p.kind === 'draw').reduce((a, p) => a + BigInt(p.principal), 0n)
 		const left = BigInt(line.limitMinor) - BigInt(v.owed!.totalMinor) - pend
-		return left > 0n ? left : 0n
+		const mbps = lineMarkupBps(line)
+		const net = mbps > 0 ? (left * 10_000n) / BigInt(10_000 + mbps) : left // the markup on a new draw also consumes limit
+		return net > 0n ? net : 0n
 	})
 
 /** MONEY-PATH: draws against the line for a card capture; idempotent per provider transaction. */

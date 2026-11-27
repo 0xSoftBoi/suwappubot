@@ -133,6 +133,10 @@ export const EnvSchema = Schema.Struct({
 	/** Minutes between scheduled cycles. 0 disables the scheduler entirely. */
 	AUTOPILOT_CYCLE_MINUTES: Schema.optionalWith(Schema.NumberFromString, { default: () => 0 }),
 	// Bank pending-transfer reconciler interval in seconds (0 = disabled).
+	// Bank job registry (services/bank/jobs.ts). BANK_JOBS_ENABLED=false stops every bank job.
+	// BANK_JOB_INTERVALS: comma list of `jobName=seconds` overrides (0 disables that job), e.g. "bills=120,partner-webhooks=0".
+	BANK_JOBS_ENABLED: Schema.optionalWith(Schema.String, { default: () => 'true' }),
+	BANK_JOB_INTERVALS: Schema.optionalWith(Schema.String, { default: () => '' }),
 	BANK_RECONCILE_SECONDS: Schema.optionalWith(Schema.NumberFromString, { default: () => 30 }),
 	// Bank M5 ramps. All optional: unset = provider reports PROVIDER_NOT_CONFIGURED.
 	BRIDGE_API_KEY: Schema.optional(Schema.String),

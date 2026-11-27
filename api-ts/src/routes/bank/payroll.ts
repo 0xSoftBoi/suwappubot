@@ -3,7 +3,6 @@ import { z } from 'zod'
 import { BankPayoutPoolService } from '../../services/bank/BankPayoutPoolService'
 import { BankPayrollService } from '../../services/bank/BankPayrollService'
 import { BankStreamService } from '../../services/bank/BankStreamService'
-import { ensurePaymentsJob } from '../../services/bank/paymentsJob'
 import { formatZodErrors } from '../validators'
 import { readJson } from './core'
 import type { BankRouteApp, BankRouteDeps } from './index'
@@ -53,7 +52,6 @@ const PoolCreate = z.object({
 
 export function register(app: BankRouteApp, deps: BankRouteDeps): void {
 	const { resolveOwner, run } = deps
-	ensurePaymentsJob()
 	type C = Parameters<typeof run>[0]
 	const bad = (c: C, fields: Record<string, string>) => c.json({ error: 'Validation Error', error_code: 'VALIDATION_ERROR', fields }, 400)
 	const withBody = async <S extends z.ZodType>(c: C, schema: S): Promise<{ ok: true; data: z.output<S> } | { ok: false; res: Response }> => {

@@ -112,10 +112,7 @@ const ensureAccount = (owner: BankOwner, asset: string, chain: string, autoEarn:
 
 const claimBase = (env: EnvService['Type']) => (env.BANK_CLAIM_BASE_URL ? env.BANK_CLAIM_BASE_URL.replace(/\/$/, '') : null)
 
-export const BankRemittanceServiceLive = Layer.sync(BankRemittanceService, () => {
-	startJob()
-	return impl
-})
+export const BankRemittanceServiceLive = Layer.sync(BankRemittanceService, () => impl)
 
 const impl: BankRemittanceServiceInterface = {
 	quote: (owner, i) =>
@@ -368,30 +365,10 @@ const refundEscrow = (id: string, reason: string, requireExpired: boolean): Fx<B
 	})
 
 // ---------------------------------------------------------------- recurring job (expiry refunds, settlement)
-let jobTimer: ReturnType<typeof setInterval> | null = null
-let jobRunning = false
-let lastRun = 0
-
-function startJob(): void {
-	if (jobTimer) return
-	jobTimer = setInterval(() => void tick(), 30_000)
-	;(jobTimer as { unref?: () => void }).unref?.()
-}
-
-async function tick(): Promise<void> {
-	if (jobRunning) return
-	jobRunning = true
-	try {
-		const { runEffect } = await import('../../runtime')
-		const secs = await runEffect(Effect.map(EnvService, (e) => e.BANK_REMIT_JOB_SECONDS) as never) as number
-		if (!Number.isFinite(secs) || secs <= 0 || Date.now() - lastRun < secs * 1000) return
-		lastRun = Date.now()
-		const r = await runEffect(Effect.flatMap(BankRemittanceService, (s) => s.runJob()) as never)
-		const x = r as { refunded: number; refreshed: number; rampsSettled: number }
-		if (x.refunded || x.refreshed || x.rampsSettled) logger.info(x, 'bank: remittance job')
-	} catch (err) {
-		logger.error({ err: String(err) }, 'bank: remittance job failed')
-	} finally {
-		jobRunning = false
-	}
+/** One tick; scheduled by the bank job registry (services/bank/jobs.ts). Interval: BANK_REMIT_JOB_SECONDS. */
+export async function runRemittanceJobOnce(): Promise<void> {
+	const { runEffect } = await import('../../runtime')
+	const r = await runEffect(Effect.flatMap(BankRemittanceService, (s) => s.runJob()) as never)
+	const x = r as { refunded: number; refreshed: number; rampsSettled: number }
+	if (x.refunded || x.refreshed || x.rampsSettled) logger.info(x, 'bank: remittance job')
 }

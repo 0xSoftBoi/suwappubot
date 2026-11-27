@@ -13,7 +13,7 @@ import type { MainLayerContext } from '../../services/MainLayer'
 import { BankApprovalService } from '../../services/bank/BankApprovalService'
 import { BankBooksService } from '../../services/bank/BankBooksService'
 import { BankOrgService } from '../../services/bank/BankOrgService'
-import { BankPayablesService, runDueBills, startBillRunner } from '../../services/bank/BankPayablesService'
+import { BankPayablesService } from '../../services/bank/BankPayablesService'
 import { BankTreasuryService } from '../../services/bank/BankTreasuryService'
 import type { BankOwner } from '../../services/bank/db'
 import { formatZodErrors } from '../validators'
@@ -163,14 +163,4 @@ export function register(app: BankRouteApp, deps: BankRouteDeps): void {
 	// Corporate card budgets (consumed by the cards module via getCardBudget)
 	route('get', '/orgs/:orgId/card-budgets', null, (o, p) => Effect.flatMap(BankOrgService, (s) => s.listCardBudgets(o, p('orgId'))))
 	route('put', '/orgs/:orgId/card-budgets', S.cardBudget, (o, p, b) => Effect.flatMap(BankOrgService, (s) => s.setCardBudget(o, p('orgId'), b)))
-
-	// Recurring bill-payment job (idempotent start; skip-if-running).
-	startBillRunner(async () => {
-		try {
-			const r = await runEffect(runDueBills())
-			if (r.started + r.paid + r.failed > 0) logger.info(r, 'bank: bills tick')
-		} catch (err) {
-			logger.error({ err: String(err) }, 'bank: bills tick failed')
-		}
-	})
 }

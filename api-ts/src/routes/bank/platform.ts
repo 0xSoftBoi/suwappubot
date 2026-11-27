@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { bankLedgerEntries } from '../../db'
 import { findAsset } from '../../services/bank/assets'
 import { BankLedgerService } from '../../services/bank/BankLedgerService'
-import { BankPartnerService, startPartnerWebhookJob } from '../../services/bank/BankPartnerService'
+import { BankPartnerService } from '../../services/bank/BankPartnerService'
 import { BankPaymentNetworkService } from '../../services/bank/BankPaymentNetworkService'
 import { BankStablecoinService } from '../../services/bank/BankStablecoinService'
 import { bankDb } from '../../services/bank/db'
@@ -49,7 +49,6 @@ bankNetworkPublicRoutes.get('/.well-known/suwappu-pay/:handle', wellKnownPay)
 
 export function register(app: BankRouteApp, deps: BankRouteDeps): void {
 	const { resolveOwner, run } = deps
-	startPartnerWebhookJob(30)
 	/** Partner identity = org API key (sk_live_*). Agent bearer tokens and webapp sessions are not partners. */
 	const partnerId = (c: Context): string => {
 		const k = c.get('apiKeyAuth') as { orgId?: string } | undefined
