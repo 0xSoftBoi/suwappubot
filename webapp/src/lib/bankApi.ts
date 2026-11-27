@@ -41,11 +41,31 @@ const NOT_AVAILABLE_CODES = new Set([
   'ISSUER_NOT_CONFIGURED',
 ])
 
-/** Pull a transfer id out of heterogeneous money-action responses. */
-export function findTransferId(res: unknown): string | null {
-  const r = (res ?? {}) as Record<string, any>
-  const c = r.transferId ?? r.transfer?.id ?? r.transfers?.[0]?.id ?? r.operation?.transferId ?? r.remittance?.bankTransferId ?? r.line?.transferId
-  return typeof c === 'string' ? c : null
+/**
+ * Per-endpoint transfer-id accessors. Each one mirrors the exact api-ts service return type
+ * (see the file:line notes); endpoints that return no transfer id have none here on purpose.
+ */
+export const transferIdOf = {
+  /** BankFxService.execute -> { transfer, quote } */
+  fx: (r: FxExecuteResult): string => r.transfer.id,
+  /** BankRampService.offramp -> { rampTransfer, quote }; the ledger transfer id is rampTransfer.bankTransferId (null until the debit is booked). */
+  offramp: (r: OfframpResult): string | null => r.rampTransfer.bankTransferId ?? null,
+  /** BankRemittanceService.send -> { remittance, ... }; remittance.bankTransferId. */
+  remittance: (r: { remittance: Remittance }): string | null => r.remittance.bankTransferId ?? null,
+  /** BankApprovalService.transfer -> { approvalRequired:false, transfer } | { approvalRequired:true, request } */
+  orgTransfer: (r: OrgTransferResult): string | null => (r.approvalRequired ? null : r.transfer.id),
+  /** BankEarnService.deposit/withdraw -> { operation } (operation.transferId). */
+  earn: (r: { operation: EarnOp }): string | null => r.operation.transferId ?? null,
+  /** BankCreditService.draw/repay -> { line, transferId, txHash, status }. */
+  credit: (r: { transferId: string | null }): string | null => r.transferId,
+  /** BankPaymentsService.payInvoice -> { invoice, payment, transferStatus }; payment.transferId. */
+  invoicePay: (r: InvoicePayResult): string | null => r.payment.transferId ?? null,
+  /** Payroll executeRun/retryFailed -> { run, items[] }; one transferId per paid item (fxTransferId when converted). */
+  payrollItems: (r: PayrollRunResult): string[] => r.items.map((i) => i.transferId).filter((x): x is string => typeof x === 'string'),
+  /** advanceWages / advanceScheduleWages -> { ..., transferId } */
+  ewa: (r: { transferId: string | null }): string | null => r.transferId,
+  /** POST /transfers -> { transfer } */
+  transfer: (r: { transfer: BankTransfer }): string => r.transfer.id,
 }
 
 export const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : typeof v === 'number' ? String(v) : undefined)
@@ -54,17 +74,41 @@ export function isNotAvailable(e: unknown): boolean {
   return e instanceof BankApiError && (NOT_AVAILABLE_CODES.has(e.code) || e.status === 503)
 }
 
-/** Plain-language text for any error, using the API's own message. */
-export function describeBankError(e: unknown): string {
+/** Plain-language line for every typed bank error code (api-ts services/bank/errors.ts). Falls back to the API's own message. */
+export function describeBankError(code: string, message?: string): string {
+  switch (code) {
+    case 'INSUFFICIENT_AVAILABLE': return 'Not enough available balance. Part of your balance is on hold or already committed, so only the available amount can be used.'
+    case 'INSUFFICIENT_FUNDS': return 'Your balance is too low for this amount plus fees.'
+    case 'PROVIDER_NOT_CONFIGURED': return 'This payment provider is not switched on yet. Nothing was sent.'
+    case 'PROVIDER_DOCS_REQUIRED': return 'The provider needs more documents from you before this can go ahead. Finish verification first.'
+    case 'RAIL_NO_PROVIDER': return 'No provider is available for this payment route yet. Try another route or currency.'
+    case 'LENDER_POOL_UNFUNDED': return 'The lending pool has no funds available right now, so credit cannot be drawn. Try again later.'
+    case 'POOL_UNFUNDED': return 'The payout pool has no funds available right now, so instant payouts are paused.'
+    case 'EXPOSURE_LIMIT': return 'This would go over the exposure limit. Try a smaller amount or repay something first.'
+    case 'RAMP_UNAVAILABLE': return 'Bank on and off ramps are unavailable right now. Nothing was sent. Try again later.'
+    case 'RECEIVABLES_UNAVAILABLE': return 'Invoice financing is not available right now.'
+    case 'ISSUER_NOT_CONFIGURED': return 'Card issuing is not switched on yet.'
+    case 'NOT_CONFIGURED': return message ? `Not available yet: ${message}` : 'This feature is not switched on yet.'
+    case 'SIGNING_UNAVAILABLE': return 'Signing is temporarily unavailable. Nothing was sent. Try again shortly.'
+    case 'WALLET_UNAVAILABLE': return 'The wallet for this account is not ready yet.'
+    case 'LIMIT_EXCEEDED': return message || 'This is over your limit.'
+    case 'POLICY_BLOCKED': return message || 'A policy blocked this. An approval may be needed.'
+    case 'ACCOUNT_STATE': return message || 'This account cannot do that in its current state.'
+    case 'ASSET_UNSUPPORTED': return message || 'That asset or network is not supported.'
+    case 'FORBIDDEN': return message || 'You do not have permission to do this.'
+    case 'NOT_FOUND': return message || 'We could not find that.'
+    case 'CONFLICT': return message || 'This conflicts with something that already exists.'
+    case 'UPSTREAM': return 'A partner service did not respond properly. Nothing was lost; try again shortly.'
+    default: return message || 'Something went wrong. Try again.'
+  }
+}
+
+/** Plain-language text for any thrown value. */
+export function bankErrorText(e: unknown): string {
   if (e instanceof BankApiError) {
-    if (isNotAvailable(e)) {
-      const why = e.message || e.code
-      return `Not available yet: ${why}${e.missing ? ` (needs ${e.missing})` : ''}`
-    }
-    if (e.fields && Object.keys(e.fields).length) {
-      return Object.entries(e.fields).map(([k, v]) => `${k}: ${v}`).join('; ')
-    }
-    return e.message
+    if (e.fields && Object.keys(e.fields).length) return Object.entries(e.fields).map(([k, v]) => `${k}: ${v}`).join('; ')
+    const t = describeBankError(e.code, e.message)
+    return e.missing && !t.includes(e.missing) ? `${t} (needs ${e.missing})` : t
   }
   if (e instanceof DOMException && e.name === 'TimeoutError') return 'The request timed out. Check your connection and try again.'
   if (e instanceof TypeError) return 'Could not reach the server. Check your connection and try again.'
