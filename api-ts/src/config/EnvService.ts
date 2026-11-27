@@ -132,6 +132,8 @@ export const EnvSchema = Schema.Struct({
 	AUTOPILOT_LLM_MAX_CALLS: Schema.optionalWith(Schema.NumberFromString, { default: () => 8 }),
 	/** Minutes between scheduled cycles. 0 disables the scheduler entirely. */
 	AUTOPILOT_CYCLE_MINUTES: Schema.optionalWith(Schema.NumberFromString, { default: () => 0 }),
+	// Bank pending-transfer reconciler interval in seconds (0 = disabled).
+	BANK_RECONCILE_SECONDS: Schema.optionalWith(Schema.NumberFromString, { default: () => 30 }),
 	/**
 	 * JSON describing one PAPER agent this environment should have. Seeded on
 	 * boot if missing, never modified if it already exists. Cannot create a live

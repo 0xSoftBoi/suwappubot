@@ -13,6 +13,7 @@ import { stopAgentCleanup } from './routes/agent'
 import { stopDataLiveTicker } from './routes/data'
 import { runEffect, shutdownRuntime } from './runtime'
 import { runAutopilotBootstrap } from './services/autopilot/bootstrap'
+import { startBankReconciler, stopBankReconciler } from './services/bank/reconciler'
 import { startAutopilotScheduler, stopAutopilotScheduler } from './services/autopilot/scheduler'
 
 async function main() {
@@ -96,6 +97,9 @@ async function main() {
 	// and (for real money) explicitly in live mode.
 	startAutopilotScheduler(env.AUTOPILOT_CYCLE_MINUTES, seeded ? undefined : env.AUTOPILOT_BOOTSTRAP)
 
+	// Bank pending-transfer reconciler (BANK_RECONCILE_SECONDS, 0 disables).
+	startBankReconciler(env.BANK_RECONCILE_SECONDS)
+
 	// Graceful shutdown
 	const shutdown = async () => {
 		logger.info('Shutting down...')
@@ -103,6 +107,7 @@ async function main() {
 		stopAgentCleanup()
 		stopDataLiveTicker()
 		stopAutopilotScheduler()
+		stopBankReconciler()
 		// Drain the write-behind usage buffer before stopping the flush timer —
 		// otherwise any unflushed /v1/data/* request counts from the last <30s
 		// are silently dropped on every deploy/restart.

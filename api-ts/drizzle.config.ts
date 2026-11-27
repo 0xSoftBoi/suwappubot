@@ -75,5 +75,7 @@ export default defineConfig({
 		// (worldIdNullifiers.ts) — no python owner; replay protection for the
 		// hackathon guardian gate.
 		'world_id_nullifiers',
+		// Suwappu Bank (bank.ts + bank<Module>.ts) — co-created by python bank_ddl.
+		'bank_*',
 	],
 })

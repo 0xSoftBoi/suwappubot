@@ -1,0 +1,721 @@
+/**
+ * BankTransferService — MONEY-PATH.
+ *
+ * Lifecycle (every state change is persisted; ledger is the source of truth for balances):
+ *   create (pending) -> ledger "submit": debit FROM / credit clearing   (funds reserved before any signing)
+ *   sign -> persist tx hash + status 'submitted' -> broadcast
+ *   confirmPending(): receipt/signature verified -> ledger "confirm" + status 'confirmed'
+ *   any definitive failure -> ledger "reverse" (clearing -> FROM) + status 'failed'
+ * Same wallet+asset internal moves are ledger-only ("settle") and confirmed immediately.
+ * Never marked confirmed without an on-chain receipt (EVM) / finalized signature (Solana).
+ *
+ * Signing: TurnkeyService.signTransactionForAgent wrapped in withSigningFallback —
+ * the same primitives as routes/swap.ts:553-584 (see docs/plans/neobank-module-contract.md).
+ *
+ * Known limit: the per-wallet nonce lock is in-process. Run one api-ts replica, or
+ * add a DB advisory lock, before scaling horizontally.
+ */
+import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm'
+import { Context, Effect, Layer } from 'effect'
+import { createHash } from 'node:crypto'
+import { agents, type BankAccount, type BankTransfer, type BankTransferType, bankLedgerEntries, bankTransfers, wallets } from '../../db'
+import type { DrizzleService, Wallet } from '../../db'
+import { fetchTokenPrices } from '../../lib/prices'
+import { logger } from '../../lib/logger'
+import { CHAIN_ID_TO_KEY } from '../../config/chains'
+import { withSigningFallback } from '../FallbackSigningService'
+import { PolicyService } from '../PolicyService'
+import { TurnkeyService } from '../TurnkeyService'
+import { type BankAsset, findAsset } from './assets'
+import { BankLedgerService, type LedgerLeg } from './BankLedgerService'
+import * as chain from './chain'
+import { type BankOwner, bankDb, newId } from './db'
+import { BankError, bankErr } from './errors'
+
+export type BankDeps = DrizzleService | BankLedgerService | TurnkeyService | PolicyService
+type Fx<A> = Effect.Effect<A, BankError, BankDeps>
+
+export interface TransferInput {
+	owner: BankOwner
+	idempotencyKey: string
+	type: BankTransferType
+	fromAccountId: string
+	toAccountId?: string | undefined
+	toExternal?: { address: string } | undefined
+	/** Integer minor units as a string. */
+	amountMinor: string
+	memo?: string | undefined
+	metadata?: Record<string, unknown> | undefined
+}
+
+export interface SendEvmInput {
+	account: Pick<BankAccount, 'walletId' | 'walletUserId' | 'address' | 'chain'>
+	to: string
+	data: string
+	valueHex?: string
+	gas?: bigint
+	/** Called after signing, BEFORE broadcast, with the pre-computed tx hash. */
+	onSigned?: (info: { txHash: string; nonce: number }) => Effect.Effect<void, BankError, BankDeps>
+}
+
+export interface SendResult {
+	txHash: string
+	nonce: number
+	outcome: 'accepted' | 'rejected' | 'ambiguous'
+	message?: string
+}
+
+export interface BankTransferServiceInterface {
+	readonly transfer: (input: TransferInput) => Fx<BankTransfer>
+	readonly getTransfer: (owner: BankOwner, id: string) => Fx<BankTransfer>
+	readonly listTransfers: (
+		owner: BankOwner,
+		opts?: { accountId?: string | undefined; status?: string | undefined; limit?: number | undefined; before?: string | undefined },
+	) => Fx<BankTransfer[]>
+	/** Poller entrypoint: advances pending/submitted transfers. Returns counts. */
+	readonly confirmPending: (opts?: { limit?: number }) => Fx<{ checked: number; confirmed: number; failed: number }>
+	/** Credit on-chain funds that arrived outside the bank into `accountId` (only when nothing is in flight). */
+	readonly syncDeposit: (owner: BankOwner, accountId: string) => Fx<{ creditedMinor: string; transfer: BankTransfer | null }>
+	/** Low-level: build + lock + sign + broadcast one EVM call from a bank account's wallet. */
+	readonly sendEvm: (input: SendEvmInput) => Fx<SendResult>
+	/** Used by BankFxService to finish an fx transfer's on-chain leg. */
+	readonly settleTransfer: (id: string) => Fx<BankTransfer>
+	/** Mark a not-yet-broadcast transfer failed and release its ledger reservation. */
+	readonly failTransfer: (id: string, reason: string) => Fx<BankTransfer>
+}
+
+export class BankTransferService extends Context.Tag('BankTransferService')<
+	BankTransferService,
+	BankTransferServiceInterface
+>() {}
+
+// ------------------------------------------------------------------ helpers
+
+const tails = new Map<string, Promise<void>>()
+const acquire = async (key: string): Promise<() => void> => {
+	const prev = tails.get(key) ?? Promise.resolve()
+	let done!: () => void
+	const mine = new Promise<void>((r) => {
+		done = r
+	})
+	const tail = prev.then(() => mine)
+	tails.set(key, tail)
+	await prev
+	return () => {
+		done()
+		if (tails.get(key) === tail) tails.delete(key)
+	}
+}
+const withWalletLock = <A, E, R>(key: string, inner: Effect.Effect<A, E, R>) =>
+	Effect.acquireUseRelease(
+		Effect.promise(() => acquire(key)),
+		() => inner,
+		(release) => Effect.sync(release),
+	)
+
+const CLAIM_STALE_MS = 2 * 60_000
+const MIN_CONFIRMATIONS: Record<string, bigint> = { ethereum: 3n }
+const confirmationsFor = (c: string) => MIN_CONFIRMATIONS[c] ?? 1n
+
+const UINT_RE = /^[1-9][0-9]{0,77}$/
+const KEY_RE = /^[A-Za-z0-9_.:-]{8,128}$/
+
+const requireAsset = (symbol: string, c: string): BankAsset => {
+	const a = findAsset(symbol, c)
+	if (!a) throw bankErr('ASSET_UNSUPPORTED', `Unsupported asset ${symbol} on ${c}`)
+	return a
+}
+
+const loadWallet = (acct: Pick<BankAccount, 'walletId' | 'walletUserId' | 'address'>): Effect.Effect<Wallet, BankError, DrizzleService> =>
+	bankDb(async (db) => {
+		if (acct.walletId == null || !acct.address) throw bankErr('WALLET_UNAVAILABLE', 'Account has no custody wallet')
+		const [w] = await db.select().from(wallets).where(eq(wallets.id, acct.walletId)).limit(1)
+		if (!w || !w.isActive) throw bankErr('WALLET_UNAVAILABLE', 'Custody wallet not found or inactive')
+		// Defense in depth: the wallet row must still be the one the account was opened against.
+		if (w.userId !== acct.walletUserId || w.address.toLowerCase() !== acct.address.toLowerCase())
+			throw bankErr('FORBIDDEN', 'Custody wallet no longer matches the account')
+		if (w.walletProvider !== 'turnkey' || !w.turnkeySubOrgId)
+			throw bankErr('SIGNING_UNAVAILABLE', 'Wallet does not support server-side signing')
+		return w
+	})
+
+const patchTransfer = (id: string, patch: Partial<typeof bankTransfers.$inferInsert>) =>
+	bankDb(async (db) => {
+		const [row] = await db
+			.update(bankTransfers)
+			.set({ ...patch, updatedAt: new Date() })
+			.where(eq(bankTransfers.id, id))
+			.returning()
+		if (!row) throw bankErr('NOT_FOUND', 'Transfer not found')
+		return row
+	})
+
+const mergeMeta = (t: BankTransfer, extra: Record<string, unknown>) => ({ ...(t.metadata ?? {}), ...extra })
+
+// ------------------------------------------------------------------ signing
+
+const signPayload = (
+	w: Wallet,
+	family: 'evm' | 'solana',
+	payload: string,
+	fallbackPayload: Record<string, unknown>,
+): Effect.Effect<string, BankError, TurnkeyService> =>
+	Effect.gen(function* () {
+		const turnkey = yield* TurnkeyService
+		return yield* Effect.tryPromise({
+			try: async () => {
+				const { signedTransaction } = await withSigningFallback(
+					() => Effect.runPromise(turnkey.signTransactionForAgent(w.turnkeySubOrgId!, payload, w.address, family)),
+					w.id,
+					// wallets.user_id — same id the Python ownership check compares (swap.ts:579).
+					w.userId,
+					fallbackPayload,
+					family,
+				)
+				return signedTransaction
+			},
+			catch: (e) =>
+				bankErr('SIGNING_UNAVAILABLE', `Signing failed (Turnkey and fallback): ${e instanceof Error ? e.message : String(e)}`, { cause: e }),
+		})
+	})
+
+const classify = (o: chain.BroadcastOutcome): { outcome: SendResult['outcome']; message?: string } =>
+	o.kind === 'accepted' ? { outcome: 'accepted' } : { outcome: o.kind, message: o.message }
+
+const sendEvm = (input: SendEvmInput): Fx<SendResult> =>
+	Effect.gen(function* () {
+		const asset = input.account.chain
+		const chainId = Object.entries(CHAIN_ID_TO_KEY).find(([, k]) => k === asset)?.[0]
+		if (!chainId) return yield* Effect.fail(bankErr('ASSET_UNSUPPORTED', `No EVM chain id for ${asset}`))
+		const w = yield* loadWallet(input.account)
+		return yield* withWalletLock(
+			`${input.account.chain}:${w.address.toLowerCase()}`,
+			Effect.gen(function* () {
+				const built = yield* Effect.tryPromise({
+					try: () =>
+						chain.evmBuildCall(input.account.chain, Number(chainId), w.address, input.to, input.data, input.valueHex ?? '0x0', input.gas),
+					catch: (e) =>
+						e instanceof chain.GasShortfallError
+							? bankErr('WALLET_UNAVAILABLE', e.message)
+							: bankErr('UPSTREAM', `Transaction would fail or RPC unavailable: ${e instanceof Error ? e.message : String(e)}`, { cause: e }),
+				})
+				const signed = yield* signPayload(w, 'evm', JSON.stringify(built.tx), built.tx as unknown as Record<string, unknown>)
+				const txHash = chain.evmTxHash(signed)
+				// Persist hash BEFORE broadcast: a crash after this point is recoverable by the reconciler.
+				if (input.onSigned) yield* input.onSigned({ txHash, nonce: built.nonce })
+				const b = classify(yield* Effect.promise(() => chain.evmBroadcast(input.account.chain, signed)))
+				return { txHash, nonce: built.nonce, ...b }
+			}),
+		)
+	})
+
+const sendSolana = (
+	acct: BankAccount,
+	asset: BankAsset,
+	recipient: string,
+	amount: bigint,
+	onSigned: (info: { txHash: string; lastValidBlockHeight: number }) => Effect.Effect<void, BankError, BankDeps>,
+): Fx<SendResult> =>
+	Effect.gen(function* () {
+		const w = yield* loadWallet(acct)
+		return yield* withWalletLock(
+			`solana:${w.address}`,
+			Effect.gen(function* () {
+				const built = yield* Effect.tryPromise({
+					try: () => chain.solBuildSplTransfer(asset, w.address, recipient, amount),
+					catch: (e) => bankErr('UPSTREAM', `Could not build Solana transfer: ${e instanceof Error ? e.message : String(e)}`, { cause: e }),
+				})
+				const signed = yield* signPayload(w, 'solana', built.unsignedHex, { hex: built.unsignedHex })
+				const sig = yield* Effect.try({
+					try: () => chain.solSignatureOf(signed),
+					catch: (e) => bankErr('SIGNING_UNAVAILABLE', String(e)),
+				})
+				yield* onSigned({ txHash: sig, lastValidBlockHeight: built.lastValidBlockHeight })
+				const b = classify(yield* Effect.promise(() => chain.solBroadcast(signed)))
+				return { txHash: sig, nonce: 0, ...b }
+			}),
+		)
+	})
+
+// ------------------------------------------------------------------ ledger legs
+
+const clearingFor = (t: BankTransfer): string | null =>
+	typeof t.metadata?.clearingAccountId === 'string' ? (t.metadata.clearingAccountId as string) : null
+
+const reserveLegs = (t: BankTransfer, clearing: string): LedgerLeg[] => [
+	{ accountId: t.fromAccount!, direction: 'debit', amountMinor: BigInt(t.amountMinor) },
+	{ accountId: clearing, direction: 'credit', amountMinor: BigInt(t.amountMinor) },
+]
+
+const failAndReverse = (t: BankTransfer, reason: string): Fx<BankTransfer> =>
+	Effect.gen(function* () {
+		const ledger = yield* BankLedgerService
+		const clearing = clearingFor(t)
+		if (clearing && t.fromAccount) {
+			const reserved = yield* bankDb(async (db) => {
+				const rows = await db
+					.select({ id: bankLedgerEntries.id })
+					.from(bankLedgerEntries)
+					.where(and(eq(bankLedgerEntries.transferId, t.id), eq(bankLedgerEntries.phase, 'submit')))
+					.limit(1)
+				return rows.length > 0
+			})
+			if (reserved)
+				yield* ledger.post({
+					transferId: t.id,
+					phase: 'reverse',
+					legs: [
+						{ accountId: clearing, direction: 'debit', amountMinor: BigInt(t.amountMinor) },
+						{ accountId: t.fromAccount, direction: 'credit', amountMinor: BigInt(t.amountMinor) },
+					],
+				})
+		}
+		logger.warn({ transferId: t.id, reason }, '[bank] transfer failed and reversed')
+		return yield* patchTransfer(t.id, { status: 'failed', failureReason: reason.slice(0, 1000) })
+	})
+
+// ------------------------------------------------------------------ execution of one transfer
+
+/** Drives a pending transfer forward (idempotent; safe to call on retries and from the reconciler). */
+const advance = (t0: BankTransfer): Fx<BankTransfer> =>
+	Effect.gen(function* () {
+		const ledger = yield* BankLedgerService
+		let t = t0
+		if (t.status !== 'pending') return t
+		const from = yield* ledger.getAccountById(t.fromAccount!)
+		const asset = requireAsset(t.asset, t.chain)
+		const amount = BigInt(t.amountMinor)
+
+		// Atomic claim so a retry and the reconciler never sign the same transfer twice.
+		const claimed = yield* bankDb(async (db) => {
+			const rows = await db
+				.update(bankTransfers)
+				.set({ metadata: sql`${bankTransfers.metadata} || ${JSON.stringify({ claimedAt: Date.now() })}::jsonb`, updatedAt: new Date() })
+				.where(
+					and(
+						eq(bankTransfers.id, t.id),
+						eq(bankTransfers.status, 'pending'),
+						sql`(${bankTransfers.metadata}->>'claimedAt') is null or (${bankTransfers.metadata}->>'claimedAt')::bigint < ${Date.now() - CLAIM_STALE_MS}`,
+					),
+				)
+				.returning()
+			return rows[0] ?? null
+		})
+		if (!claimed) return t
+		t = claimed
+
+		const to = t.toAccount ? yield* ledger.getAccountById(t.toAccount) : null
+		const sameWallet =
+			to !== null &&
+			to.address !== null &&
+			from.address !== null &&
+			to.chain === from.chain &&
+			to.asset === from.asset &&
+			to.address.toLowerCase() === from.address.toLowerCase()
+
+		if (sameWallet) {
+			yield* ledger.post({
+				transferId: t.id,
+				phase: 'settle',
+				legs: [
+					{ accountId: from.id, direction: 'debit', amountMinor: amount },
+					{ accountId: to!.id, direction: 'credit', amountMinor: amount },
+				],
+			})
+			return yield* patchTransfer(t.id, { status: 'confirmed', confirmedAt: new Date(), failureReason: null })
+		}
+
+		// Reserve funds first.
+		const clearing = (yield* ledger.ensureSystemAccount('clearing', t.asset, t.chain)).id
+		if (clearingFor(t) !== clearing) t = yield* patchTransfer(t.id, { metadata: mergeMeta(t, { clearingAccountId: clearing }) })
+		const reserve = yield* Effect.either(ledger.post({ transferId: t.id, phase: 'submit', legs: reserveLegs(t, clearing) }))
+		if (reserve._tag === 'Left') return yield* patchTransfer(t.id, { status: 'failed', failureReason: reserve.left.message })
+
+		const recipient = to ? to.address! : t.toExternal!.address
+		const persist = (txHash: string, extra: Record<string, unknown>) =>
+			patchTransfer(t.id, { status: 'submitted', txHash, metadata: mergeMeta(t, { clearingAccountId: clearing, ...extra }) }).pipe(Effect.asVoid)
+
+		const sent = yield* Effect.either(
+			asset.family === 'evm'
+				? sendEvm({
+						account: from,
+						to: asset.address,
+						data: chain.erc20TransferData(recipient, amount),
+						onSigned: ({ txHash, nonce }) => persist(txHash, { nonce }),
+					})
+				: sendSolana(from, asset, recipient, amount, ({ txHash, lastValidBlockHeight }) => persist(txHash, { lastValidBlockHeight })),
+		)
+		if (sent._tag === 'Left') {
+			// Nothing was broadcast (build / signing / hash persistence failed) -> release the reservation.
+			const reread = yield* bankDb(async (db) => (await db.select().from(bankTransfers).where(eq(bankTransfers.id, t.id)).limit(1))[0]!)
+			if (reread.txHash) return reread // hash persisted: outcome unknown, reconciler decides
+			return yield* failAndReverse(reread, sent.left.message)
+		}
+		if (sent.right.outcome === 'rejected') {
+			const reread = yield* bankDb(async (db) => (await db.select().from(bankTransfers).where(eq(bankTransfers.id, t.id)).limit(1))[0]!)
+			return yield* failAndReverse(reread, `Broadcast rejected: ${sent.right.message}`)
+		}
+		return yield* bankDb(async (db) => (await db.select().from(bankTransfers).where(eq(bankTransfers.id, t.id)).limit(1))[0]!)
+	})
+
+// ------------------------------------------------------------------ settlement (confirmation)
+
+const confirmedLegs = (t: BankTransfer, clearing: string, externalId: string | null): LedgerLeg[] => {
+	const amount = BigInt(t.amountMinor)
+	return [
+		{ accountId: clearing, direction: 'debit', amountMinor: amount },
+		{ accountId: t.toAccount ?? externalId!, direction: 'credit', amountMinor: amount },
+	]
+}
+
+const settle = (t: BankTransfer): Fx<BankTransfer> =>
+	Effect.gen(function* () {
+		if (t.status !== 'submitted' && t.status !== 'pending') return t
+		const ledger = yield* BankLedgerService
+		const md = t.metadata ?? {}
+		if (md.reviewRequired) return t
+
+		// Pending with no hash: either mid-flight in another worker or crashed -> let advance() decide (claim-guarded).
+		if (!t.txHash) {
+			if (t.type !== 'fx') return t.status === 'pending' ? yield* advance(t) : t
+			// fx never persisted a hash => nothing was broadcast; release after a grace period.
+			return Date.now() - t.updatedAt.getTime() > 10 * 60_000 ? yield* failAndReverse(t, 'fx transfer never reached the network') : t
+		}
+		const asset = requireAsset(t.asset, t.chain)
+		const clearing = clearingFor(t)
+		if (!clearing) return yield* patchTransfer(t.id, { metadata: mergeMeta(t, { reviewRequired: true }) })
+
+		const finish = (received?: bigint): Fx<BankTransfer> =>
+			Effect.gen(function* () {
+				if (t.type === 'fx') {
+					const fxmeta = md.fx as { toAccountId: string; toAsset: string } | undefined
+					if (!fxmeta || received === undefined || received <= 0n) return yield* patchTransfer(t.id, { metadata: mergeMeta(t, { reviewRequired: true }) })
+					const fxTo = yield* ledger.ensureSystemAccount('fx', fxmeta.toAsset, t.chain)
+					yield* ledger.post({
+						transferId: t.id,
+						phase: 'confirm',
+						legs: [
+							{ accountId: fxTo.id, direction: 'debit', amountMinor: received },
+							{ accountId: fxmeta.toAccountId, direction: 'credit', amountMinor: received },
+						],
+					})
+					return yield* patchTransfer(t.id, {
+						status: 'confirmed',
+						confirmedAt: new Date(),
+						failureReason: null,
+						metadata: mergeMeta(t, { fx: { ...fxmeta, receivedMinor: received.toString() } }),
+					})
+				}
+				const external = t.toAccount ? null : (yield* ledger.ensureSystemAccount('external', t.asset, t.chain)).id
+				yield* ledger.post({ transferId: t.id, phase: 'confirm', legs: confirmedLegs(t, clearing, external) })
+				return yield* patchTransfer(t.id, { status: 'confirmed', confirmedAt: new Date(), failureReason: null })
+			})
+
+		if (asset.family === 'evm') {
+			const fromAddress = t.fromAccount ? ((yield* ledger.getAccountById(t.fromAccount)).address ?? '') : ''
+			const check = yield* Effect.tryPromise({
+				try: async () => {
+					const r = await chain.evmReceipt(t.chain, t.txHash!)
+					if (!r) {
+						const known = await chain.evmTxKnown(t.chain, t.txHash!)
+						const nonce = typeof md.nonce === 'number' ? (md.nonce as number) : null
+						if (!known && nonce !== null) {
+							const latest = await chain.evmLatestNonce(t.chain, fromAddress)
+							if (latest > nonce) return { kind: 'dropped' as const }
+						}
+						return { kind: 'wait' as const }
+					}
+					const head = await chain.evmBlockNumber(t.chain)
+					return { kind: 'receipt' as const, r, conf: head - r.blockNumber + 1n }
+				},
+				catch: (e) => bankErr('UPSTREAM', `RPC error while confirming: ${String(e)}`, { cause: e }),
+			})
+			if (check.kind === 'wait') return t
+			if (check.kind === 'dropped') return yield* failAndReverse(t, 'Transaction replaced or dropped (nonce consumed by another tx)')
+			if (!check.r.success) return yield* failAndReverse(t, 'Transaction reverted on-chain')
+			if (check.conf < confirmationsFor(t.chain)) return t
+			if (t.type === 'fx') {
+				const fxmeta = md.fx as { toAccountId: string; toTokenAddress: string; recipient: string } | undefined
+				const got = fxmeta ? chain.sumTransfersTo(check.r, fxmeta.toTokenAddress, fxmeta.recipient) : 0n
+				return yield* finish(got)
+			}
+			// Plain transfers must show the expected Transfer(to, amount) log.
+			const to = t.toAccount ? (yield* ledger.getAccountById(t.toAccount)).address : t.toExternal!.address
+			if (!to || chain.sumTransfersTo(check.r, asset.address, to) < BigInt(t.amountMinor))
+				return yield* patchTransfer(t.id, { metadata: mergeMeta(t, { reviewRequired: true, reviewReason: 'receipt lacks expected Transfer log' }) })
+			return yield* finish()
+		}
+
+		// Solana
+		const st = yield* Effect.tryPromise({
+			try: async () => {
+				const s = await chain.solSignatureStatus(t.txHash!)
+				if (s.state === 'unknown') {
+					const lv = typeof md.lastValidBlockHeight === 'number' ? (md.lastValidBlockHeight as number) : null
+					if (lv !== null && (await chain.solBlockHeight()) > lv + 150) return { state: 'failed' as const, reason: 'blockhash expired before inclusion' }
+				}
+				return s
+			},
+			catch: (e) => bankErr('UPSTREAM', `Solana RPC error while confirming: ${String(e)}`, { cause: e }),
+		})
+		if (st.state === 'failed') return yield* failAndReverse(t, `Solana transaction failed: ${st.reason}`)
+		if (st.state === 'finalized') return yield* finish()
+		return t
+	})
+
+// ------------------------------------------------------------------ service
+
+export const BankTransferServiceLive = Layer.succeed(BankTransferService, {
+	sendEvm,
+
+	failTransfer: (id, reason) =>
+		Effect.gen(function* () {
+			const t = yield* bankDb(async (db) => (await db.select().from(bankTransfers).where(eq(bankTransfers.id, id)).limit(1))[0])
+			if (!t) return yield* Effect.fail(bankErr('NOT_FOUND', 'Transfer not found'))
+			// Never release funds once a signed tx may be on the network.
+			if (t.txHash || t.status === 'confirmed' || t.status === 'failed') return t
+			return yield* failAndReverse(t, reason)
+		}),
+
+	settleTransfer: (id) =>
+		Effect.gen(function* () {
+			const t = yield* bankDb(async (db) => (await db.select().from(bankTransfers).where(eq(bankTransfers.id, id)).limit(1))[0])
+			if (!t) return yield* Effect.fail(bankErr('NOT_FOUND', 'Transfer not found'))
+			return yield* settle(t)
+		}),
+
+	getTransfer: (owner, id) =>
+		bankDb(async (db) => {
+			const [t] = await db
+				.select()
+				.from(bankTransfers)
+				.where(and(eq(bankTransfers.id, id), eq(bankTransfers.ownerType, owner.ownerType), eq(bankTransfers.ownerId, owner.ownerId)))
+				.limit(1)
+			if (!t) throw bankErr('NOT_FOUND', 'Transfer not found')
+			return t
+		}),
+
+	listTransfers: (owner, opts) =>
+		bankDb((db) => {
+			const conds = [eq(bankTransfers.ownerType, owner.ownerType), eq(bankTransfers.ownerId, owner.ownerId)]
+			if (opts?.accountId)
+				conds.push(sql`(${bankTransfers.fromAccount} = ${opts.accountId} or ${bankTransfers.toAccount} = ${opts.accountId})`)
+			if (opts?.status) conds.push(eq(bankTransfers.status, opts.status as BankTransfer['status']))
+			if (opts?.before) conds.push(lt(bankTransfers.createdAt, new Date(opts.before)))
+			return db
+				.select()
+				.from(bankTransfers)
+				.where(and(...conds))
+				.orderBy(desc(bankTransfers.createdAt))
+				.limit(Math.min(Math.max(opts?.limit ?? 50, 1), 200))
+		}),
+
+	transfer: (input) =>
+		Effect.gen(function* () {
+			const ledger = yield* BankLedgerService
+			if (!KEY_RE.test(input.idempotencyKey))
+				return yield* Effect.fail(bankErr('VALIDATION', 'idempotencyKey must be 8-128 chars of A-Za-z0-9_.:-'))
+			if (!UINT_RE.test(input.amountMinor))
+				return yield* Effect.fail(bankErr('VALIDATION', 'amountMinor must be a positive integer string (minor units)'))
+			if ((input.toAccountId ? 1 : 0) + (input.toExternal ? 1 : 0) !== 1)
+				return yield* Effect.fail(bankErr('VALIDATION', 'Provide exactly one of toAccountId or toExternal'))
+			if (input.memo && input.memo.length > 280) return yield* Effect.fail(bankErr('VALIDATION', 'memo too long (max 280)'))
+			const amount = BigInt(input.amountMinor)
+
+			const requestHash = createHash('sha256')
+				.update(
+					JSON.stringify([input.type, input.fromAccountId, input.toAccountId ?? null, input.toExternal?.address.toLowerCase() ?? null, input.amountMinor, input.memo ?? null]),
+				)
+				.digest('hex')
+
+			// Idempotent replay.
+			const existing = yield* bankDb(async (db) => {
+				const [r] = await db
+					.select()
+					.from(bankTransfers)
+					.where(
+						and(
+							eq(bankTransfers.ownerType, input.owner.ownerType),
+							eq(bankTransfers.ownerId, input.owner.ownerId),
+							eq(bankTransfers.idempotencyKey, input.idempotencyKey),
+						),
+					)
+					.limit(1)
+				return r ?? null
+			})
+			if (existing) {
+				if (existing.requestHash !== requestHash)
+					return yield* Effect.fail(bankErr('CONFLICT', 'idempotencyKey was already used with different transfer terms'))
+				return existing.status === 'pending' ? yield* advance(existing) : existing
+			}
+
+			const from = yield* ledger.getAccount(input.owner, input.fromAccountId)
+			if (from.status !== 'active') return yield* Effect.fail(bankErr('ACCOUNT_STATE', `Source account is ${from.status}`))
+			const asset = yield* Effect.try({ try: () => requireAsset(from.asset, from.chain), catch: (e) => e as BankError })
+
+			let to: BankAccount | null = null
+			if (input.toAccountId) {
+				to = yield* ledger.getAccountById(input.toAccountId)
+				if (to.ownerType === 'system') return yield* Effect.fail(bankErr('VALIDATION', 'Cannot transfer to a system account'))
+				if (to.status !== 'active') return yield* Effect.fail(bankErr('ACCOUNT_STATE', `Destination account is ${to.status}`))
+				if (to.id === from.id) return yield* Effect.fail(bankErr('VALIDATION', 'Source and destination are the same account'))
+				if (to.asset !== from.asset || to.chain !== from.chain)
+					return yield* Effect.fail(bankErr('VALIDATION', 'Asset/chain mismatch between accounts; use /fx for conversions'))
+				if (!to.address) return yield* Effect.fail(bankErr('WALLET_UNAVAILABLE', 'Destination account has no wallet address'))
+			} else {
+				const addr = input.toExternal!.address
+				const ok = asset.family === 'evm' ? chain.isEvmAddress(addr) : chain.isSolanaAddress(addr)
+				if (!ok) return yield* Effect.fail(bankErr('VALIDATION', `Invalid ${asset.family} address`))
+			}
+
+			// Per-account limits (metadata.limits = { perTxMinor, dailyMinor }).
+			const limits = (from.metadata?.limits ?? {}) as { perTxMinor?: string; dailyMinor?: string }
+			if (limits.perTxMinor && amount > BigInt(limits.perTxMinor))
+				return yield* Effect.fail(bankErr('LIMIT_EXCEEDED', `Exceeds per-transfer limit of ${limits.perTxMinor}`))
+			if (limits.dailyMinor) {
+				const spent = yield* bankDb(async (db) => {
+					const r = await db.execute(
+						sql`select coalesce(sum(amount_minor), 0)::text as s from bank_transfers where from_account = ${from.id} and status in ('pending','submitted','confirmed') and created_at > now() - interval '24 hours'`,
+					)
+					return BigInt((r as unknown as Array<{ s: string }>)[0]?.s ?? '0')
+				})
+				if (spent + amount > BigInt(limits.dailyMinor))
+					return yield* Effect.fail(bankErr('LIMIT_EXCEEDED', `Exceeds daily limit of ${limits.dailyMinor}`))
+			}
+
+			// Policy engine (org/agent rules, kill switches) for agent-owned accounts.
+			if (input.owner.ownerType === 'agent') {
+				const agent = yield* bankDb(async (db) => (await db.select().from(agents).where(eq(agents.id, Number(input.owner.ownerId))).limit(1))[0])
+				if (!agent) return yield* Effect.fail(bankErr('NOT_FOUND', 'Agent not found'))
+				const valueUsd = yield* Effect.tryPromise({
+					try: async () => {
+						const human = Number(amount) / 10 ** asset.decimals
+						if (asset.currency === 'USD') return human
+						const px = (await fetchTokenPrices([asset.symbol]))[asset.symbol]?.usd
+						if (!px) throw new Error(`no USD price for ${asset.symbol}`)
+						return human * px
+					},
+					catch: (e) => bankErr('POLICY_BLOCKED', `Cannot value transfer for policy check: ${String(e)}`),
+				})
+				const policy = yield* PolicyService
+				const verdict = yield* policy
+					.evaluate({
+						organizationId: agent.organizationId,
+						agentId: agent.uuid,
+						chain: asset.chain,
+						fromToken: asset.address.toLowerCase(),
+						destinationAddress: (to?.address ?? input.toExternal!.address).toLowerCase(),
+						valueUsd,
+					})
+					.pipe(Effect.mapError((e) => bankErr('DB', e.message)))
+				if (verdict.decision === 'block') return yield* Effect.fail(bankErr('POLICY_BLOCKED', verdict.reason ?? 'Blocked by policy'))
+				if (verdict.decision === 'require_approval')
+					return yield* Effect.fail(bankErr('POLICY_BLOCKED', `Requires human approval: ${verdict.reason ?? 'policy'}`))
+			}
+
+			const inserted = yield* bankDb(async (db) => {
+				const [row] = await db
+					.insert(bankTransfers)
+					.values({
+						id: newId('xfer'),
+						ownerType: input.owner.ownerType,
+						ownerId: input.owner.ownerId,
+						idempotencyKey: input.idempotencyKey,
+						requestHash,
+						type: input.type,
+						fromAccount: from.id,
+						toAccount: to?.id ?? null,
+						toExternal: to ? null : { address: input.toExternal!.address, chain: from.chain },
+						amountMinor: input.amountMinor,
+						asset: asset.symbol,
+						chain: asset.chain,
+						memo: input.memo ?? null,
+						metadata: input.metadata ?? {},
+					})
+					.onConflictDoNothing()
+					.returning()
+				return row ?? null
+			})
+			if (!inserted) {
+				// Lost a race on the idempotency key: return the winner.
+				return yield* bankDb(async (db) => {
+					const [r] = await db
+						.select()
+						.from(bankTransfers)
+						.where(and(eq(bankTransfers.ownerType, input.owner.ownerType), eq(bankTransfers.ownerId, input.owner.ownerId), eq(bankTransfers.idempotencyKey, input.idempotencyKey)))
+						.limit(1)
+					if (!r) throw bankErr('DB', 'Transfer insert failed')
+					return r
+				})
+			}
+			return yield* advance(inserted)
+		}),
+
+	confirmPending: (opts) =>
+		Effect.gen(function* () {
+			const rows = yield* bankDb((db) =>
+				db
+					.select()
+					.from(bankTransfers)
+					.where(inArray(bankTransfers.status, ['pending', 'submitted']))
+					.orderBy(bankTransfers.updatedAt)
+					.limit(opts?.limit ?? 50),
+			)
+			let confirmed = 0
+			let failed = 0
+			for (const row of rows) {
+				const res = yield* Effect.either(settle(row))
+				if (res._tag === 'Left') {
+					logger.error({ transferId: row.id, err: res.left.message }, '[bank] settle error')
+					continue
+				}
+				if (res.right.status === 'confirmed') confirmed++
+				if (res.right.status === 'failed') failed++
+			}
+			return { checked: rows.length, confirmed, failed }
+		}),
+
+	syncDeposit: (owner, accountId) =>
+		Effect.gen(function* () {
+			const ledger = yield* BankLedgerService
+			const rep = yield* ledger.reconcile(owner, accountId)
+			const acct = yield* ledger.getAccount(owner, accountId)
+			const delta = BigInt(rep.deltaMinor)
+			if (delta <= 0n || rep.inFlightTransfers > 0) return { creditedMinor: '0', transfer: null }
+			const key = `deposit:${accountId}:${rep.onchainMinor}`
+			const t = yield* bankDb(async (db) => {
+				const [row] = await db
+					.insert(bankTransfers)
+					.values({
+						id: newId('xfer'),
+						ownerType: owner.ownerType,
+						ownerId: owner.ownerId,
+						idempotencyKey: key,
+						requestHash: createHash('sha256').update(key).digest('hex'),
+						type: 'onchain',
+						toAccount: acct.id,
+						amountMinor: delta.toString(),
+						asset: acct.asset,
+						chain: acct.chain,
+						status: 'confirmed',
+						confirmedAt: new Date(),
+						memo: 'on-chain deposit sync',
+						metadata: { deposit: true, onchainBalanceMinor: rep.onchainMinor },
+					})
+					.onConflictDoNothing()
+					.returning()
+				return row ?? null
+			})
+			if (!t) return { creditedMinor: '0', transfer: null } // already credited for this balance
+			const external = yield* ledger.ensureSystemAccount('external', acct.asset, acct.chain)
+			yield* ledger.post({
+				transferId: t.id,
+				phase: 'deposit',
+				legs: [
+					{ accountId: external.id, direction: 'debit', amountMinor: delta },
+					{ accountId: acct.id, direction: 'credit', amountMinor: delta },
+				],
+			})
+			return { creditedMinor: delta.toString(), transfer: t }
+		}),
+})

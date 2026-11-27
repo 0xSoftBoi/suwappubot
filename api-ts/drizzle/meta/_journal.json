@@ -183,6 +183,13 @@
       "when": 1790500000000,
       "tag": "0025_policy_decisions_value_usd_double",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1790600000000,
+      "tag": "0026_bank_core",
+      "breakpoints": true
     }
   ]
 }

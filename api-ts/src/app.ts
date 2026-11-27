@@ -18,6 +18,7 @@ import { ipRateLimit } from './middleware/ipRateLimit'
 import { CHAINS } from './services/TokenService'
 import { adminGrowthRoutes } from './routes/adminGrowth'
 import { webEventRoutes } from './routes/webEvents'
+import { bankAgentRoutes, bankWebappRoutes } from './routes/bank'
 import { bodyLimit } from 'hono/body-limit'
 import {
 	a2aRoutes,
@@ -224,6 +225,9 @@ export function createApp(config: AppConfig) {
 	// Telegram init-data fall through to the existing api-ts implementation.
 	app.route('/', createTerminalSwapProxyRoutes({ baseUrl: config.internalApiUrl }))
 
+	// Suwappu Bank (webapp-authed). Must precede the general /webapp router.
+	app.route('/webapp/bank', bankWebappRoutes)
+
 	// Native api-ts swap routes are still ahead of the general /webapp routers below.
 	app.route('/webapp/swap', swapRoutes)
 
@@ -278,6 +282,8 @@ export function createApp(config: AppConfig) {
 	app.route('/v1/agent/perps', perpsRoutes)
 	app.route('/v1/agent/predict', predictRoutes)
 	app.route('/v1/agent/lend', lendRoutes)
+	// Suwappu Bank (agent-authed)
+	app.route('/v1/agent/bank', bankAgentRoutes)
 
 	// Market data distribution layer (Databento-parity, Phase 3) — reference,
 	// historical OHLCV, and live WS price ticks. Auth mirrors /v1/agent (org API
