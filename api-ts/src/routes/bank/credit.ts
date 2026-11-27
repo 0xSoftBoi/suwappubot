@@ -125,6 +125,11 @@ export function register(app: BankRouteApp, deps: BankRouteDeps): void {
 		return run(c, Effect.gen(function* () { return yield* (yield* BankCreditService).events(owner, { lineId: c.req.query('lineId'), since: c.req.query('since'), limit }) }))
 	})
 
+	app.get('/credit/refunds/pending', async (c) => {
+		const owner = await resolveOwner(c)
+		return run(c, Effect.gen(function* () { return yield* (yield* BankCreditService).listPendingRefunds(owner) }))
+	})
+
 	app.get('/credit/score', async (c) => {
 		const owner = await resolveOwner(c)
 		const asset = c.req.query('asset') ?? 'USDC'

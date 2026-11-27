@@ -53,7 +53,7 @@ import {
 	waitReceipt,
 } from './earnCreditChain'
 import { BankError, bankErr } from './errors'
-import { type BankTx, assertAvailable, registerHoldProvider, sumRow } from './holds'
+import { type BankTx, type ConsumesHold, assertAvailable, registerHoldProvider, sumRow } from './holds'
 import { featureEnabled } from './segments'
 
 type Fx<A> = Effect.Effect<A, BankError, BankDeps | BankTransferService>
@@ -129,6 +129,8 @@ export interface BankCreditServiceInterface {
 	readonly getLine: (o: BankOwner, lineId: string) => Fx<LineView>
 	readonly events: (o: BankOwner, q: { lineId?: string | undefined; since?: string | undefined; limit?: number | undefined }) => Fx<{ events: BankCreditEvent[] }>
 	readonly score: (o: BankOwner, q: { asset: string; chain: string }) => Fx<{ score: BankCreditScore }>
+	/** Card refunds the provider returned that are not yet applied to the debt (owner scope), with age and totals. */
+	readonly listPendingRefunds: (o: BankOwner) => Fx<{ refunds: Array<{ lineId: string; providerTransactionId: string; amountMinor: string; asset: string; chain: string; ageSeconds: number; status: string }>; totals: Array<{ asset: string; chain: string; amountMinor: string }> }>
 	readonly openUnsecuredLine: (i: { owner: BankOwner; idempotencyKey: string; accountId: string }) => Fx<LineView>
 	readonly financeReceivable: (i: { owner: BankOwner; idempotencyKey: string; accountId: string; invoiceId: string }) => Fx<{ line: LineView; advanceMinor: string }>
 	readonly acceptReceivable: (i: { owner: BankOwner; invoiceId: string }) => Fx<{ invoiceId: string; accepted: boolean }>
@@ -660,7 +662,7 @@ const applyPoolDelta = (lineId: string, kind: 'draw' | 'repay', key: string, spl
 		}),
 	)
 
-const poolRepay = (owner: BankOwner, line: BankCreditLine, amount: bigint, key: string): Fx<{ transferId: string; status: string; split: { principal: bigint; interest: bigint } }> =>
+const poolRepay = (owner: BankOwner, line: BankCreditLine, amount: bigint, key: string, consumesHold?: ConsumesHold): Fx<{ transferId: string; status: string; split: { principal: bigint; interest: bigint } }> =>
 	Effect.gen(function* () {
 		const xfer = yield* BankTransferService
 		const acct = yield* loadBorrowAccount(owner, line.accountId)
@@ -670,7 +672,7 @@ const poolRepay = (owner: BankOwner, line: BankCreditLine, amount: bigint, key: 
 		const t = yield* xfer
 			.transfer({
 				owner, idempotencyKey: `credit:repay:${line.id}:${key}`, type: 'credit', fromAccountId: acct.id, toAccountId: poolId,
-				amountMinor: pay.toString(), memo: `credit repay ${line.kind}`, metadata: { creditLineId: line.id, op: 'repay' },
+				amountMinor: pay.toString(), memo: `credit repay ${line.kind}`, metadata: { creditLineId: line.id, op: 'repay' }, consumesHold,
 			})
 			.pipe(Effect.tapError(() => failOpIfNoTransfer(line.id, 'repay', `repay:${key}`).pipe(Effect.ignore)))
 		if (t.status === 'failed') {
@@ -1138,6 +1140,34 @@ const financeReceivable: BankCreditServiceInterface['financeReceivable'] = (i) =
 		return { line: yield* view(yield* loadLineById(id)), advanceMinor: advance.toString() }
 	}))
 
+/**
+ * MONEY-PATH (g7): the financed portion of a PAID invoice is held on the payee's account until settleReceivable collects it.
+ * Derived from state (active receivable line on the account whose invoice has received payment), so the hold exists in the same
+ * transaction that credits the invoice, and disappears when the line closes/collects. Slack of +1 covers sub-unit accrual rounding.
+ */
+registerHoldProvider('receivable_collection', async (accountId, tx, excludeId) =>
+	sumRow(
+		await tx.execute(
+			sql`select coalesce(sum(ceil(l.principal_minor + l.accrued_interest_minor + (l.principal_minor * l.apr_bps * greatest(0, extract(epoch from ((now() at time zone 'utc') - l.last_accrual_at)))) / (10000::numeric * 31536000)) + 1), 0)::text as s
+				from bank_credit_lines l join bank_invoices v on v.id = l.receivable_id
+				where l.account_id = ${accountId} and l.kind = 'receivable' and l.status = 'active' and v.paid_minor > 0 and (${excludeId ?? null}::text is null or l.id <> ${excludeId ?? null})`,
+		),
+	),
+)
+
+/** Retry for collections that failed after the invoice was paid (payments only logs a failed settleReceivable). Runs inside the scheduled settlePendingPoolOps job. */
+const retryPaidReceivableCollections = (): Fx<number> =>
+	Effect.gen(function* () {
+		const rows = (yield* bankDb(async (db) => await db.execute(sql`select l.id as lid, l.receivable_id as inv, v.paid_minor::text as paid from bank_credit_lines l join bank_invoices v on v.id = l.receivable_id where l.kind = 'receivable' and l.status = 'active' and l.principal_minor > 0 and v.paid_minor > 0 limit 100`))) as unknown as Array<{ lid: string; inv: string; paid: string }>
+		let n = 0
+		for (const r of rows) {
+			const res = yield* Effect.either(settleReceivable(r.inv, r.paid, `rc${hashOf('retry', r.lid, String(Math.floor(Date.now() / 900_000))).slice(0, 40)}`))
+			if (res._tag === 'Left') logger.warn({ lineId: r.lid, invoiceId: r.inv, err: res.left.message }, '[bank-credit] receivable collection retry failed')
+			else n += res.right.settled.length
+		}
+		return n
+	})
+
 const settleReceivable: BankCreditServiceInterface['settleReceivable'] = (invoiceId, amountMinor, paymentRef) =>
 	Effect.gen(function* () {
 		if (!MINOR_RE.test(amountMinor)) return yield* Effect.fail(bankErr('VALIDATION', 'amountMinor must be a positive integer string'))
@@ -1155,7 +1185,7 @@ const settleReceivable: BankCreditServiceInterface['settleReceivable'] = (invoic
 			if (owed === 0n) continue
 			const take = budget < owed ? budget : owed
 			// MONEY-PATH: auto-collect from the line's own account (M7 credits the merchant before calling this).
-			const r = yield* poolRepay(owner, line, take, `settle:${ref}`)
+			const r = yield* poolRepay(owner, line, take, `settle:${ref}`, { provider: 'receivable_collection', id: line.id })
 			const got = r.split.principal + r.split.interest
 			yield* recordPoolOp(line, 'repay', `repay:settle:${ref}`, r.transferId, r.status, r.split)
 			yield* addEvent(line, { type: 'receivable_settled', data: { invoiceId, collectedMinor: got.toString(), paymentRef: ref } })
@@ -1225,7 +1255,7 @@ const repayForRefund: BankCreditServiceInterface['repayForRefund'] = (lineId, am
 				.onConflictDoNothing()
 				.returning({ id: bankCreditOps.id }))[0] ?? null,
 		)
-		if (row) yield* addEvent(line, { type: 'card_refund_pending', level: 'warn', data: { status: 'AWAITING_REFUND_INFLOW', note: 'Refund recorded; the debt drops once the provider refund cash is confirmed into the lender pool account', cardRefundPending: true, providerTransactionId: ctx.providerTransactionId, amountMinor: amount.toString() } })
+		if (row) yield* addEvent(line, { type: 'card_refund_pending', level: 'warn', data: { status: 'AWAITING_REFUND_INFLOW', message: 'refund received by card program — awaiting settlement to lender pool', note: 'The debt drops once the provider refund cash is confirmed into the lender pool account; no interest accrues on this amount meanwhile', cardRefundPending: true, providerTransactionId: ctx.providerTransactionId, amountMinor: amount.toString() } })
 		return { applied: false, pending: true }
 	})
 
@@ -1316,7 +1346,20 @@ const settlePendingPoolOps = (): Fx<{ checked: number; applied: number }> =>
 				applied++
 			}).pipe(Effect.catchAll((e) => { logger.warn({ transfer: t.id, err: e.message }, '[bank-credit] pending op settle failed'); return Effect.void }))
 		}
+		applied += yield* retryPaidReceivableCollections()
 		return { checked, applied }
+	})
+
+const REFUND_PENDING_STATUS = 'refund received by card program — awaiting settlement to lender pool'
+const listPendingRefunds: BankCreditServiceInterface['listPendingRefunds'] = (o) =>
+	Effect.gen(function* () {
+		const rows = (yield* bankDb(async (db) => await db.execute(sql`select o.line_id as lid, o.op_key as k, o.principal_minor::text as p, l.loan_asset as a, l.chain as c, (extract(epoch from ((now() at time zone 'utc') - o.created_at)))::bigint as age from bank_credit_ops o join bank_credit_lines l on l.id = o.line_id where l.owner_type = ${o.ownerType} and l.owner_id = ${o.ownerId} and o.kind = 'repay' and o.status = 'pending' and o.op_key like 'cardref:%' order by o.created_at limit 500`))) as unknown as Array<{ lid: string; k: string; p: string; a: string; c: string; age: string }>
+		const tot = new Map<string, bigint>()
+		for (const r of rows) tot.set(`${r.a}|${r.c}`, (tot.get(`${r.a}|${r.c}`) ?? 0n) + BigInt(r.p))
+		return {
+			refunds: rows.map((r) => ({ lineId: r.lid, providerTransactionId: r.k.slice('cardref:'.length), amountMinor: r.p, asset: r.a, chain: r.c, ageSeconds: Number(r.age), status: REFUND_PENDING_STATUS })),
+			totals: [...tot].map(([k, v]) => { const [asset, chain] = k.split('|'); return { asset: asset!, chain: chain!, amountMinor: v.toString() } }),
+		}
 	})
 
 const withdrawCollateral: BankCreditServiceInterface['withdrawCollateral'] = (i) => withDbLock(`credit-line:${i.lineId}`, withdrawCollateralInner(i))
@@ -1330,6 +1373,7 @@ export const BankCreditServiceLive = Layer.succeed(BankCreditService, {
 	listLines,
 	getLine,
 	events,
+	listPendingRefunds,
 	score,
 	openUnsecuredLine,
 	financeReceivable,
