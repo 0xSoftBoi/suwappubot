@@ -104,8 +104,8 @@ Verification: 390x844 screenshots with intercepted responses (script in scratchp
 3. Receivables financing acceptance + refusal explanations: NOT STARTED
 4. Card reveal: BUILT (components/bank/RevealCard.tsx; Stripe.js loaded on tap; needs card.providerCardId from GET /cards/:id, else shows unavailable)
 5. Ramps decimals/stage/per-rail external-account form: NOT STARTED
-6. Payroll my-pay ids + approve-with-token: NOT STARTED
-7. Business org transfer + approval flow, thresholdCurrency, invite by email/Telegram: NOT STARTED
+6. Payroll: BUILT (My pay uses scheduleId/payeeId from my-payouts, manual ids removed; run approve takes approval token when approvalRequired)
+7. Business: BUILT (Send tab org transfer with approval-required result + token resubmit; policy thresholdCurrency/Decimals; invite by email or Telegram id)
 8. Developers: BUILT (org picker for owner/admin; platform config/usage/customers with ?orgId=; API keys list/create with scopes/revoke via /enterprise/orgs/:orgId/api-keys, secret shown once with copy)
 9. Privacy local scanning: NOT STARTED
 10. Cards: BUILT (capCurrency/capDecimals via GET /cards/:id; refund state; shortfall note inferred from frozen + failed settlement since no explicit field; merchantAllow editor with exact-match/id: copy)

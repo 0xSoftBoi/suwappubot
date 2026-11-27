@@ -234,3 +234,4 @@ export type {
   BankPrivacyAnnouncedArgs,
   BankPrivacyAnnouncementsArgs,
 } from "./types.js";
+export type { BankTransferRef } from "./types.js";

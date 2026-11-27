@@ -385,6 +385,8 @@ class BankCardsNamespace extends Sub {
   list(args: BankCardListArgs = {}) { return this.b._call<BankRecord>("GET", "/cards", { params: { ...args } }); }
   /** GET /cards/:id */
   get(id: string) { return this.b._call<BankRecord>("GET", `/cards/${enc(id)}`); }
+  /** GET /cards/reveal-config */
+  revealConfig(args: { provider?: "stripe" | "rain" } = {}) { return this.b._call<BankRecord>("GET", "/cards/reveal-config", { params: { ...args } }); }
   /** POST /cards/:id/freeze */
   freeze(id: string) { return this.b._call<BankRecord>("POST", `/cards/${enc(id)}/freeze`); }
   /** POST /cards/:id/unfreeze */
@@ -732,7 +734,7 @@ class BankPrivacyNamespace extends Sub {
   payoutAddress(args: BankPrivacyPayoutArgs) { return this.b._call<BankRecord>("POST", "/privacy/payout-address", { json: args }); }
   /** POST /privacy/announced */
   announced(args: BankPrivacyAnnouncedArgs) { return this.b._call<BankRecord>("POST", "/privacy/announced", { json: args }); }
-  /** GET /privacy/announcements (client-side scanning; no key material is sent). */
+  /** GET /privacy/announcements (client-side scanning; no key material is sent). Paginates by a bounded block span: pass the returned cursor as the next `fromBlock`. */
   announcements(args: BankPrivacyAnnouncementsArgs) { return this.b._call<BankRecord>("GET", "/privacy/announcements", { params: { ...args } }); }
 }
 

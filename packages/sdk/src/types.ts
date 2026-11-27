@@ -1424,8 +1424,11 @@ export interface BankPrivacyAnnouncementsArgs {
   fromBlock: string;
   /** Hex block number or `latest`. */
   toBlock?: string;
+  /** Resume point: the response cursor is the next fromBlock (spans are bounded). */
   cursor?: number;
   /** 1-500 */
   limit?: number;
 }
+/** Escrow/stream/pay-invoice responses carry the ledger transfer id. Invoices carry `acceptance` state (see POST /payments/invoices/:id/accept). */
+export interface BankTransferRef { transferId?: string; [k: string]: unknown }
 // ============================ end Bank section =============================
