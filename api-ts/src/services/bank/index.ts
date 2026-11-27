@@ -19,11 +19,21 @@ import { BankApprovalServiceLive } from './BankApprovalService'
 import { BankTreasuryServiceLive } from './BankTreasuryService'
 import { BankBooksServiceLive } from './BankBooksService'
 import { BankPayablesServiceLive } from './BankPayablesService'
+import { BankPaymentsServiceLive } from './BankPaymentsService'
+import { BankEscrowServiceLive } from './BankEscrowService'
+import { BankStreamServiceLive } from './BankStreamService'
+import { BankPayrollServiceLive } from './BankPayrollService'
+import { BankPayoutPoolServiceLive } from './BankPayoutPoolService'
 import { BankLedgerServiceLive } from './BankLedgerService'
 import { BankTransferServiceLive } from './BankTransferService'
 
 export const BankLayer = Layer.mergeAll(
 	BankLedgerServiceLive,
+	BankPaymentsServiceLive,
+	BankEscrowServiceLive,
+	BankStreamServiceLive,
+	BankPayrollServiceLive,
+	BankPayoutPoolServiceLive,
 	BankTransferServiceLive,
 	BankFxServiceLive,
 	BankRampServiceLive,
