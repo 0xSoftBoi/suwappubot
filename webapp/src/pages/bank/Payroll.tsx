@@ -87,6 +87,8 @@ function RunDetail({ id, onClose }: { id: string; onClose: () => void }) {
           rows={rows} confirmLabel={step === 'approve' ? 'Approve' : step === 'execute' ? 'Pay everyone' : 'Retry'}
           note={step === 'execute' ? 'This sends real money to every payee in the run.' : undefined}
           run={() => (step === 'approve' ? bank.approveRun(id) : step === 'execute' ? bank.executeRun(id) : bank.retryRun(id))}
+          trackId={undefined}
+          renderResult={(r) => (r && Array.isArray(r.items) ? <p className="text-xs text-suwappu-text-secondary">{r.items.filter((i: { status: string }) => i.status === 'paid').length} paid, {r.items.filter((i: { status: string }) => i.status === 'failed').length} failed of {r.items.length}</p> : null)}
           onClose={() => { setStep(null); void q.refetch() }}
         />
       )}

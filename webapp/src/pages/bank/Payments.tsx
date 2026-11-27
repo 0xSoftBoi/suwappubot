@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { QRCodeSVG } from 'qrcode.react'
-import { bank, formatMinor, parseToMinor, str, type Escrow, type Invoice } from '../../lib/bankApi'
+import { bank, invoicePayLink, transferIdOf, formatMinor, parseToMinor, str, type Escrow, type Invoice } from '../../lib/bankApi'
 import { useBankAccounts } from '../../hooks/bank/useBankCore'
 import { useEscrow, useEscrows, useInvoices, useStreams } from '../../hooks/bank/useBankDomains'
 import { BankPage, Btn, Card, Chip, Empty, ErrorBox, Field, Input, QueryState, Row, SectionTitle, Sheet, Tabs } from '../../components/bank/BankUI'
@@ -195,7 +195,7 @@ function Streams() {
     <div className="space-y-3">
       {act.isError && <ErrorBox error={act.error} />}
       <QueryState query={streams} isEmpty={(d) => d.length === 0} empty={<Empty title="No streams" hint="Streams pay by the second or by usage." />}>
-        {(list) => <div className="space-y-2">{list.map((s) => (
+        {(list) => <div className="space-y-2">{list.map((sv) => { const s = sv.stream; return (
           <Card key={s.id}>
             <div className="flex justify-between"><p className="text-sm font-semibold capitalize">{s.kind} stream</p><Chip status={s.status} /></div>
             {s.lastError && <p className="text-xs text-red-500 break-words">{s.lastError}</p>}
@@ -205,7 +205,7 @@ function Streams() {
               <Btn variant="danger" disabled={act.isPending || s.status === 'cancelled'} onClick={() => act.mutate({ id: s.id, a: 'cancel' })}>Cancel</Btn>
             </div>
           </Card>
-        ))}</div>}
+        )})}</div>}
       </QueryState>
     </div>
   )

@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { QRCodeSVG } from 'qrcode.react'
-import { bank, findTransferId, formatMinor, parseToMinor, str, type PayoutRequest, type RoutedQuotes } from '../../lib/bankApi'
-import { useBankAccounts } from '../../hooks/bank/useBankCore'
+import { bank, transferIdOf, currencyDecimals, formatMinor, parseToMinor, str, type PayoutRequest, type RoutedQuotes } from '../../lib/bankApi'
+import { useBankAccounts, useBankAssets } from '../../hooks/bank/useBankCore'
 import { useExternalAccounts, useKyc, useProviders, useRails, useRampTransfers, useVirtualAccounts } from '../../hooks/bank/useBankDomains'
 import { useIdempotencyKey } from '../../hooks/bank/useIdempotencyKey'
 import { BankPage, Btn, Card, Chip, Empty, ErrorBox, Field, Input, QueryState, Row, SectionTitle, Select, Tabs } from '../../components/bank/BankUI'
@@ -14,7 +14,6 @@ import { TransferTracker } from '../../components/bank/TransferTracker'
 import { a11yToast } from '@/lib/a11yToast'
 
 type Tab = 'add' | 'out' | 'kyc' | 'banks' | 'rails' | 'qr'
-const FIAT_DECIMALS = 2
 const PROVIDERS = ['bridge', 'due'] as const
 
 function Kyc() {
@@ -111,6 +110,7 @@ function AddMoney() {
 
 function CashOut() {
   const accounts = useBankAccounts()
+  const assets = useBankAssets()
   const ext = useExternalAccounts()
   const transfers = useRampTransfers()
   const qc = useQueryClient()
@@ -131,7 +131,7 @@ function CashOut() {
   const routed: RoutedQuotes | undefined = quote.data?.routed
   const best = routed?.best
   const done = () => { key.reset(); setOpen(false); go.reset(); quote.reset(); setAmount('') }
-  const tid = go.data ? findTransferId(go.data) : null
+  const tid = go.data ? transferIdOf.offramp(go.data) : null
   return (
     <div className="space-y-3">
       <Card className="space-y-3">
@@ -148,7 +148,7 @@ function CashOut() {
       {best && a && (
         <Card>
           <Row label="You send" value={`${formatMinor(best.sendAmountMinor, a.decimals)} ${a.asset}`} />
-          <Row label="They receive" value={`${formatMinor(best.receiveAmountMinor, FIAT_DECIMALS)} ${best.destCurrency}`} />
+          <Row label="They receive" value={`${formatMinor(best.receiveAmountMinor, currencyDecimals(best.destCurrency, assets.data))} ${best.destCurrency}`} />
           <Row label="Fee" value={best.feeMinor ? `${formatMinor(best.feeMinor, a.decimals)} ${a.asset}` : 'Included in rate'} />
           <Row label="Rate" value={best.rate} />
           <Row label="Provider" value={best.provider} />
@@ -163,7 +163,7 @@ function CashOut() {
           title="Confirm cash out"
           rows={[
             { label: 'Send', value: `${formatMinor(best.sendAmountMinor, a.decimals)} ${a.asset}` },
-            { label: 'Receive', value: `${formatMinor(best.receiveAmountMinor, FIAT_DECIMALS)} ${best.destCurrency}` },
+            { label: 'Receive', value: `${formatMinor(best.receiveAmountMinor, currencyDecimals(best.destCurrency, assets.data))} ${best.destCurrency}` },
             { label: 'Fee', value: best.feeMinor ? `${formatMinor(best.feeMinor, a.decimals)} ${a.asset}` : 'Included in rate' },
             { label: 'To', value: `${e.label || e.rail} (${e.rail.toUpperCase()})` },
             { label: 'Provider', value: best.provider },
@@ -173,7 +173,7 @@ function CashOut() {
           error={go.error}
           onConfirm={() => go.mutate()}
           onClose={() => (go.data ? done() : setOpen(false))}
-          result={go.data && (tid ? <TransferTracker transferId={tid} onDone={done} /> : <div className="space-y-2"><Row label="Status" value={str((go.data as Record<string, unknown>).status) ?? 'Submitted'} /><Btn className="w-full" onClick={done}>Done</Btn></div>)}
+          result={go.data && (tid ? <TransferTracker transferId={tid} onDone={done} /> : <div className="space-y-2"><Row label="Status" value={go.data.rampTransfer.status} /><Btn className="w-full" onClick={done}>Done</Btn></div>)}
         />
       )}
       <SectionTitle>Recent bank transfers</SectionTitle>
@@ -204,6 +204,7 @@ function RailsView() {
 }
 
 function Qr() {
+  const assets = useBankAssets()
   const [text, setText] = useState('')
   const [out, setOut] = useState<PayoutRequest | null>(null)
   const m = useMutation({ mutationFn: () => bank.parseQr(text.trim()), onSuccess: (r) => setOut(r.payout) })
@@ -222,7 +223,7 @@ function Qr() {
       {out && (
         <Card>
           <Row label="Rail" value={out.rail.toUpperCase()} /><Row label="Currency" value={out.currency} /><Row label="Destination" value={out.destination} mono />
-          <Row label="Amount" value={out.amountMinor ? `${formatMinor(out.amountMinor, FIAT_DECIMALS)} ${out.currency}` : 'Not fixed by the code'} />
+          <Row label="Amount" value={out.amountMinor ? `${formatMinor(out.amountMinor, currencyDecimals(out.currency, assets.data))} ${out.currency}` : 'Not fixed by the code'} />
           {out.payeeName && <Row label="Payee" value={out.payeeName} />}{out.reference && <Row label="Reference" value={out.reference} />}
           <div className="mx-auto w-32 h-32 mt-2"><QRCodeSVG value={text.trim()} size={128} /></div>
           <p className="text-[11px] text-suwappu-text-secondary mt-2">Paying a code from your balance goes through Send, using a bank payout recipient on this rail.</p>
