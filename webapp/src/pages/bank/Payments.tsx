@@ -164,7 +164,6 @@ function Escrows() {
         {(list) => <div className="space-y-2">{list.map((e) => <button type="button" key={e.id} onClick={() => setOpen(e)} className="w-full text-left"><Card className="flex justify-between gap-2"><p className="text-sm font-semibold truncate">{e.description || 'Escrow'}</p><Chip status={e.status} /></Card></button>)}</div>}
       </QueryState>
       {open && <EscrowDetail e={open} onClose={() => setOpen(null)} />}
-      {creating && (a && minor && payeeAcct && payeeId && desc !== null && payer ? null : null)}
       {creating && (
         <Sheet title="New escrow" onClose={() => setCreating(false)}>
           <div className="space-y-3">

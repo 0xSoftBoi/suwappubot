@@ -48,7 +48,7 @@ function LineAction({ v, mode, onClose }: { v: CreditLineView; mode: 'draw' | 'r
   useEffect(() => { key.reset() }, [amount, all]) // eslint-disable-line react-hooks/exhaustive-deps
   const sym = mode === 'withdraw' ? v.line.collateralToken ?? 'collateral' : v.line.loanAsset
   const m = useMutation({
-    mutationFn: () => {
+    mutationFn: (): Promise<unknown> => {
       const b = { lineId: v.line.id, ...(all ? { all: true } : { amountMinor: minor as string }) }
       if (mode === 'draw') return bank.draw({ lineId: v.line.id, amountMinor: minor as string }, key.current())
       return mode === 'repay' ? bank.repay(b, key.current()) : bank.withdrawCollateral(b, key.current())

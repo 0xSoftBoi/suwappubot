@@ -25,6 +25,7 @@ import { logger } from '../../lib/logger'
 import { findAsset } from './assets'
 import { BankLedgerService } from './BankLedgerService'
 import { BankTransferService, type BankDeps } from './BankTransferService'
+import { featureEnabled } from './segments'
 import { evmTokenBalance } from './chain'
 import { type BankOwner, bankDb, newId } from './db'
 import {
@@ -93,8 +94,10 @@ export interface WithdrawInput {
 export interface EarnSettingsInput {
 	owner: BankOwner
 	accountId: string
-	vault: string
-	floorMinor: string
+	/** Omitted => Earn picks the largest curated vault for the account's asset (auto-sweep enrolment). */
+	vault?: string | undefined
+	/** Omitted => AUTO_EARN_FLOOR_UNITS whole units stay liquid. */
+	floorMinor?: string | undefined
 	enabled: boolean
 	minSweepMinor?: string | undefined
 }
@@ -203,8 +206,13 @@ const requireVault = (acct: BankAccount, vaultAddr: string): Effect.Effect<Vault
 		return v
 	})
 
+/** Interest-free mode: sharia/interest-free metadata OR a segment with earn disabled. Covers deposit, settings and auto-sweep. */
+const earnBlocked = (acct: BankAccount): boolean => isInterestFree(acct) || !featureEnabled(acct, 'earn')
+/** Whole asset units always kept liquid by an auto-sweep enrolment that did not choose its own floor. */
+const AUTO_EARN_FLOOR_UNITS = 20n
+
 const guardEarn = (acct: BankAccount): Effect.Effect<void, BankError> =>
-	isInterestFree(acct)
+	earnBlocked(acct)
 		? Effect.fail(bankErr('POLICY_BLOCKED', 'INTEREST_FREE_MODE: this account uses a sharia-compliant (interest-free) profile; earn products are disabled'))
 		: Effect.void
 
@@ -588,19 +596,25 @@ const setSettings = (i: EarnSettingsInput): Fx<{ settings: BankEarnSetting }> =>
 	Effect.gen(function* () {
 		const checking = yield* loadOwnedChecking(i.owner, i.accountId)
 		yield* guardEarn(checking)
-		for (const [k, v] of [['floorMinor', i.floorMinor], ['minSweepMinor', i.minSweepMinor ?? '1']] as const)
+		const assetInfo = findAsset(checking.asset, checking.chain)
+		if (!assetInfo) return yield* Effect.fail(bankErr('ASSET_UNSUPPORTED', `Unsupported asset ${checking.asset} on ${checking.chain}`))
+		const floorMinor = i.floorMinor ?? (AUTO_EARN_FLOOR_UNITS * 10n ** BigInt(assetInfo.decimals)).toString()
+		const vaultAddr = i.vault ?? (yield* up(() => fetchVaults(assetInfo.chainId!, checking.chain, assetInfo.address), 'Morpho vault list').pipe(
+			Effect.flatMap((vs) => (vs[0] ? Effect.succeed(vs[0].address) : Effect.fail(bankErr('NOT_FOUND', `No curated Morpho vault available for ${checking.asset} on ${checking.chain}`)))),
+		))
+		for (const [k, v] of [['floorMinor', floorMinor], ['minSweepMinor', i.minSweepMinor ?? '1']] as const)
 			if (!/^(0|[1-9][0-9]{0,77})$/.test(v)) return yield* Effect.fail(bankErr('VALIDATION', `${k} must be a non-negative integer string`))
-		const vault = yield* requireVault(checking, i.vault)
+		const vault = yield* requireVault(checking, vaultAddr)
 		const row = yield* bankDb(async (db) => {
 			const [r] = await db
 				.insert(bankEarnSettings)
 				.values({
 					accountId: checking.id, ownerType: i.owner.ownerType, ownerId: i.owner.ownerId, enabled: i.enabled ? 1 : 0,
-					floorMinor: i.floorMinor, vault: vault.address, minSweepMinor: i.minSweepMinor ?? '1000000',
+					floorMinor, vault: vault.address, minSweepMinor: i.minSweepMinor ?? '1000000',
 				})
 				.onConflictDoUpdate({
 					target: bankEarnSettings.accountId,
-					set: { enabled: i.enabled ? 1 : 0, floorMinor: i.floorMinor, vault: vault.address, ...(i.minSweepMinor ? { minSweepMinor: i.minSweepMinor } : {}), updatedAt: new Date() },
+					set: { enabled: i.enabled ? 1 : 0, floorMinor, vault: vault.address, ...(i.minSweepMinor ? { minSweepMinor: i.minSweepMinor } : {}), updatedAt: new Date() },
 				})
 				.returning()
 			return r!
@@ -617,8 +631,24 @@ const setSettings = (i: EarnSettingsInput): Fx<{ settings: BankEarnSetting }> =>
 const runSweep = (opts?: { now?: Date }): Fx<{ checked: number; swept: number; skipped: number; failed: number }> =>
 	Effect.gen(function* () {
 		const period = periodOf(opts?.now ?? new Date())
-		const rows = yield* bankDb((db) => db.select().from(bankEarnSettings).where(eq(bankEarnSettings.enabled, 1)).limit(500))
 		const ledger = yield* BankLedgerService
+		// Auto-sweep enrolment: accounts flagged autoEarn (e.g. by remittance) and lacking settings get enrolled, unless
+		// interest-free mode blocks them (then the flag is cleared so it is not retried every tick).
+		const flagged = yield* bankDb((db) =>
+			db.execute(sql`select a.id, a.owner_type, a.owner_id from bank_accounts a left join bank_earn_settings s on s.account_id = a.id where s.account_id is null and a.status = 'active' and a.kind = 'checking' and a.metadata->>'autoEarn' = 'true' limit 200`),
+		)
+		const flaggedRows = (Array.isArray(flagged) ? flagged : ((flagged as { rows?: unknown[] }).rows ?? [])) as Array<{ id: string; owner_type: string; owner_id: string }>
+		for (const f of flaggedRows) {
+			yield* setSettings({ owner: { ownerType: f.owner_type as BankOwner['ownerType'], ownerId: f.owner_id }, accountId: f.id, enabled: true }).pipe(
+				Effect.catchAll((e) => {
+					logger.warn({ account: f.id, err: e.message }, '[bank-earn] autoEarn enrolment refused')
+					return e.code === 'POLICY_BLOCKED'
+						? bankDb((db) => db.execute(sql`update bank_accounts set metadata = metadata || '{"autoEarn": false}'::jsonb where id = ${f.id}`)).pipe(Effect.ignore)
+						: Effect.void
+				}),
+			)
+		}
+		const rows = yield* bankDb((db) => db.select().from(bankEarnSettings).where(eq(bankEarnSettings.enabled, 1)).limit(500))
 		const res = { checked: 0, swept: 0, skipped: 0, failed: 0 }
 		for (const s of rows) {
 			res.checked++
@@ -626,7 +656,7 @@ const runSweep = (opts?: { now?: Date }): Fx<{ checked: number; swept: number; s
 			const owner = { ownerType: s.ownerType as BankOwner['ownerType'], ownerId: s.ownerId }
 			const outcome = yield* Effect.gen(function* () {
 				const acct = yield* ledger.getAccountById(s.accountId)
-				if (acct.status !== 'active' || isInterestFree(acct)) return 'skipped' as const
+				if (acct.status !== 'active' || earnBlocked(acct)) return 'skipped' as const
 				const bal = yield* ledger.balance(acct.id)
 				const idle = bal - BigInt(s.floorMinor)
 				if (idle <= 0n || idle < BigInt(s.minSweepMinor)) return 'skipped' as const
