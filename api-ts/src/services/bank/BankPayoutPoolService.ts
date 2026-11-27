@@ -106,7 +106,9 @@ export const BankPayoutPoolServiceLive = Layer.succeed(BankPayoutPoolService, {
 				if (acct.kind !== 'pool') return yield* Effect.fail(bankErr('VALIDATION', 'accountId must be a pool-kind account'))
 			} else {
 				if (!input.asset || !input.chain) return yield* Effect.fail(bankErr('VALIDATION', 'Provide accountId, or asset + chain to open a pool account'))
-				acct = yield* ledger.openAccount({ owner: operator, kind: 'pool', asset: input.asset, chain: input.chain, label: 'payout-pool' })
+				// MONEY-PATH: openAccount requires a resolved custody wallet; without it every pool creation by asset+chain failed (WALLET_UNAVAILABLE).
+				const wallet = yield* ledger.resolveCustodyWallet(operator, input.chain === 'solana' ? 'solana' : 'evm')
+				acct = yield* ledger.openAccount({ owner: operator, kind: 'pool', asset: input.asset, chain: input.chain, label: 'payout-pool', wallet })
 			}
 			const dflt = yield* validLimit(input.defaultPayerLimitMinor ?? '0')
 			for (const v of Object.values(input.payerLimits ?? {})) yield* validLimit(v)
