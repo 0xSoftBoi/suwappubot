@@ -504,6 +504,7 @@ const findPool = (asset: string, chain: string, needMinor: bigint): Fx<BankAccou
 			return yield* Effect.fail(
 				bankErr('LENDER_POOL_UNFUNDED', `no funded lender pool for ${asset} on ${chain} (need ${needMinor}, best pool balance ${best?.bal ?? 0n})`, {
 					missing: `a funded bank_accounts row with kind='pool' (owner org/user/agent with a custody wallet), asset=${asset}, chain=${chain}, balance >= ${needMinor}`,
+					reason: 'LENDER_POOL_UNFUNDED',
 				}),
 			)
 		return best.acct
@@ -951,13 +952,13 @@ const openUnsecuredLine = (i: { owner: BankOwner; idempotencyKey: string; accoun
 		const act = yield* bankDb(async (db) => (await db.select().from(bankCreditLines).where(and(eq(bankCreditLines.ownerType, i.owner.ownerType), eq(bankCreditLines.ownerId, i.owner.ownerId), eq(bankCreditLines.kind, 'undercollateralized'), eq(bankCreditLines.loanAsset, acct.asset), eq(bankCreditLines.chain, acct.chain), eq(bankCreditLines.status, 'active'))).limit(1))[0] ?? null)
 		if (act) return yield* Effect.fail(bankErr('CONFLICT', 'An active unsecured credit line already exists for this asset/chain'))
 		const delinquent = yield* bankDb(async (db) => (await db.execute(sql`select 1 as x from bank_credit_lines l where l.owner_type = ${i.owner.ownerType} and l.owner_id = ${i.owner.ownerId} and l.kind <> 'collateralized' and l.status = 'active' and l.principal_minor > 0 and exists (select 1 from bank_credit_events e where e.line_id = l.id and e.type = 'delinquent') limit 1`)) as unknown as unknown[])
-		if (delinquent.length > 0) return yield* Effect.fail(bankErr('POLICY_BLOCKED', 'Existing credit is delinquent; repay it before opening new credit'))
+		if (delinquent.length > 0) return yield* Effect.fail(bankErr('POLICY_BLOCKED', 'Existing credit is delinquent; repay it before opening new credit', { reason: 'DELINQUENT_LINE' }))
 		// MONEY-PATH: ONE exposure cap per root principal (USD, all assets/chains, all owned agents/orgs); serialised by the root lock.
 		const prices = yield* rootPrices(root, acct.asset)
 		const room = yield* bankDb((db) => db.transaction((tx) => rootRoomMinor(tx, root, prices, acct.asset, acct.chain)))
 		const proposed = BigInt(s.proposedLimitMinor)
 		const effLimit = proposed < room ? proposed : room
-		if (effLimit <= 0n && proposed > 0n) return yield* Effect.fail(bankErr('LIMIT_EXCEEDED', 'Total credit exposure cap reached for this owner'))
+		if (effLimit <= 0n && proposed > 0n) return yield* Effect.fail(bankErr('LIMIT_EXCEEDED', 'Total credit exposure cap reached for this owner', { reason: 'EXPOSURE_CAP' }))
 		if (BigInt(s.proposedLimitMinor) <= 0n) return yield* Effect.fail(bankErr('POLICY_BLOCKED', `No unsecured limit available (score ${s.score}, tier ${s.tier}): ${JSON.stringify((s.factors as { declineReasons?: string[] }).declineReasons ?? [])}`))
 		const line = yield* bankDb(async (db) =>
 			(await db.insert(bankCreditLines).values({ id, ownerType: i.owner.ownerType, ownerId: i.owner.ownerId, kind: 'undercollateralized', chain: acct.chain, loanAsset: acct.asset, accountId: acct.id, limitMinor: effLimit.toString(), aprBps: mode === 'markup' ? 0 : s.aprBps, metadata: mode === 'markup' ? { scoreId: s.id, financing: FIXED_MARKUP, markupBps: fixedMarkupBps(s.aprBps), termDays: FIXED_MARKUP_TERM_DAYS } : { scoreId: s.id } }).onConflictDoNothing().returning())[0] ?? (await db.select().from(bankCreditLines).where(eq(bankCreditLines.id, id)))[0] ?? null,
@@ -1057,12 +1058,12 @@ const rootRoomMinor = async (tx: BankTx, root: string, prices: Map<string, bigin
 	let used = 0n
 	for (const r of rows) {
 		const px = prices.get(r.a)
-		if (!px) throw bankErr('UPSTREAM', `No USD price for ${r.a}; cannot evaluate the exposure cap`)
+		if (!px) throw bankErr('UPSTREAM', `No USD price for ${r.a}; cannot evaluate the exposure cap`, { reason: 'NO_PRICE' })
 		used += (BigInt(r.s) * px) / 10n ** BigInt(findAsset(r.a, r.c)?.decimals ?? 6)
 	}
 	const roomMicro = UNSECURED_CAP_UNITS * 1_000_000n - used
 	const px = prices.get(asset)
-	if (!px || px <= 0n) throw bankErr('UPSTREAM', `No USD price for ${asset}; cannot evaluate the exposure cap`)
+	if (!px || px <= 0n) throw bankErr('UPSTREAM', `No USD price for ${asset}; cannot evaluate the exposure cap`, { reason: 'NO_PRICE' })
 	return roomMicro <= 0n ? 0n : (roomMicro * 10n ** BigInt(findAsset(asset, chain)?.decimals ?? 6)) / px
 }
 
@@ -1082,7 +1083,7 @@ const financeReceivable: BankCreditServiceInterface['financeReceivable'] = (i) =
 		const mode = yield* financingMode(acct, 'pool')
 		const inv = yield* loadInvoice(i.invoiceId)
 		const status = String(pick(inv, 'status') ?? '').toLowerCase()
-		if (!['open', 'sent', 'issued', 'pending', 'unpaid', 'overdue'].includes(status)) return yield* Effect.fail(bankErr('VALIDATION', `Invoice ${i.invoiceId} is '${status || 'unknown'}'; only unpaid invoices can be financed`))
+		if (!['open', 'sent', 'issued', 'pending', 'unpaid', 'overdue'].includes(status)) return yield* Effect.fail(bankErr('VALIDATION', `Invoice ${i.invoiceId} is '${status || 'unknown'}'; only unpaid invoices can be financed`, { reason: 'INVOICE_STATE' }))
 		const ownerType = pick(inv, 'payee_owner_type', 'payeeOwnerType', 'owner_type', 'ownerType'); const ownerId = pick(inv, 'payee_owner_id', 'payeeOwnerId', 'owner_id', 'ownerId')
 		if (ownerType === undefined || ownerId === undefined || String(ownerType) !== i.owner.ownerType || String(ownerId) !== i.owner.ownerId)
 			return yield* Effect.fail(bankErr('FORBIDDEN', 'Invoice does not belong to this owner (or bank_invoices has no owner_type/owner_id columns)'))
@@ -1094,11 +1095,11 @@ const financeReceivable: BankCreditServiceInterface['financeReceivable'] = (i) =
 		// MONEY-PATH: the payer (a distinct owner) must have explicitly accepted this invoice.
 		const pType = pick(inv, 'payer_owner_type', 'payerOwnerType'); const pId = pick(inv, 'payer_owner_id', 'payerOwnerId')
 		if (pType === undefined || pId === undefined) return yield* Effect.fail(bankErr('VALIDATION', 'Invoice has no payer; only invoices owed by a distinct, accepting payer can be financed'))
-		if (String(pType) === i.owner.ownerType && String(pId) === i.owner.ownerId) return yield* Effect.fail(bankErr('FORBIDDEN', 'Self-issued invoices (payer = payee) cannot be financed'))
+		if (String(pType) === i.owner.ownerType && String(pId) === i.owner.ownerId) return yield* Effect.fail(bankErr('FORBIDDEN', 'Self-issued invoices (payer = payee) cannot be financed', { reason: 'RELATED_PARTIES' }))
 		const acc = yield* bankDb(async (db) => (await db.execute(sql`select payer_owner_type, payer_owner_id from bank_invoice_acceptances where invoice_id = ${i.invoiceId} limit 1`)) as unknown as Array<{ payer_owner_type: string; payer_owner_id: string }>)
-		if (!acc[0] || acc[0].payer_owner_type !== String(pType) || acc[0].payer_owner_id !== String(pId)) return yield* Effect.fail(bankErr('FORBIDDEN', 'Invoice has not been accepted by its payer (POST /credit/receivables/accept as the payer)'))
+		if (!acc[0] || acc[0].payer_owner_type !== String(pType) || acc[0].payer_owner_id !== String(pId)) return yield* Effect.fail(bankErr('FORBIDDEN', 'Invoice has not been accepted by its payer (POST /credit/receivables/accept as the payer)', { reason: 'NOT_ACCEPTED' }))
 		const already = yield* bankDb(async (db) => (await db.select({ id: bankCreditLines.id }).from(bankCreditLines).where(and(eq(bankCreditLines.receivableId, i.invoiceId), eq(bankCreditLines.status, 'active'))).limit(1))[0] ?? null)
-		if (already) return yield* Effect.fail(bankErr('CONFLICT', 'Invoice is already financed'))
+		if (already) return yield* Effect.fail(bankErr('CONFLICT', 'Invoice is already financed', { reason: 'ALREADY_FINANCED' }))
 		// MONEY-PATH: the advance is on what is still OUTSTANDING (face - paid), never the full face of a partly paid invoice.
 		const face = BigInt(String(faceRaw)) - BigInt(String(pick(inv, 'paid_minor', 'paidMinor') ?? '0'))
 		if (face <= 0n) return yield* Effect.fail(bankErr('VALIDATION', 'Invoice has no outstanding balance to finance'))
@@ -1111,32 +1112,32 @@ const financeReceivable: BankCreditServiceInterface['financeReceivable'] = (i) =
 			// concurrent finance all serialise on this row lock, so none can slip between the check and the line creation.
 			const lk = (await tx.execute(sql`select status, payee_account_id, due_at::text as due_at, amount_minor::text as amount_minor, paid_minor::text as paid_minor, payee_owner_type, payee_owner_id, payer_owner_type, payer_owner_id from bank_invoices where id = ${i.invoiceId} for update`)) as unknown as Array<Record<string, string>>
 			const cur = lk[0]
-			if (!cur || !['open', 'sent', 'issued', 'pending', 'unpaid', 'overdue', 'partially_paid'].includes(String(cur.status).toLowerCase())) throw bankErr('CONFLICT', `Invoice is '${cur?.status ?? 'missing'}'; it can no longer be financed`)
+			if (!cur || !['open', 'sent', 'issued', 'pending', 'unpaid', 'overdue', 'partially_paid'].includes(String(cur.status).toLowerCase())) throw bankErr('CONFLICT', `Invoice is '${cur?.status ?? 'missing'}'; it can no longer be financed`, { reason: 'INVOICE_STATE' })
 			if (cur.payee_owner_type !== i.owner.ownerType || cur.payee_owner_id !== i.owner.ownerId || cur.payer_owner_type !== String(pType) || cur.payer_owner_id !== String(pId)) throw bankErr('CONFLICT', 'Invoice parties changed; retry')
 			// MONEY-PATH: the invoice must settle into the SAME account the advance is paid to (the hold + collection are keyed on it); refuse otherwise.
-			if (cur.payee_account_id !== acct.id) throw bankErr('CONFLICT', 'Invoice settles into a different account than the advance account; it cannot be financed')
+			if (cur.payee_account_id !== acct.id) throw bankErr('CONFLICT', 'Invoice settles into a different account than the advance account; it cannot be financed', { reason: 'SETTLEMENT_ACCOUNT_MISMATCH' })
 			if (BigInt(cur.amount_minor) - BigInt(cur.paid_minor) !== face) throw bankErr('CONFLICT', 'Invoice amount or paid balance changed since it was read; retry')
 			const accNow = (await tx.execute(sql`select 1 as x from bank_invoice_acceptances where invoice_id = ${i.invoiceId} and payer_owner_type = ${String(pType)} and payer_owner_id = ${String(pId)} limit 1`)) as unknown as unknown[]
-			if (accNow.length === 0) throw bankErr('FORBIDDEN', 'Invoice acceptance no longer valid')
+			if (accNow.length === 0) throw bankErr('FORBIDDEN', 'Invoice acceptance no longer valid', { reason: 'NOT_ACCEPTED' })
 			// MONEY-PATH: issuer and payer must be unrelated principals: same root (user behind an agent / org owner) or either being a member of the other's org is refused.
 			const issuerSet = await relatedRoots(tx, i.owner.ownerType, i.owner.ownerId)
 			const payerSet = await relatedRoots(tx, String(pType), String(pId))
-			if ([...issuerSet].some((r) => payerSet.has(r))) throw bankErr('FORBIDDEN', 'Issuer and payer are related parties (same principal or org membership); invoice cannot be financed')
+			if ([...issuerSet].some((r) => payerSet.has(r))) throw bankErr('FORBIDDEN', 'Issuer and payer are related parties (same principal or org membership); invoice cannot be financed', { reason: 'RELATED_PARTIES' })
 			// MONEY-PATH: one USD exposure cap per root principal across all non-collateral credit.
-			if (advance > (await rootRoomMinor(tx, root, prices, acct.asset, acct.chain))) throw bankErr('LIMIT_EXCEEDED', 'Total credit exposure cap reached for this principal (all assets, chains and owned agents/orgs)')
+			if (advance > (await rootRoomMinor(tx, root, prices, acct.asset, acct.chain))) throw bankErr('LIMIT_EXCEEDED', 'Total credit exposure cap reached for this principal (all assets, chains and owned agents/orgs)', { reason: 'EXPOSURE_CAP' })
 			// MONEY-PATH: no new advance while any of the issuer's non-collateral lines is delinquent.
 			const dq = (await tx.execute(sql`select 1 as x from bank_credit_lines l where l.owner_type = ${i.owner.ownerType} and l.owner_id = ${i.owner.ownerId} and l.kind <> 'collateralized' and l.status = 'active' and l.principal_minor > 0 and exists (select 1 from bank_credit_events e where e.line_id = l.id and e.type = 'delinquent') limit 1`)) as unknown as unknown[]
-			if (dq.length > 0) throw bankErr('POLICY_BLOCKED', 'Existing credit is delinquent; repay it before financing receivables')
+			if (dq.length > 0) throw bankErr('POLICY_BLOCKED', 'Existing credit is delinquent; repay it before financing receivables', { reason: 'DELINQUENT_LINE' })
 			// MONEY-PATH: serialise per owner; total advances (active receivable lines) are capped by the score-based limit.
 			await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`recv:${i.owner.ownerType}:${i.owner.ownerId}`}))`)
 			const tot = (await tx.execute(sql`select coalesce(sum(limit_minor), 0)::text as s from bank_credit_lines where owner_type = ${i.owner.ownerType} and owner_id = ${i.owner.ownerId} and kind = 'receivable' and status = 'active' and loan_asset = ${acct.asset} and chain = ${acct.chain}`)) as unknown as Array<{ s: string }>
-			if (BigInt(tot[0]?.s ?? '0') + advance > BigInt(sc.proposedLimitMinor)) throw bankErr('LIMIT_EXCEEDED', `Advance ${advance} exceeds your score-based financing limit (${sc.proposedLimitMinor}, already advanced ${tot[0]?.s ?? '0'})`)
+			if (BigInt(tot[0]?.s ?? '0') + advance > BigInt(sc.proposedLimitMinor)) throw bankErr('LIMIT_EXCEEDED', `Advance ${advance} exceeds your score-based financing limit (${sc.proposedLimitMinor}, already advanced ${tot[0]?.s ?? '0'})`, { reason: 'EXPOSURE_CAP' })
 			// MONEY-PATH: advances outstanding against the same PAYER are capped by the same limit (one payer cannot back unlimited advances).
 			const pe = (await tx.execute(sql`select coalesce(sum(l.limit_minor), 0)::text as s from bank_credit_lines l join bank_invoices v on v.id = l.receivable_id where l.kind = 'receivable' and l.status = 'active' and l.loan_asset = ${acct.asset} and l.chain = ${acct.chain} and v.payer_owner_type = ${String(pType)} and v.payer_owner_id = ${String(pId)}`)) as unknown as Array<{ s: string }>
-			if (BigInt(pe[0]?.s ?? '0') + advance > BigInt(sc.proposedLimitMinor)) throw bankErr('LIMIT_EXCEEDED', `Advances against this payer would exceed the financing limit (${sc.proposedLimitMinor})`)
+			if (BigInt(pe[0]?.s ?? '0') + advance > BigInt(sc.proposedLimitMinor)) throw bankErr('LIMIT_EXCEEDED', `Advances against this payer would exceed the financing limit (${sc.proposedLimitMinor})`, { reason: 'EXPOSURE_CAP' })
 			return (await tx.insert(bankCreditLines).values({ id, ownerType: i.owner.ownerType, ownerId: i.owner.ownerId, kind: 'receivable', chain: acct.chain, loanAsset: acct.asset, accountId: acct.id, poolAccountId: pool.id, limitMinor: advance.toString(), aprBps: mode === 'markup' ? 0 : RECEIVABLE_APR_BPS, receivableId: i.invoiceId, faceMinor: face.toString(), metadata: mode === 'markup' ? { payeeAccountId: acct.id, dueAt: cur.due_at ?? null, advanceRateBps: RECEIVABLE_ADVANCE_BPS, financing: FIXED_MARKUP, markupBps: fixedMarkupBps(RECEIVABLE_APR_BPS), termDays: FIXED_MARKUP_TERM_DAYS } : { payeeAccountId: acct.id, dueAt: cur.due_at ?? null, advanceRateBps: RECEIVABLE_ADVANCE_BPS } }).onConflictDoNothing().returning())[0] ?? (await tx.select().from(bankCreditLines).where(eq(bankCreditLines.id, id)))[0] ?? null
 		}))
-		if (!line) return yield* Effect.fail(bankErr('CONFLICT', 'Invoice is already financed'))
+		if (!line) return yield* Effect.fail(bankErr('CONFLICT', 'Invoice is already financed', { reason: 'ALREADY_FINANCED' }))
 		const r = yield* poolDraw(i.owner, line, advance, 'advance')
 		yield* recordPoolOp(line, 'draw', 'draw:advance', r.transferId, r.status, { principal: advance, interest: markupOf(advance, lineMarkupBps(line)) })
 		return { line: yield* view(yield* loadLineById(id)), advanceMinor: advance.toString() }

@@ -37,7 +37,7 @@ export interface BankPrivacyServiceInterface {
 	readonly recordAnnouncement: (owner: BankOwner, payoutRef: string, txHash: string, chain: string) => Fx<{ ok: true }>
 	readonly scan: (i: { chain: string; fromBlock: string; toBlock?: string; viewPrivateKey: `0x${string}`; spendPublicKey: `0x${string}` }) => Effect.Effect<{ scanned: number; matches: ScanMatch[]; keyHandling: 'server' }, BankError>
 	/** Raw ERC-5564 announcements (scheme 1) so a client can view-tag filter and derive locally without sending its view key. Paginated BY BLOCK RANGE: each call covers <= MAX_ANNOUNCE_SPAN blocks; `cursor` is the next fromBlock (number) to pass back, null when done. */
-	readonly announcements: (i: { chain: string; fromBlock: string; toBlock?: string; cursor?: number; limit?: number }) => Effect.Effect<{ announcements: Array<{ stealthAddress: string; ephemeralPublicKey: string; viewTag: string; metadata: string; txHash: string; blockNumber: string; logIndex: number }>; nextCursor: number | null; total: number }, BankError>
+	readonly announcements: (i: { chain: string; fromBlock: string; toBlock?: string; cursor?: number; limit?: number }) => Effect.Effect<{ announcements: Array<{ stealthAddress: string; ephemeralPublicKey: string; viewTag: string; metadata: string; txHash: string; blockNumber: string; logIndex: number }>; nextCursor: number | null; total: number; /** hex block the server actually scanned up to (inclusive) */ toBlock: string }, BankError>
 	readonly complianceExport: (owner: BankOwner) => FxEnv<{ viewSecret: string; payouts: Array<{ payoutRef: string; payeeMetaAddress: string; stealthAddress: string; chain: string | null; announceTx: string | null }> }>
 }
 export class BankPrivacyService extends Context.Tag('BankPrivacyService')<BankPrivacyService, BankPrivacyServiceInterface>() {}
@@ -150,11 +150,13 @@ export const BankPrivacyServiceLive = Layer.succeed(BankPrivacyService, {
 			const head = yield* Effect.tryPromise({ try: async () => BigInt(await jsonRpc<string>(url, 'eth_blockNumber', [])), catch: (e) => (e as BankError) })
 			const reqFrom = BigInt(i.fromBlock)
 			const from = i.cursor !== undefined && BigInt(Math.floor(i.cursor)) > reqFrom ? BigInt(Math.floor(i.cursor)) : reqFrom
-			const reqTo = i.toBlock === undefined || i.toBlock === 'latest' ? head : BigInt(i.toBlock)
+			// toBlock omitted: default to min(fromBlock + span - 1, safe head) so the default page always fits the span cap; `latest` keeps the strict (reject-if-too-wide) behaviour.
+			const defaultTo = reqFrom + MAX_ANNOUNCE_SPAN - 1n
+			const reqTo = i.toBlock === undefined ? (defaultTo < head ? defaultTo : head) : i.toBlock === 'latest' ? head : BigInt(i.toBlock)
 			const finalTo = reqTo < head ? reqTo : head
 			// MONEY-PATH-adjacent DoS bound: the requested range itself may not exceed the cap (reject, do not silently clamp).
 			if (finalTo >= reqFrom && finalTo - reqFrom + 1n > MAX_ANNOUNCE_SPAN) return yield* Effect.fail(bankErr('VALIDATION', `Block range too wide: at most ${MAX_ANNOUNCE_SPAN} blocks per request (fromBlock..toBlock). Page with a narrower toBlock.`))
-			if (from > finalTo) return { announcements: [], nextCursor: null, total: 0 }
+			if (from > finalTo) return { announcements: [], nextCursor: null, total: 0, toBlock: `0x${finalTo.toString(16)}` }
 			const logs = yield* Effect.tryPromise({
 				try: () => jsonRpc<Array<{ topics: string[]; data: string; transactionHash: string; blockNumber: string; logIndex: string }>>(url, 'eth_getLogs', [{ address: ANNOUNCER, fromBlock: `0x${from.toString(16)}`, toBlock: `0x${finalTo.toString(16)}`, topics: [ANNOUNCEMENT_TOPIC, `0x${SCHEME_ID.toString(16).padStart(64, '0')}`] }]),
 				catch: (e) => (e as BankError),
@@ -166,7 +168,7 @@ export const BankPrivacyServiceLive = Layer.succeed(BankPrivacyService, {
 					all.push({ stealthAddress: a.stealthAddress, ephemeralPublicKey: a.ephemeralPublicKey, viewTag: `0x${a.metadata.slice(2, 4)}`, metadata: a.metadata, txHash: l.transactionHash, blockNumber: String(BigInt(l.blockNumber)), logIndex: Number(BigInt(l.logIndex)) })
 				} catch { /* skip malformed */ }
 			}
-			return { announcements: all, nextCursor: finalTo < head ? Number(finalTo + 1n) : null, total: all.length }
+			return { announcements: all, nextCursor: finalTo < head ? Number(finalTo + 1n) : null, total: all.length, toBlock: `0x${finalTo.toString(16)}` }
 		}),
 
 	complianceExport: (owner) =>

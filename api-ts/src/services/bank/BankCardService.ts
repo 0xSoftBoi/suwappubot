@@ -177,11 +177,19 @@ export interface CardView extends Omit<BankCard, never> {
 	availableMinor?: string
 }
 
+/** Present only while a bank_card_shortfalls row is open for the card. */
+export interface CardShortfallView {
+	amountMinor: string
+	asset: string
+	since: string
+	reason: 'CAPTURE_EXCEEDED_AVAILABLE'
+}
+
 export interface BankCardServiceInterface {
 	readonly issueCard: (owner: BankOwner, input: IssueCardInput) => Fx<{ card: BankCard; created: boolean }>
-	readonly listCards: (owner: BankOwner, f: { accountId?: string | undefined; memberId?: string | undefined; orgId?: string | undefined }) => Fx<BankCard[]>
+	readonly listCards: (owner: BankOwner, f: { accountId?: string | undefined; memberId?: string | undefined; orgId?: string | undefined }) => Fx<Array<BankCard & { shortfall?: CardShortfallView }>>
 	/** capCurrency/capDecimals: rules caps (perTx/daily/weekly/monthly/member/team) are integer minor units of this currency with this many decimals. */
-	readonly getCard: (owner: BankOwner, cardId: string) => Fx<{ card: BankCard; availableMinor: string | null; capCurrency: string; capDecimals: number }>
+	readonly getCard: (owner: BankOwner, cardId: string) => Fx<{ card: BankCard & { shortfall?: CardShortfallView }; availableMinor: string | null; capCurrency: string; capDecimals: number }>
 	readonly setStatus: (owner: BankOwner, cardId: string, status: 'active' | 'frozen' | 'canceled') => Fx<BankCard>
 	readonly updateRules: (owner: BankOwner, cardId: string, rules: unknown) => Fx<BankCard>
 	readonly simulate: (owner: BankOwner, cardId: string, input: SimulateInput) => Fx<Record<string, unknown>>
@@ -308,7 +316,22 @@ interface Decided {
 const hasOpenShortfall = (accountId: string): Fx<boolean> =>
 	bankDb(async (db) => (await db.select({ id: bankCardShortfalls.id }).from(bankCardShortfalls).where(and(eq(bankCardShortfalls.accountId, accountId), eq(bankCardShortfalls.status, 'open'))).limit(1)).length > 0)
 
-const decideAuthorization = (provider: CardProvider, req: AuthorizationRequest): Fx<AuthorizationDecision> =>
+/** View-only: open shortfall per card id (outstanding = amount - repaid, integer minor units of the card currency). */
+const openShortfallsByCard = (cards: BankCard[]): Fx<Map<string, CardShortfallView>> =>
+	cards.length === 0
+		? Effect.succeed(new Map())
+		: bankDb(async (db) => {
+				const rows = await db.select().from(bankCardShortfalls).where(and(inArray(bankCardShortfalls.cardId, cards.map((c) => c.id)), eq(bankCardShortfalls.status, 'open'))).orderBy(bankCardShortfalls.createdAt)
+				const cur = new Map(cards.map((c) => [c.id, c.currency]))
+				const out = new Map<string, CardShortfallView>()
+				for (const r of rows) {
+					if (out.has(r.cardId)) continue // oldest open shortfall wins
+					out.set(r.cardId, { amountMinor: (BigInt(r.amountMinor) - BigInt(r.repaidMinor)).toString(), asset: cur.get(r.cardId) ?? '', since: r.createdAt.toISOString(), reason: 'CAPTURE_EXCEEDED_AVAILABLE' })
+				}
+				return out
+			})
+
+const decideAuthorization =(provider: CardProvider, req: AuthorizationRequest): Fx<AuthorizationDecision> =>
 	Effect.gen(function* () {
 		const ledger = yield* BankLedgerService
 		const found = yield* bankDb(async (db) => {
@@ -773,7 +796,7 @@ const impl: BankCardServiceInterface = {
 		}),
 
 	listCards: (owner, f) =>
-		bankDb((db) =>
+		Effect.flatMap(bankDb((db) =>
 			db
 				.select()
 				.from(bankCards)
@@ -788,7 +811,7 @@ const impl: BankCardServiceInterface = {
 				)
 				.orderBy(desc(bankCards.createdAt))
 				.limit(200),
-		),
+		), (cards) => Effect.map(openShortfallsByCard(cards), (m) => cards.map((c) => { const shortfall = m.get(c.id); return shortfall ? { ...c, shortfall } : c }))),
 
 	getCard: (owner, cardId) =>
 		Effect.gen(function* () {
@@ -796,7 +819,8 @@ const impl: BankCardServiceInterface = {
 			const ledger = yield* BankLedgerService
 			const account = yield* ledger.getAccountById(card.accountId)
 			const avail = yield* Effect.either(availableOf(account))
-			return { card, availableMinor: Either.isRight(avail) ? avail.right.toString() : null, capCurrency: card.currency, capDecimals: fiatDecimals(card.currency) }
+			const shortfall = (yield* openShortfallsByCard([card])).get(card.id)
+			return { card: shortfall ? { ...card, shortfall } : card, availableMinor: Either.isRight(avail) ? avail.right.toString() : null, capCurrency: card.currency, capDecimals: fiatDecimals(card.currency) }
 		}),
 
 	setStatus: (owner, cardId, status) =>

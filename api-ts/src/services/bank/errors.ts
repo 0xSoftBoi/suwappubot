@@ -60,6 +60,8 @@ export class BankError extends Data.TaggedError('BankError')<{
 	readonly code: BankErrorCode
 	readonly message: string
 	readonly missing?: string
+	/** Stable machine-readable refusal reason (e.g. credit/receivables refusals); clients match on this, not on `message`. */
+	readonly reason?: string
 	readonly cause?: unknown
 }> {
 	get status(): number {
@@ -67,5 +69,5 @@ export class BankError extends Data.TaggedError('BankError')<{
 	}
 }
 
-export const bankErr = (code: BankErrorCode, message: string, extra?: { missing?: string; cause?: unknown }) =>
+export const bankErr = (code: BankErrorCode, message: string, extra?: { missing?: string; reason?: string; cause?: unknown }) =>
 	new BankError({ code, message, ...extra })

@@ -26,7 +26,7 @@ const run: BankRouteDeps['run'] = async (c, effect) => {
 			// LOCK_BUSY is retryable with the SAME idempotency key.
 			setRetryAfter(c, e)
 			return c.json(
-				{ success: false, error: e.code, error_code: e.code, message: e.message, ...(e.missing ? { missing: e.missing } : {}) },
+				{ success: false, error: e.code, error_code: e.code, message: e.message, ...(e.missing ? { missing: e.missing } : {}), ...(e.reason ? { reason: e.reason } : {}) },
 				e.status as 400,
 			)
 		}
