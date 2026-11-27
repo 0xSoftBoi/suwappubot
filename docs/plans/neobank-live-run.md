@@ -10,6 +10,23 @@
 
 ## Status
 
+### Part A: `openAccount` call-site sweep (wallet resolved?)
+
+| Site | Result |
+|---|---|
+| BankEarnService.ts:237 | OK (checking account's wallet) |
+| BankEscrowService.ts:276 | OK (payer account wallet; the bug-3 fix) |
+| BankAgentPayService.ts:230 | OK (`wallet`) |
+| BankPartnerService.ts:135, 202 | OK (`wallet`) |
+| BankPayoutPoolService.ts:111 | FIXED (bug 6) |
+| BankRemittanceService.ts:130 | FIXED (bug 3); :214 OK (sender account wallet) |
+| BankOrgService.ts:424 | OK (`ensureOrgCustodyWallet`) |
+| BankPayrollService.ts:205 | OK (fund account wallet) |
+| routes/bank/core.ts:44 | OK (`wallet`) |
+| BankPartnerService.ts:49/195, routes/bank/platform.ts:114, business.ts:113, BankLedgerService.ts:99/294 | N-A (wrappers / interface / definition) |
+
+Type tightened: `OpenAccountInput.wallet` is now REQUIRED (`wallet: WalletRef`, BankLedgerService.ts ~L52); omitting it is a compile error. `bun run check` passes with all callers unchanged.
+
 | Step | Result | Notes |
 |---|---|---|
 | 3a accounts, statement, concurrent sync-deposit | PASS | 4 concurrent syncs over 2 accounts of one wallet: one credit of 100000000 (one deposit transfer, ledger net 0). 200s. |
@@ -59,6 +76,7 @@ Setup (latest re-run on HEAD e9d9824, migrations through 0045 applied, normal en
 | 3e kill -9 after broadcast / during signing | PASS | (1) kill -9 while `submitted` -> restart -> confirmed once, ledger submit+confirm net 0, receipt present. (2) signer stalled 40s, kill -9 mid-sign (pending, claimed, no hash) -> restart; after `CLAIM_STALE_MS` (2 min, BankTransferService.ts:112) the reconciler re-claimed, signed and broadcast once; confirmed; no pending/submitted leftovers; reconcile in_sync (489000000 = onchain); no unbalanced transfer. |
 | g8 earn | PASS | Morpho list 200; deposit 100 USDC into Steakhouse Prime on the fork confirmed (93.80e18 shares, principal 100000000); withdraw all with 12 sync-deposits fired during it: all 200 credited 0, one more after confirm 0; checking +3 minor realized vault yield, savings 0; reconcile in_sync (689000003 = onchain), no unbalanced transfer. g8c's trailing debug query hits `bank_earn_operations` which no longer exists (script-only, not a product bug). |
 | g1 invoice | PASS | Pay-from-account x3 concurrent same key: 1 payment row, 1 internal transfer (net 0, 4 entries after confirm), invoice `paid` once (5000000) after confirmation; different key -> 400 (outstanding 0). Onchain: external wallet paid payTo+tag (2000804) -> invoice `paid`, 1 onchain payment row; second identical external payment -> invoice unchanged, no extra payment row/credit transfer (funds surface only via sync-deposit). |
+| g2′ payroll idempotency key | PASS | Same key + same body twice (body field) -> same run id, 2nd response `replayed:true`, one run; same key + different payees -> 409 CONFLICT "idempotencyKey already used with different terms"; `Idempotency-Key` header works; no key -> 200 new run each time with `idempotent:false`; key `x` -> 400 (8-128 chars). With a key the response says `idempotent:true`. |
 | g2 payroll | PASS (CHANGED detail) | 3 payees (2 good, 1 precompile), create/approve/execute 200; bad item `failed` immediately, good items now show an in-flight status `converting` (was `submitted`-style before) until the transfers confirm; retry while executing -> 409 CONFLICT; after confirmation run `partial` (2 items `paid`), retry x2 -> 200, only the failed item re-attempted (attempts 1->3), exactly 2 payment transfers (never 4), both confirmed; no unbalanced transfer. |
 | g4 remittance | PASS | Send to claim link 200 `awaiting_claim`; B claim x2 concurrent -> one 200 (`completed`), one 409 CONFLICT; third claim 409; B ledger +3000000. Expiry (server restarted with BANK_REMIT_CLAIM_TTL_HOURS=0.01, BANK_JOB_INTERVALS=remittance=5): link `refunded`, A balance restored (+3000000), late claim 409; no unbalanced transfer. (Without the short TTL a late claim correctly still succeeds, 7-day expiry.) |
 | g3 stream | PASS (CHANGED detail) | Earlier stream (cap 20M) = 2 transfers totalling 20000000. New stream cap 4M: settle after 15s 1.5M; pause/resume/cancel 200; the post-cancel and past-cap settles do not pay while the first transfer is unconfirmed (single in-flight intent); after confirmation the `payments` job settled the 2.5M remainder (key `...:1`). Final `settled_minor` = 4000000 = total paid = cap (this was stale in the first run; now correct, updated on confirmation), stream cancelled+ended, net 0. |
@@ -66,7 +84,7 @@ Setup (latest re-run on HEAD e9d9824, migrations through 0045 applied, normal en
 | g6 FX | NOT RUN (yet) | |
 | g7 cards | NOT RUN (yet) | |
 | 3h jobs | NOT RUN (yet) | |
-| n1 escrow split failed leg | NOT RUN (yet) | |
+| n1 escrow split failed leg | PASS (CHANGED detail) | 50M escrow with arbiter (user 3), payer dispute, signer stopped, arbiter resolve release 30M + refund 20M: release leg `failed` (reversed into escrow), refund leg left as `intent`, milestone `disputed`; an immediate re-resolve -> 409 "unfinished fund movements" (CHANGED: blocked until the escrow job executes the parked refund intent, which it did within ~45s). Then (signer back) release 40M -> 400 VALIDATION "must equal remaining (30000000)"; release 30M -> 200, confirmed after mining; further resolves 409 (milestone released). Paid out total 30M release + 20M refund = 50M, never more; escrow account balance 0; no unbalanced transfer. |
 | n2 payout pool | PASS (after fix, CHANGED flow) | BUG 6 FIXED: `POST /payroll/pools` with asset+chain failed `409 WALLET_UNAVAILABLE openAccount requires a resolved custody wallet` (same class as bug 3): `BankPayoutPoolService.createPool` (~L109) now resolves `ledger.resolveCustodyWallet(operator, family)` and passes `wallet` (`// MONEY-PATH`). Flow: B operator creates pool + limit 10M for payer A; A's pool-funded run executed with pool balance 0 -> item stays `pending` with error "Pool balance 0 is below the payout of 2000000", its receivable `void`, no money moved; B topped up 5M -> the payments job re-attempted by itself (an explicit retry meanwhile returns 409 "Run is executing", CHANGED vs a manual retry) -> new receivable `open` -> recipient paid exactly once (`poolpay:<receivable>` payout confirmed 2M) -> job collected from the payer (`poolsettle:<receivable>` confirmed 2M), receivable `settled`, run `completed`, pool balance back to 5000000. |
 | n3 partner fee | NOT RUN (yet) | |
 | n4 ops alerts | NOT RUN (yet) | |

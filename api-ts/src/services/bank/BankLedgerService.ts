@@ -48,8 +48,8 @@ export interface OpenAccountInput {
 	label?: string | undefined
 	segmentProfile?: string | undefined
 	metadata?: Record<string, unknown> | undefined
-	/** Server-side only: explicit custody wallet (skips resolution). Never exposed by routes. */
-	wallet?: WalletRef | undefined
+	/** Server-side only; REQUIRED (resolve via ledger.resolveCustodyWallet(owner, family) or the owning module). Never exposed by routes. */
+	wallet: WalletRef
 }
 
 export interface LedgerLeg {
