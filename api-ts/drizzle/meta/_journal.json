@@ -251,21 +251,21 @@
       "idx": 35,
       "version": "7",
       "when": 1791600000000,
-      "tag": "0036_bank_review3",
+      "tag": "0035_bank_review2",
       "breakpoints": true
     },
     {
       "idx": 36,
       "version": "7",
       "when": 1791700000000,
-      "tag": "0037_bank_review1b",
+      "tag": "0036_bank_review3",
       "breakpoints": true
     },
     {
       "idx": 37,
       "version": "7",
       "when": 1791800000000,
-      "tag": "0035_bank_review2",
+      "tag": "0037_bank_review1b",
       "breakpoints": true
     }
   ]

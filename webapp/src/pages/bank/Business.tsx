@@ -26,9 +26,9 @@ function Members({ orgId }: { orgId: string }) {
       <Card className="space-y-3">
         <p className="text-sm font-semibold">Invite someone</p>
         <Select value={role} onChange={(e) => setRole(e.target.value)}>{ROLES.map((r) => <option key={r}>{r}</option>)}</Select>
-        <Field label="Email (optional)"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
+        <Field label="Invitee email"><Input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
         {inv.isError && <ErrorBox error={inv.error} />}
-        <Btn className="w-full" disabled={inv.isPending} onClick={() => inv.mutate()}>{inv.isPending ? 'Creating…' : 'Create invite'}</Btn>
+        <Btn className="w-full" disabled={inv.isPending || !/^\S+@\S+\.\S+$/.test(email.trim())} onClick={() => inv.mutate()}>{inv.isPending ? 'Creating…' : 'Create invite'}</Btn>
         {typeof token === 'string' && <p className="font-mono text-[11px] break-all">{token}</p>}
       </Card>
     </div>

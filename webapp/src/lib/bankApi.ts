@@ -88,6 +88,7 @@ export function describeBankError(code: string, message?: string): string {
     case 'RAMP_UNAVAILABLE': return 'Bank on and off ramps are unavailable right now. Nothing was sent. Try again later.'
     case 'RECEIVABLES_UNAVAILABLE': return 'Invoice financing is not available right now.'
     case 'ISSUER_NOT_CONFIGURED': return 'Card issuing is not switched on yet.'
+    case 'LOCK_BUSY': return 'Your account is busy with another payment. We retried automatically; wait a moment and try again. Nothing was sent twice.'
     case 'NOT_CONFIGURED': return message ? `Not available yet: ${message}` : 'This feature is not switched on yet.'
     case 'SIGNING_UNAVAILABLE': return 'Signing is temporarily unavailable. Nothing was sent. Try again shortly.'
     case 'WALLET_UNAVAILABLE': return 'The wallet for this account is not ready yet.'
@@ -499,6 +500,8 @@ export const bank = {
   withdrawCollateral: (b: { lineId: string; amountMinor?: string; all?: boolean }, key: string) => post<Ok<{ line: CreditLineView; txHash: string }>>('/credit/withdraw-collateral', b, key),
   creditEvents: (q?: { lineId?: string; limit?: number }) => get<Ok<{ events: CreditEvent[] }>>('/credit/events', q),
   creditScore: (q?: { asset?: string; chain?: string }) => get<Ok<{ score: CreditScore }>>('/credit/score', q),
+  /** Payer-side: accept an invoice so the payee can finance it. Body shape assumed { invoiceId } (not visible to the client author). */
+  acceptReceivable: (b: { invoiceId: string }, key: string) => post<Ok<Json>>('/credit/receivables/accept', b, key),
   financeReceivable: (b: { accountId: string; invoiceId: string }, key: string) => post<Ok<{ line: CreditLineView; advanceMinor: string }>>('/credit/receivables/finance', b, key),
   unsecuredLine: (b: { accountId: string }, key: string) => post<Ok<{ line: CreditLineView }>>('/credit/unsecured', b, key),
 
