@@ -22,7 +22,9 @@ BankOwnerType = Literal["user", "agent", "org", "partner_customer", "system"]
 BankAccountKind = Literal["checking", "savings", "credit", "escrow", "pool", "treasury"]
 BankAccountStatus = Literal["active", "frozen", "closed"]
 BankTransferStatus = Literal["pending", "submitted", "confirmed", "failed", "reversed"]
-BankRail = Literal["ach", "wire", "fednow", "sepa", "spei", "pix", "upi", "vietqr", "bre_b", "swift"]
+BankRail = Literal[
+    "ach", "wire", "fednow", "sepa", "spei", "pix", "upi", "vietqr", "bre_b", "swift"
+]
 BankRampProvider = Literal["bridge", "due"]
 BankOrgRole = Literal["owner", "admin", "approver", "accountant", "member", "viewer"]
 

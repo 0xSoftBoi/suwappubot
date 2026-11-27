@@ -61,6 +61,9 @@ export interface PayResult {
 	transfer?: BankTransfer | undefined
 	spendId?: string
 	note?: string
+	/** MONEY-PATH: false when no idempotency key was supplied (a client retry may pay again); true when keyed; replayed when the stored original result is returned. */
+	idempotent?: boolean
+	replayed?: boolean
 }
 
 /** Minimal local view of the payments module's BankStreamService (resolved by tag key, optional). */
@@ -74,7 +77,7 @@ export interface BankAgentPayServiceInterface {
 	readonly openAgentAccount: (owner: BankOwner, i: { asset: string; chain: string; label?: string; mandate: MandateInput }) => Fx<{ account: BankAccount; mandate: BankAgentMandate }>
 	readonly listMandates: (owner: BankOwner) => Fx<BankAgentMandate[]>
 	readonly revokeMandate: (owner: BankOwner, id: string) => Fx<BankAgentMandate>
-	readonly payForResource: (owner: BankOwner, i: { mandateId: string; url: string; method?: string; body?: string; headers?: Record<string, string> }) => Fx<PayResult>
+	readonly payForResource: (owner: BankOwner, i: { mandateId: string; url: string; method?: string; body?: string; headers?: Record<string, string>; idempotencyKey?: string | undefined }) => Fx<PayResult>
 	readonly registerResource: (owner: BankOwner, i: { accountId: string; title: string; description?: string; upstreamUrl: string; priceMinor: string; slug?: string }) => Fx<BankAgentResource>
 	readonly listMyResources: (owner: BankOwner) => Fx<BankAgentResource[]>
 	readonly setResourceStatus: (owner: BankOwner, id: string, status: 'active' | 'disabled') => Fx<BankAgentResource>
@@ -166,10 +169,15 @@ registerHoldProvider('agent-pay', async (accountId, tx, excludeId) =>
 )
 
 /** MONEY-PATH: atomically enforce per-call max + daily cap under an advisory lock, then insert a 'reserved' spend row. */
-const reserveSpend = (m: BankAgentMandate, a: { host: string; payee: string; asset: string; chain: string; amountMinor: bigint; url: string }) =>
+const reserveSpend = (m: BankAgentMandate, a: { host: string; payee: string; asset: string; chain: string; amountMinor: bigint; url: string }, idem?: { key: string; hash: string }) =>
 	bankDb(async (db) =>
-		db.transaction(async (tx) => {
+		db.transaction(async (tx): Promise<{ id: string; existing?: typeof bankAgentSpend.$inferSelect }> => {
 			await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${m.id}))`)
+			// MONEY-PATH: re-check the key under the per-mandate lock so a concurrent retry can never reserve twice.
+			if (idem) {
+				const [ex] = await tx.select().from(bankAgentSpend).where(and(eq(bankAgentSpend.agentId, m.agentId), eq(bankAgentSpend.idemKey, idem.key))).limit(1)
+				if (ex) return { id: ex.id, existing: ex }
+			}
 			// MONEY-PATH: lock the funding account row and check unified availability (ledger - cards/escrow/streams/other spend holds).
 			await tx.execute(sql`select 1 from bank_accounts where id = ${m.accountId} for update`)
 			await assertAvailable(m.accountId, tx, a.amountMinor)
@@ -182,8 +190,8 @@ const reserveSpend = (m: BankAgentMandate, a: { host: string; payee: string; ass
 			if (spent + a.amountMinor > BigInt(m.dailyCapMinor))
 				throw bankErr('LIMIT_EXCEEDED', `Daily mandate cap exceeded (spent ${spent} + ${a.amountMinor} > ${m.dailyCapMinor})`)
 			const id = newId('xfer').replace('xfer_', 'spend_')
-			await tx.insert(bankAgentSpend).values({ id, mandateId: m.id, agentId: m.agentId, accountId: m.accountId, host: a.host, payee: a.payee, asset: a.asset, chain: a.chain, amountMinor: a.amountMinor.toString(), status: 'reserved', resourceUrl: a.url })
-			return id
+			await tx.insert(bankAgentSpend).values({ id, mandateId: m.id, agentId: m.agentId, accountId: m.accountId, host: a.host, payee: a.payee, asset: a.asset, chain: a.chain, amountMinor: a.amountMinor.toString(), status: 'reserved', resourceUrl: a.url, ...(idem ? { idemKey: idem.key, idemHash: idem.hash } : {}) })
+			return { id }
 		}),
 	)
 
@@ -191,6 +199,13 @@ const patchSpend = (id: string, patch: Partial<typeof bankAgentSpend.$inferInser
 	bankDb((db) => db.update(bankAgentSpend).set({ ...patch, updatedAt: new Date() }).where(eq(bankAgentSpend.id, id)).returning().then((r) => r[0]!))
 
 const requestHash = (o: unknown) => createHash('sha256').update(JSON.stringify(o)).digest('hex')
+
+// MONEY-PATH: same key + same terms -> stored original result; different terms -> CONFLICT; no stored result -> outcome pending/unknown.
+const replayPay = (row: typeof bankAgentSpend.$inferSelect, hash: string): Effect.Effect<PayResult, BankError> => {
+	if (row.idemHash !== hash) return Effect.fail(bankErr('CONFLICT', 'idempotencyKey was already used with different terms'))
+	if (row.idemResult) return Effect.succeed({ ...(JSON.parse(row.idemResult) as PayResult), idempotent: true, replayed: true })
+	return Effect.fail(bankErr('CONFLICT', `A payment with this idempotencyKey is in progress or its outcome is pending reconciliation (spend ${row.id}); do not retry with a new key`))
+}
 
 export const BankAgentPayServiceLive = Layer.succeed(BankAgentPayService, {
 	openAgentAccount: (owner, i) =>
@@ -239,6 +254,12 @@ export const BankAgentPayServiceLive = Layer.succeed(BankAgentPayService, {
 			if (account.status !== 'active') return yield* Effect.fail(bankErr('ACCOUNT_STATE', 'Agent account is not active'))
 			const method = (i.method ?? 'GET').toUpperCase()
 			const reqInit = { method, headers: i.headers, body: i.body }
+			// MONEY-PATH: caller-supplied idempotency (optional; absent = legacy behaviour, reported as idempotent:false).
+			const idem0 = i.idempotencyKey ? { key: i.idempotencyKey, hash: requestHash({ mandateId: i.mandateId, url: i.url, method, body: i.body ?? null, headers: i.headers ?? null }) } : undefined
+			if (idem0) {
+				const prior = yield* bankDb(async (db) => (await db.select().from(bankAgentSpend).where(and(eq(bankAgentSpend.agentId, owner.ownerId), eq(bankAgentSpend.idemKey, idem0.key))).limit(1))[0])
+				if (prior) return yield* replayPay(prior, idem0.hash)
+			}
 			const first = yield* Effect.tryPromise({ try: () => guardedFetch(i.url, reqInit), catch: (e) => (e as BankError) })
 			if (first.status !== 402) return { paid: false, status: first.status, body: first.body, contentType: first.headers['content-type'] ?? null }
 
@@ -257,7 +278,9 @@ export const BankAgentPayServiceLive = Layer.succeed(BankAgentPayService, {
 			const domain = req.extra.name && req.extra.version ? { name: String(req.extra.name), version: String(req.extra.version) } : yield* readTokenDomain(acctAsset)
 
 			// --- reserve mandate budget, then reserve ledger funds (debit account -> clearing)
-			const spendId = yield* reserveSpend(mandate, { host, payee: req.payTo.toLowerCase(), asset: acctAsset.symbol, chain: account.chain, amountMinor: amount, url: i.url })
+			const reservedSpend = yield* reserveSpend(mandate, { host, payee: req.payTo.toLowerCase(), asset: acctAsset.symbol, chain: account.chain, amountMinor: amount, url: i.url }, idem0)
+			if (reservedSpend.existing) return yield* replayPay(reservedSpend.existing, idem0!.hash)
+			const spendId = reservedSpend.id
 			const nonce = `0x${randomBytes(32).toString('hex')}` as const
 			const idem = `x402:${spendId}`
 			const clearing = yield* ledger.ensureSystemAccount('clearing', acctAsset.symbol, account.chain)
@@ -271,7 +294,7 @@ export const BankAgentPayServiceLive = Layer.succeed(BankAgentPayService, {
 			})
 			const fail = (reason: string) =>
 				Effect.gen(function* () {
-					yield* patchSpend(spendId, { status: 'failed', transferId })
+					yield* patchSpend(spendId, { status: 'failed', transferId, idemKey: null }) // failed => key is free to retry
 					yield* bankDb((db) => db.update(bankTransfers).set({ status: 'failed', failureReason: reason, updatedAt: new Date() }).where(eq(bankTransfers.id, transferId)))
 				})
 			const reserved = yield* Effect.either(ledger.post({ transferId, phase: 'submit', legs: [{ accountId: account.id, direction: 'debit', amountMinor: amount }, { accountId: clearing.id, direction: 'credit', amountMinor: amount }] }))
@@ -326,7 +349,11 @@ export const BankAgentPayServiceLive = Layer.succeed(BankAgentPayService, {
 			// Resource answered but did not confirm settlement: money may have moved. Hold in clearing, flag it.
 			yield* bankDb((db) => db.update(bankTransfers).set({ status: 'submitted', metadata: sql`${bankTransfers.metadata} || ${JSON.stringify({ ambiguous: true, httpStatus: res.status, settlementHeader: settlement })}::jsonb`, updatedAt: new Date() }).where(eq(bankTransfers.id, transferId)))
 			return { paid: true, status: res.status, body: res.body, contentType: res.headers['content-type'] ?? null, settlement: settlement ?? undefined, spendId, note: 'no confirmed PAYMENT-RESPONSE; funds held in clearing pending reconciliation' }
-		}),
+		}).pipe(
+			// MONEY-PATH: persist the final result against the key so a retry returns it verbatim.
+			Effect.tap((r) => (i.idempotencyKey && r.spendId && !r.replayed ? bankDb((db) => db.update(bankAgentSpend).set({ idemResult: JSON.stringify(r) }).where(eq(bankAgentSpend.id, r.spendId!))) : Effect.void)),
+			Effect.map((r) => (r.replayed ? r : { ...r, idempotent: !!i.idempotencyKey })),
+		),
 
 	registerResource: (owner, i) =>
 		Effect.gen(function* () {

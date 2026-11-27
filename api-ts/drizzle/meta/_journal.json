@@ -281,6 +281,13 @@
       "when": 1791900100000,
       "tag": "0042_bank_verify_d",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1791900200000,
+      "tag": "0043_bank_idempotency",
+      "breakpoints": true
     }
   ]
 }

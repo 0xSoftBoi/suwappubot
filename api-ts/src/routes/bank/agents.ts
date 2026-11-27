@@ -30,6 +30,7 @@ const Pay = z.object({
 	method: z.enum(['GET', 'POST', 'PUT', 'DELETE']).optional(),
 	body: z.string().max(100_000).optional(),
 	headers: z.record(z.string(), z.string()).optional(),
+	idempotencyKey: idem.optional(),
 })
 const Register = z.object({ accountId: z.string().min(1).max(64), title: z.string().min(1).max(120), description: z.string().max(2000).optional(), upstreamUrl: z.url().max(2048), priceMinor: minor, slug: z.string().max(40).optional() })
 const Stream = z.object({ payerAccountId: z.string().max(64), payeeAccountId: z.string().max(64), unitPriceMinor: minor, unit: z.string().min(1).max(32), idempotencyKey: idem })
@@ -77,7 +78,11 @@ export function register(app: BankRouteApp, deps: BankRouteDeps): void {
 		const owner = await resolveOwner(c)
 		const p = Pay.safeParse(await readJson(c))
 		if (!p.success) return bad(c, p.error)
-		return run(c, Effect.gen(function* () { return { result: yield* (yield* BankAgentPayService).payForResource(owner, p.data as never) } }))
+		// MONEY-PATH: key from body or Idempotency-Key header (optional; absent => result.idempotent=false).
+		const hk = c.req.header('Idempotency-Key')?.trim()
+		if (!p.data.idempotencyKey && hk && !idem.safeParse(hk).success) return c.json({ error: 'Validation Error', error_code: 'VALIDATION_ERROR', fields: { 'Idempotency-Key': 'must match [A-Za-z0-9_.:-]{8,128}' } }, 400)
+		const input = { ...p.data, idempotencyKey: p.data.idempotencyKey ?? hk }
+		return run(c, Effect.gen(function* () { return { result: yield* (yield* BankAgentPayService).payForResource(owner, input as never) } }))
 	})
 	app.post('/agents/resources', async (c) => {
 		const owner = await resolveOwner(c)

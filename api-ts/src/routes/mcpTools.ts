@@ -261,7 +261,7 @@ export const BANK_TOOL_SPECS: BankToolSpec[] = [
 		properties: { idempotency_key: IDEM_PROP, from_account_id: ACCT('Source account id.'), amount_minor: MINOR_PROP, amount: HUMAN_PROP, memo: { type: 'string', description: 'Max 280.' }, auto_earn: { type: 'boolean', description: 'Park the received funds in earn.' },
 			recipient: { type: 'object', description: 'Recipient (see description).', properties: { kind: { type: 'string', enum: ['user', 'address', 'claim', 'payout'] } }, required: ['kind'], additionalProperties: true } },
 		required: ['idempotency_key', 'from_account_id', 'recipient'] },
-	{ name: 'bank_agent_pay', title: 'Agent Pay (x402)', method: 'POST', path: '/agents/pay', keyed: true, localDedupe: true, readOnly: false,
+	{ name: 'bank_agent_pay', title: 'Agent Pay (x402)', method: 'POST', path: '/agents/pay', keyed: true, readOnly: false,
 		description: 'MONEY-MOVING. Pay for an x402 pay-per-call HTTP resource within the agent mandate (per-call max, daily cap, allowed hosts/payees/assets enforced server-side). Returns the resource response and the payment receipt. Confirm with the user before calling.',
 		properties: { idempotency_key: IDEM_PROP, mandate_id: ACCT('Mandate id from your agent account.'), url: ACCT('Resource URL (max 2048).'), method: { type: 'string', enum: ['GET', 'POST', 'PUT', 'DELETE'], description: 'Default GET.' },
 			body: { type: 'string', description: 'Request body (max 100000).' }, headers: { type: 'object', additionalProperties: { type: 'string' }, description: 'Extra request headers.' } },

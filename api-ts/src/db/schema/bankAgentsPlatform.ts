@@ -3,6 +3,7 @@
  * Money = integer minor units in numeric(78,0). Co-created by Python
  * database/bank_ddl/agents_platform.py and drizzle 0032_bank_agents_platform.sql (ADR 0003).
  */
+import { sql } from 'drizzle-orm'
 import { bigint, index, integer, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core'
 
 const money = (n: string) => numeric(n, { precision: 78, scale: 0 })
@@ -45,10 +46,17 @@ export const bankAgentSpend = pgTable(
 		transferId: text('transfer_id'),
 		txHash: varchar('tx_hash', { length: 128 }),
 		resourceUrl: text('resource_url'),
+		// MONEY-PATH: caller idempotency key (idem_*) for POST /agents/pay; unique per agent when present (0043).
+		idemKey: varchar('idem_key', { length: 128 }),
+		idemHash: varchar('idem_hash', { length: 64 }),
+		idemResult: text('idem_result'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at').defaultNow().notNull(),
 	},
-	(t) => ({ mandateIdx: index('ix_bank_agent_spend_mandate').on(t.mandateId, t.createdAt) }),
+	(t) => ({
+		mandateIdx: index('ix_bank_agent_spend_mandate').on(t.mandateId, t.createdAt),
+		idemUniq: uniqueIndex('ux_bank_agent_spend_idem').on(t.agentId, t.idemKey).where(sql`${t.idemKey} is not null`),
+	}),
 )
 
 export const bankAgentResources = pgTable(
