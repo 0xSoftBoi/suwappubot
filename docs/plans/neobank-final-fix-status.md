@@ -21,10 +21,12 @@
 - g1 owner columns: DONE/NOT-A-BUG-AS-STATED. bank_invoices DOES have owner_type/owner_id (schema bankPaymentsPayroll.ts:24-25, always = payee; verified in DB A/B), so the check worked. Hardened anyway: finance now reads payee_owner_* first (BankCreditService.ts ~:994).
 - g2 (= item g) DONE: finance re-checks status/paid/amount/parties/acceptance under `select ... for update` on the invoice inside the finance tx (BankCreditService.ts ~:1017); voidInvoice now locks the row, re-checks paid + active receivable line, then updates (BankPaymentsService.ts ~:394). creditInvoiceSql is a single UPDATE so it takes the same row lock implicitly and blocks behind finance. Invoice mutators enumerated: publish (draft->open), void, scanCursor, overdue job, creditInvoiceSql; none edits amount after creation, so there is no amount-edit path to invalidate acceptance (no DDL added).
 - g3 DONE: advance = 80% of (amount - paid); zero outstanding refused; in-tx recheck refuses if outstanding changed.
-- g4 DONE (partial scope): issuer/payer resolved to root principal (agent->agents.owner_user_id, org->bank_orgs.owner_user_id, user->id) and rejected if equal; advances per payer capped by the issuer score limit; financing refused while any issuer non-collateral line is delinquent. Org members beyond the owner are not resolved.
-- g5 NOT STARTED
+- g4 DONE (incl. org-member relatedness via relatedRoots: issuer/payer sets intersect => refused): issuer/payer resolved to root principal (agent->agents.owner_user_id, org->bank_orgs.owner_user_id, user->id) and rejected if equal; advances per payer capped by the issuer score limit; financing refused while any issuer non-collateral line is delinquent. Org members beyond the owner are not resolved.
+- g5 DONE: one USD cap (UNSECURED_CAP_UNITS=5000) per ROOT principal across unsecured + receivable lines, all assets/chains, covering the user, their agents and orgs they own; priced via BankBooksService.resolveRate (fails closed); serialised by a cross-process root lock (withRootLock). BankCreditService.ts rootRoomMinor/withRootLock, used in openUnsecuredLine and financeReceivable.
 - g6: PARTIAL (see f)
 - g7 NOT STARTED
-- g8 NOT STARTED
+- g8 DONE: accruedSince rounds seconds and interest UP (BankCreditService.ts ~:273); no DDL/carry column needed.
 
 check after g1-g4: `bun run check` clean.
+
+- f remainder: interest no longer accrues on refunded-but-unapplied portions (refund op created_at -> now; accruedSince `refunds` param, refundReductions; also honoured at apply time). Remaining f items still open (see below).
