@@ -20,6 +20,9 @@ export const bankInvoices = pgTable(
 	{
 		id: text('id').primaryKey(),
 		slug: varchar('slug', { length: 32 }).notNull(),
+		/** Credit module (receivables financing) reads the invoice owner here; always equals the payee owner. */
+		ownerType: varchar('owner_type', { length: 24 }).notNull(),
+		ownerId: varchar('owner_id', { length: 64 }).notNull(),
 		payeeOwnerType: varchar('payee_owner_type', { length: 24 }).notNull(),
 		payeeOwnerId: varchar('payee_owner_id', { length: 64 }).notNull(),
 		payeeAccountId: text('payee_account_id').notNull(),

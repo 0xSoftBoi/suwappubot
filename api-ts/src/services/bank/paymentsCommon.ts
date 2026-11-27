@@ -48,36 +48,9 @@ export const guard = <A>(f: () => A): Effect.Effect<A, BankError> =>
 
 /** Minimal slice of the credit module (receivables financing). */
 export interface BankCreditLike {
-	readonly settleReceivable: (invoiceId: string, amountMinor: string) => Effect.Effect<unknown, unknown, DrizzleService>
+	readonly settleReceivable: (invoiceId: string, amountMinor: string, paymentRef?: string) => Effect.Effect<unknown, unknown, DrizzleService>
 }
 export const BankCreditLookup = Context.GenericTag<BankCreditLike>('BankCreditService')
-
-/** Minimal slice of the ramp module for local-rail payouts. */
-export interface BankRampLike {
-	readonly payoutLocal: (input: {
-		owner: BankOwner
-		idempotencyKey: string
-		fromAccountId: string
-		amountMinor: string
-		rail?: string | undefined
-		railAccountId: string
-		currency: string
-		memo?: string | undefined
-	}) => Effect.Effect<{ id: string; status: string }, unknown, DrizzleService>
-}
-export const BankRampLookup = Context.GenericTag<BankRampLike>('BankRampService')
-
-/** Minimal slice of the M9 approvals module. `check` fails when the token does not authorise this action. */
-export interface BankApprovalLike {
-	readonly check: (input: {
-		token: string
-		owner: BankOwner
-		action: string
-		refId: string
-		amountMinor: string
-	}) => Effect.Effect<{ approvedBy: string }, unknown, DrizzleService>
-}
-export const BankApprovalLookup = Context.GenericTag<BankApprovalLike>('BankApprovalService')
 
 export const optional = <T>(tag: Context.Tag<T, T>): Effect.Effect<Option.Option<T>> => Effect.serviceOption(tag)
 

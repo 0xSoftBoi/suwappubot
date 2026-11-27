@@ -24,14 +24,16 @@ import {
 } from '../../db'
 import { logger } from '../../lib/logger'
 import { type BankAsset, findAsset, listAssets, toMinor } from './assets'
+import { consumeApprovalToken } from './BankApprovalService'
 import { BankFxService } from './BankFxService'
+import { BankRampService } from './BankRampService'
 import { BankLedgerService } from './BankLedgerService'
 import { BankPayoutPoolService } from './BankPayoutPoolService'
 import { BankTransferService } from './BankTransferService'
 import { isEvmAddress, isSolanaAddress } from './chain'
 import { type BankOwner, bankDb } from './db'
 import { type BankError, bankErr } from './errors'
-import { BankApprovalLookup, BankRampLookup, guard, idemKey, optional, ownerKey, type PayFx, parseMinor, sameOwner, subErr, toOwner, uid } from './paymentsCommon'
+import { guard, idemKey, ownerKey, type PayFx, parseMinor, sameOwner, subErr, toOwner, uid } from './paymentsCommon'
 import { firstRun, localDateOf, nextAfter, parseLocalDate, periodBounds, type ScheduleSpec, validateSpec } from './payrollSchedule'
 
 const TRANSIENT = new Set(['UPSTREAM', 'DB', 'SIGNING_UNAVAILABLE', 'WALLET_UNAVAILABLE'])
@@ -231,17 +233,27 @@ const driveItem = (run: BankPayrollRun, item: BankPayrollItem): PayFx<void> =>
 			return
 		}
 
+		const rampId = (item.payout as { rampTransferId?: string } | null)?.rampTransferId
+		if (rampId) {
+			const ramp = yield* Effect.serviceOption(BankRampService)
+			if (Option.isNone(ramp)) return
+			const rt = yield* ramp.value.getRampTransfer(owner, rampId)
+			if (rt.status === 'completed') return yield* setItem(item.id, { status: 'paid', paidAt: new Date(), paidAmountMinor: item.amountMinor, paidAsset: run.asset, payout: { rampTransferId: rampId, state: rt.status }, error: null })
+			if (rt.status === 'failed' || rt.status === 'returned' || rt.status === 'refunded') return yield* failItem(item, `Local payout ${rt.status}`, { payout: null })
+			return
+		}
 		const target = yield* resolveTarget(run, payee)
 
 		// Local rail: ramp module (optional).
 		if (target.rail) {
 			if (run.poolId) return yield* failItem(item, 'Pool payouts do not support local-rail payees')
-			const ramp = yield* optional(BankRampLookup)
-			if (Option.isNone(ramp)) return yield* Effect.fail(subErr('RAMP_UNAVAILABLE', 'NOT_CONFIGURED', 'Local-rail payouts need the ramp module (BankRampService), which is not deployed', 'BankRampService'))
+			const ramp = yield* Effect.serviceOption(BankRampService)
+			if (Option.isNone(ramp)) return yield* Effect.fail(subErr('RAMP_UNAVAILABLE', 'NOT_CONFIGURED', 'Local-rail payouts need the ramp module (BankRampService)', 'BankRampService'))
+			if (!payee.railAccountId) return yield* Effect.fail(bankErr('VALIDATION', 'Payee has no registered external account (railAccountId)'))
 			const r = yield* ramp.value
-				.payoutLocal({ owner, idempotencyKey: itemKey(run, item), fromAccountId: run.fundingAccountId, amountMinor: item.amountMinor, rail: payee.rail ?? undefined, railAccountId: payee.railAccountId!, currency: payee.currency, memo: item.memo ?? undefined })
-				.pipe(Effect.mapError((e) => bankErr('UPSTREAM', `Ramp payout failed: ${String(e)}`)))
-			yield* setItem(item.id, { status: 'converting', payout: { rampTransferId: r.id, state: r.status }, error: null })
+				.offramp({ owner, fromAccountId: run.fundingAccountId, externalAccountId: payee.railAccountId, amountMinor: item.amountMinor, idempotencyKey: itemKey(run, item) })
+				.pipe(Effect.mapError((e) => (e.code === 'NOT_CONFIGURED' ? subErr('RAMP_UNAVAILABLE', 'NOT_CONFIGURED', e.message, e.missing) : e)))
+			yield* setItem(item.id, { status: 'converting', payout: { rampTransferId: r.rampTransfer.id, state: r.rampTransfer.status }, error: null })
 			return
 		}
 
@@ -347,8 +359,7 @@ const previewOf = (run: BankPayrollRun): PayFx<RunPreview> =>
 	Effect.gen(function* () {
 		const ledger = yield* BankLedgerService
 		const items = yield* runItems(run.id)
-		const approval = yield* optional(BankApprovalLookup)
-		const balance = yield* ledger.balance(run.fundingAccountId)
+				const balance = yield* ledger.balance(run.fundingAccountId)
 		const outItems: RunPreview['items'] = []
 		for (const item of items) {
 			const payee = yield* loadPayee(item.payeeId)
@@ -362,7 +373,7 @@ const previewOf = (run: BankPayrollRun): PayFx<RunPreview> =>
 			})
 		}
 		const outstanding = items.filter((i) => i.status === 'pending' || i.status === 'failed').reduce((s, i) => s + BigInt(i.amountMinor), 0n)
-		return { run, items: outItems, totalMinor: run.totalMinor, fundingBalanceMinor: balance.toString(), sufficientFunds: !!run.poolId || balance >= outstanding, usesPool: !!run.poolId, approvalRequired: run.ownerType === 'org' && Option.isSome(approval) }
+		return { run, items: outItems, totalMinor: run.totalMinor, fundingBalanceMinor: balance.toString(), sufficientFunds: !!run.poolId || balance >= outstanding, usesPool: !!run.poolId, approvalRequired: run.ownerType === 'org' }
 	})
 
 const insertRun = (owner: BankOwner, p: { fundingAccountId: string; asset: string; chain: string; label?: string | undefined; poolId?: string | undefined; scheduleId?: string | undefined; periodKey?: string | undefined; status: 'draft' | 'approved'; approvedBy?: string; rows: Array<{ payeeId: string; amountMinor: bigint; memo?: string | undefined }> }) =>
@@ -469,15 +480,12 @@ export const BankPayrollServiceLive = Layer.succeed(BankPayrollService, {
 			const run = yield* loadRun(owner, runId)
 			if (run.status === 'approved') return run
 			if (run.status !== 'draft') return yield* Effect.fail(bankErr('CONFLICT', `Run is ${run.status}`))
-			const approvals = yield* optional(BankApprovalLookup)
 			let approvedBy = ownerKey(owner)
-			if (approvalToken) {
-				if (Option.isNone(approvals)) return yield* Effect.fail(bankErr('NOT_CONFIGURED', 'An approval token was supplied but the approvals module (BankApprovalService) is not deployed', { missing: 'BankApprovalService' }))
-				const ok = yield* approvals.value.check({ token: approvalToken, owner, action: 'payroll.run', refId: run.id, amountMinor: run.totalMinor }).pipe(Effect.mapError((e) => subErr('APPROVAL_REQUIRED', 'FORBIDDEN', `Approval rejected: ${String(e)}`)))
-				approvedBy = ok.approvedBy
-			} else if (run.ownerType === 'org' && Option.isSome(approvals)) {
-				return yield* Effect.fail(subErr('APPROVAL_REQUIRED', 'FORBIDDEN', 'Organisation payroll requires an approval token'))
-			}
+			if (run.ownerType === 'org') {
+				if (!approvalToken) return yield* Effect.fail(subErr('APPROVAL_REQUIRED', 'FORBIDDEN', 'Organisation payroll requires an approval token bound to {runId, totalMinor}'))
+				const r = yield* consumeApprovalToken(approvalToken, { orgId: run.ownerId, action: 'payroll_run', payload: { runId: run.id, totalMinor: run.totalMinor } })
+				approvedBy = `approval:${r.requestId}`
+			} else if (approvalToken) return yield* Effect.fail(bankErr('VALIDATION', 'approvalToken only applies to organisation payroll'))
 			const [r] = yield* bankDb((db) =>
 				db.update(bankPayrollRuns).set({ status: 'approved', approvalToken: approvalToken ?? null, approvedBy, updatedAt: new Date() }).where(and(eq(bankPayrollRuns.id, run.id), eq(bankPayrollRuns.status, 'draft'))).returning(),
 			)

@@ -176,17 +176,17 @@ const ownedAsPayee = (owner: BankOwner, id: string): PayFx<BankInvoice> =>
 	})
 
 /** After a credit commits: notify the credit module (receivables financing) if it is deployed. Never fails. */
-const notifyCredit = (invoiceId: string, amount: bigint): PayFx<void> =>
+const notifyCredit = (invoiceId: string, amount: bigint, paymentRef?: string): PayFx<void> =>
 	Effect.gen(function* () {
 		const credit = yield* optional(BankCreditLookup)
 		if (Option.isNone(credit)) return
-		yield* credit.value.settleReceivable(invoiceId, amount.toString()).pipe(
+		yield* credit.value.settleReceivable(invoiceId, amount.toString(), paymentRef).pipe(
 			Effect.catchAll((e) => Effect.sync(() => logger.warn({ invoiceId, err: String(e) }, 'bank: settleReceivable failed (will not block payment)'))),
 		)
 	}).pipe(Effect.catchAllDefect(() => Effect.void))
 
 /** pending -> confirmed + invoice credit, atomically. Returns the credited amount or null if already settled. */
-const settlePayment = (paymentId: string): PayFx<{ invoiceId: string; amount: bigint } | null> =>
+const settlePayment = (paymentId: string): PayFx<{ invoiceId: string; amount: bigint; ref: string } | null> =>
 	Effect.gen(function* () {
 		const r = yield* bankDb((db) =>
 			db.transaction(async (tx) => {
@@ -197,10 +197,10 @@ const settlePayment = (paymentId: string): PayFx<{ invoiceId: string; amount: bi
 					.returning()
 				if (!p) return null
 				await tx.execute(creditInvoiceSql(p.invoiceId, BigInt(p.amountMinor)))
-				return { invoiceId: p.invoiceId, amount: BigInt(p.amountMinor) }
+				return { invoiceId: p.invoiceId, amount: BigInt(p.amountMinor), ref: p.id }
 			}),
 		)
-		if (r) yield* notifyCredit(r.invoiceId, r.amount)
+		if (r) yield* notifyCredit(r.invoiceId, r.amount, r.ref)
 		return r
 	})
 
@@ -218,7 +218,7 @@ const creditOnchain = (invoiceId: string, refKey: string, amount: bigint, txHash
 				return true
 			}),
 		)
-		if (done) yield* notifyCredit(invoiceId, amount)
+		if (done) yield* notifyCredit(invoiceId, amount, refKey)
 		return done
 	})
 
@@ -329,6 +329,8 @@ export const BankPaymentsServiceLive = Layer.succeed(BankPaymentsService, {
 						.values({
 							id: uid('inv'),
 							slug,
+							ownerType: owner.ownerType,
+							ownerId: owner.ownerId,
 							payeeOwnerType: owner.ownerType,
 							payeeOwnerId: owner.ownerId,
 							payeeAccountId: acct.id,

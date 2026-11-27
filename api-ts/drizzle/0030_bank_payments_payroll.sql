@@ -87,6 +87,8 @@ CREATE INDEX IF NOT EXISTS "ix_bank_invoice_payments_status" ON "bank_invoice_pa
 CREATE TABLE IF NOT EXISTS "bank_invoices" (
 	"id" text PRIMARY KEY NOT NULL,
 	"slug" varchar(32) NOT NULL,
+	"owner_type" varchar(24) NOT NULL,
+	"owner_id" varchar(64) NOT NULL,
 	"payee_owner_type" varchar(24) NOT NULL,
 	"payee_owner_id" varchar(64) NOT NULL,
 	"payee_account_id" text NOT NULL,
