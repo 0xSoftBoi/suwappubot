@@ -2,7 +2,10 @@
  * Bank service registry. A new module adds ONE import + ONE line in BankLayer.
  */
 import { Layer } from 'effect'
+import { BankCardServiceLive } from './BankCardService'
 import { BankFxServiceLive } from './BankFxService'
+import { BankEarnServiceLive } from './BankEarnService'
+import { BankCreditServiceLive } from './BankCreditService'
 import { BankLedgerServiceLive } from './BankLedgerService'
 import { BankTransferServiceLive } from './BankTransferService'
 
@@ -10,6 +13,9 @@ export const BankLayer = Layer.mergeAll(
 	BankLedgerServiceLive,
 	BankTransferServiceLive,
 	BankFxServiceLive,
+	BankCardServiceLive,
+	BankEarnServiceLive,
+	BankCreditServiceLive,
 	// <module services register here, one line each>
 )
 

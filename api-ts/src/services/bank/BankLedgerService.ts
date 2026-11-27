@@ -20,10 +20,10 @@ import {
 	bankTransfers,
 	wallets,
 } from '../../db'
-import type { DrizzleService } from '../../db'
+import type { DbClient, DbTransaction, DrizzleService } from '../../db'
 import { type BankAsset, findAsset } from './assets'
 import { evmTokenBalance, solTokenBalance } from './chain'
-import { type BankOwner, bankDb, newId } from './db'
+import { type BankOwner, bankDb, isUniqueViolation, newId } from './db'
 import { BankError, bankErr } from './errors'
 
 export type SystemAccountRole = 'clearing' | 'external' | 'fx'
@@ -110,6 +110,97 @@ const requireAsset = (symbol: string, chain: string): BankAsset => {
 }
 
 const SYSTEM_OWNER = 'suwappu'
+
+// ---------------------------------------------------------------- posting core
+
+/**
+ * Posts legs inside the caller's transaction. Exported so other bank services can make
+ * "insert transfer + post ledger" atomic. Legs with the same (account, direction) are merged
+ * so the unique index (transfer, phase, account, direction) holds by construction.
+ * Idempotent per (transferId, phase): the transfer row (if any) is locked first, and a
+ * concurrent duplicate is resolved by the unique index (caller: see postWithDb).
+ */
+export async function postInTx(tx: DbTransaction, input: PostInput): Promise<BankLedgerEntry[]> {
+	if (input.legs.length < 2) throw bankErr('VALIDATION', 'A posting needs at least two legs')
+	for (const l of input.legs)
+		if (l.amountMinor <= 0n) throw bankErr('VALIDATION', 'Ledger amounts must be positive integers')
+
+	// Serialise postings of one transfer (row may not exist for module-owned ids; the unique index then backstops).
+	await tx.select({ id: bankTransfers.id }).from(bankTransfers).where(eq(bankTransfers.id, input.transferId)).for('update')
+
+	const prior = await tx
+		.select()
+		.from(bankLedgerEntries)
+		.where(and(eq(bankLedgerEntries.transferId, input.transferId), eq(bankLedgerEntries.phase, input.phase)))
+	if (prior.length > 0) return prior
+
+	const merged = new Map<string, LedgerLeg>()
+	for (const l of input.legs) {
+		const k = `${l.accountId}|${l.direction}`
+		const m = merged.get(k)
+		merged.set(k, m ? { ...m, amountMinor: m.amountMinor + l.amountMinor } : { ...l })
+	}
+	const legs = [...merged.values()]
+
+	const ids = [...new Set(legs.map((l) => l.accountId))].sort()
+	const accts = await tx
+		.select()
+		.from(bankAccounts)
+		.where(inArray(bankAccounts.id, ids))
+		.orderBy(bankAccounts.id)
+		.for('update')
+	const byId = new Map(accts.map((a) => [a.id, a]))
+	for (const id of ids) if (!byId.has(id)) throw bankErr('NOT_FOUND', `Ledger account ${id} not found`)
+
+	const net = new Map<string, bigint>()
+	for (const l of legs) {
+		const a = byId.get(l.accountId)!
+		net.set(a.asset, (net.get(a.asset) ?? 0n) + (l.direction === 'debit' ? l.amountMinor : -l.amountMinor))
+	}
+	for (const [asset, n] of net)
+		if (n !== 0n) throw bankErr('VALIDATION', `Unbalanced posting for ${asset}: debits-credits=${n}`)
+
+	const running = new Map(accts.map((a) => [a.id, BigInt(a.balanceMinor)]))
+	const out: BankLedgerEntry[] = []
+	for (const l of legs) {
+		const a = byId.get(l.accountId)!
+		if (a.ownerType !== 'system' && a.status !== 'active' && l.direction === 'debit')
+			throw bankErr('ACCOUNT_STATE', `Account ${a.id} is ${a.status}`)
+		const next = running.get(a.id)! + (l.direction === 'credit' ? l.amountMinor : -l.amountMinor)
+		if (next < 0n && a.ownerType !== 'system') throw bankErr('INSUFFICIENT_FUNDS', `Insufficient balance in account ${a.id}`)
+		running.set(a.id, next)
+		const [e] = await tx
+			.insert(bankLedgerEntries)
+			.values({
+				id: newId('le'),
+				transferId: input.transferId,
+				accountId: a.id,
+				direction: l.direction,
+				amountMinor: l.amountMinor.toString(),
+				asset: a.asset,
+				balanceAfter: next.toString(),
+				phase: input.phase,
+			})
+			.returning()
+		out.push(e!)
+	}
+	for (const [id, bal] of running)
+		await tx.update(bankAccounts).set({ balanceMinor: bal.toString(), updatedAt: new Date() }).where(eq(bankAccounts.id, id))
+	return out
+}
+
+/** Own transaction; a unique violation means a concurrent identical posting won -> return it. */
+async function postWithDb(db: DbClient, input: PostInput): Promise<BankLedgerEntry[]> {
+	try {
+		return await db.transaction((tx) => postInTx(tx, input))
+	} catch (e) {
+		if (!isUniqueViolation(e)) throw e
+		return db
+			.select()
+			.from(bankLedgerEntries)
+			.where(and(eq(bankLedgerEntries.transferId, input.transferId), eq(bankLedgerEntries.phase, input.phase)))
+	}
+}
 
 export const BankLedgerServiceLive = Layer.succeed(BankLedgerService, {
 	resolveCustodyWallet: (owner, family) =>
@@ -258,72 +349,7 @@ export const BankLedgerServiceLive = Layer.succeed(BankLedgerService, {
 			return row
 		}),
 
-	post: (input) =>
-		bankDb((db) =>
-			db.transaction(async (tx) => {
-				if (input.legs.length < 2) throw bankErr('VALIDATION', 'A posting needs at least two legs')
-				for (const l of input.legs)
-					if (l.amountMinor <= 0n) throw bankErr('VALIDATION', 'Ledger amounts must be positive integers')
-
-				// Already posted for this phase -> return what exists (idempotent).
-				const prior = await tx
-					.select()
-					.from(bankLedgerEntries)
-					.where(and(eq(bankLedgerEntries.transferId, input.transferId), eq(bankLedgerEntries.phase, input.phase)))
-				if (prior.length > 0) return prior
-
-				const ids = [...new Set(input.legs.map((l) => l.accountId))].sort()
-				const accts = await tx
-					.select()
-					.from(bankAccounts)
-					.where(inArray(bankAccounts.id, ids))
-					.orderBy(bankAccounts.id)
-					.for('update')
-				const byId = new Map(accts.map((a) => [a.id, a]))
-				for (const id of ids) if (!byId.has(id)) throw bankErr('NOT_FOUND', `Ledger account ${id} not found`)
-
-				// Balanced per asset.
-				const net = new Map<string, bigint>()
-				for (const l of input.legs) {
-					const a = byId.get(l.accountId)!
-					net.set(a.asset, (net.get(a.asset) ?? 0n) + (l.direction === 'debit' ? l.amountMinor : -l.amountMinor))
-				}
-				for (const [asset, n] of net)
-					if (n !== 0n) throw bankErr('VALIDATION', `Unbalanced posting for ${asset}: debits-credits=${n}`)
-
-				const running = new Map(accts.map((a) => [a.id, BigInt(a.balanceMinor)]))
-				const out: BankLedgerEntry[] = []
-				for (const l of input.legs) {
-					const a = byId.get(l.accountId)!
-					if (a.ownerType !== 'system' && a.status !== 'active' && l.direction === 'debit')
-						throw bankErr('ACCOUNT_STATE', `Account ${a.id} is ${a.status}`)
-					const next = running.get(a.id)! + (l.direction === 'credit' ? l.amountMinor : -l.amountMinor)
-					if (next < 0n && a.ownerType !== 'system')
-						throw bankErr('INSUFFICIENT_FUNDS', `Insufficient balance in account ${a.id}`)
-					running.set(a.id, next)
-					const [e] = await tx
-						.insert(bankLedgerEntries)
-						.values({
-							id: newId('le'),
-							transferId: input.transferId,
-							accountId: a.id,
-							direction: l.direction,
-							amountMinor: l.amountMinor.toString(),
-							asset: a.asset,
-							balanceAfter: next.toString(),
-							phase: input.phase,
-						})
-						.returning()
-					out.push(e!)
-				}
-				for (const [id, bal] of running)
-					await tx
-						.update(bankAccounts)
-						.set({ balanceMinor: bal.toString(), updatedAt: new Date() })
-						.where(eq(bankAccounts.id, id))
-				return out
-			}),
-		),
+	post: (input) => bankDb((db) => postWithDb(db, input)),
 
 	balance: (accountId) =>
 		bankDb(async (db) => {

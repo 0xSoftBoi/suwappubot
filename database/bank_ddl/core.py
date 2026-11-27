@@ -7,7 +7,7 @@ def statements(is_sqlite: bool) -> list[str]:
     js = "TEXT" if is_sqlite else "JSONB"
     jd = "'{}'" if is_sqlite else "'{}'::jsonb"
     num = "NUMERIC" if is_sqlite else "NUMERIC(78,0)"
-    return [
+    stmts = [
         f"""CREATE TABLE IF NOT EXISTS bank_accounts (
             id TEXT PRIMARY KEY, owner_type VARCHAR(24) NOT NULL, owner_id VARCHAR(64) NOT NULL,
             kind VARCHAR(16) NOT NULL, currency VARCHAR(8) NOT NULL, asset VARCHAR(16) NOT NULL,
@@ -23,7 +23,9 @@ def statements(is_sqlite: bool) -> list[str]:
             amount_minor {num} NOT NULL, asset VARCHAR(16) NOT NULL, chain VARCHAR(32) NOT NULL,
             status VARCHAR(16) NOT NULL DEFAULT 'pending', tx_hash VARCHAR(128), failure_reason TEXT,
             memo VARCHAR(280), metadata {js} NOT NULL DEFAULT {jd},
-            created_at {ts} NOT NULL, updated_at {ts} NOT NULL, confirmed_at {dt})""",
+            created_at {ts} NOT NULL, updated_at {ts} NOT NULL, confirmed_at {dt},
+            claimed_at {dt}, claim_token VARCHAR(64), drop_first_seen_at {dt},
+            drop_checks INTEGER NOT NULL DEFAULT 0)""",
         f"""CREATE TABLE IF NOT EXISTS bank_ledger_entries (
             id TEXT PRIMARY KEY, transfer_id TEXT NOT NULL, account_id TEXT NOT NULL,
             direction VARCHAR(6) NOT NULL, amount_minor {num} NOT NULL, asset VARCHAR(16) NOT NULL,
@@ -41,4 +43,15 @@ def statements(is_sqlite: bool) -> list[str]:
         "CREATE INDEX IF NOT EXISTS ix_bank_transfers_tx ON bank_transfers(tx_hash)",
         "CREATE INDEX IF NOT EXISTS ix_bank_ledger_account ON bank_ledger_entries(account_id, created_at)",
         "CREATE INDEX IF NOT EXISTS ix_bank_ledger_transfer ON bank_ledger_entries(transfer_id)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_bank_ledger_posted ON bank_ledger_entries"
+        "(transfer_id, phase, account_id, direction)",
     ]
+    if not is_sqlite:
+        # Existing Postgres deployments created bank_transfers before the claim columns existed.
+        stmts[3:3] = [
+            "ALTER TABLE bank_transfers ADD COLUMN IF NOT EXISTS claimed_at " + dt,
+            "ALTER TABLE bank_transfers ADD COLUMN IF NOT EXISTS claim_token VARCHAR(64)",
+            "ALTER TABLE bank_transfers ADD COLUMN IF NOT EXISTS drop_first_seen_at " + dt,
+            "ALTER TABLE bank_transfers ADD COLUMN IF NOT EXISTS drop_checks INTEGER NOT NULL DEFAULT 0",
+        ]
+    return stmts

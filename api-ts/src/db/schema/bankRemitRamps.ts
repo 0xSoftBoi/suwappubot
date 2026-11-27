@@ -178,3 +178,6 @@ export const bankRemittances = pgTable(
 		corridor: index('ix_bank_remittances_corridor').on(t.corridor, t.status),
 	}),
 )
+
+export type BankRampTransfer = typeof bankRampTransfers.$inferSelect
+export type BankRemittance = typeof bankRemittances.$inferSelect

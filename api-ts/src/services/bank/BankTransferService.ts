@@ -12,13 +12,15 @@
  * Signing: TurnkeyService.signTransactionForAgent wrapped in withSigningFallback —
  * the same primitives as routes/swap.ts:553-584 (see docs/plans/neobank-module-contract.md).
  *
- * Known limit: the per-wallet nonce lock is in-process. Run one api-ts replica, or
- * add a DB advisory lock, before scaling horizontally.
+ * Concurrency: a transfer is executed by at most one worker (claim_token); signing runs under a
+ * Postgres advisory lock per wallet (replica-safe), re-validates the claim right before signing, and
+ * persists 'submitted' only if the claim still holds (else aborts BEFORE broadcast).
+ * Status changes that touch money (confirm / reverse) are atomic with their ledger posting.
  */
-import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm'
 import { Context, Effect, Layer } from 'effect'
-import { createHash } from 'node:crypto'
-import { agents, type BankAccount, type BankTransfer, type BankTransferType, bankLedgerEntries, bankTransfers, wallets } from '../../db'
+import { createHash, randomUUID } from 'node:crypto'
+import { agents, bankAccounts, type BankAccount, type BankTransfer, type BankTransferType, bankLedgerEntries, bankTransfers, wallets } from '../../db'
 import type { DrizzleService, Wallet } from '../../db'
 import { fetchTokenPrices } from '../../lib/prices'
 import { logger } from '../../lib/logger'
@@ -27,9 +29,9 @@ import { withSigningFallback } from '../FallbackSigningService'
 import { PolicyService } from '../PolicyService'
 import { TurnkeyService } from '../TurnkeyService'
 import { type BankAsset, findAsset } from './assets'
-import { BankLedgerService, type LedgerLeg } from './BankLedgerService'
+import { BankLedgerService, type LedgerLeg, postInTx } from './BankLedgerService'
 import * as chain from './chain'
-import { type BankOwner, bankDb, newId } from './db'
+import { type BankOwner, bankDb, newId, withDbLock } from './db'
 import { BankError, bankErr } from './errors'
 
 export type BankDeps = DrizzleService | BankLedgerService | TurnkeyService | PolicyService
@@ -56,6 +58,8 @@ export interface SendEvmInput {
 	gas?: bigint
 	/** Called after signing, BEFORE broadcast, with the pre-computed tx hash. */
 	onSigned?: (info: { txHash: string; nonce: number }) => Effect.Effect<void, BankError, BankDeps>
+	/** Called under the wallet lock immediately BEFORE signing; fail (e.g. CONFLICT) to abort. */
+	guard?: () => Effect.Effect<void, BankError, BankDeps>
 }
 
 export interface SendResult {
@@ -91,31 +95,12 @@ export class BankTransferService extends Context.Tag('BankTransferService')<
 
 // ------------------------------------------------------------------ helpers
 
-const tails = new Map<string, Promise<void>>()
-const acquire = async (key: string): Promise<() => void> => {
-	const prev = tails.get(key) ?? Promise.resolve()
-	let done!: () => void
-	const mine = new Promise<void>((r) => {
-		done = r
-	})
-	const tail = prev.then(() => mine)
-	tails.set(key, tail)
-	await prev
-	return () => {
-		done()
-		if (tails.get(key) === tail) tails.delete(key)
-	}
-}
-const withWalletLock = <A, E, R>(key: string, inner: Effect.Effect<A, E, R>) =>
-	Effect.acquireUseRelease(
-		Effect.promise(() => acquire(key)),
-		() => inner,
-		(release) => Effect.sync(release),
-	)
-
 const CLAIM_STALE_MS = 2 * 60_000
-const MIN_CONFIRMATIONS: Record<string, bigint> = { ethereum: 3n }
-const confirmationsFor = (c: string) => MIN_CONFIRMATIONS[c] ?? 1n
+// Reorg-safe depths (blocks). Polygon reorgs of tens of blocks have happened; L2 values cover sequencer soft-confirm risk.
+const MIN_CONFIRMATIONS: Record<string, bigint> = { ethereum: 12n, polygon: 64n, bsc: 15n, base: 10n, optimism: 10n, arbitrum: 60n }
+const confirmationsFor = (c: string) => MIN_CONFIRMATIONS[c] ?? 12n
+const DROP_MIN_CHECKS = 3
+const DROP_MIN_AGE_MS = 10 * 60_000
 
 const UINT_RE = /^[1-9][0-9]{0,77}$/
 const KEY_RE = /^[A-Za-z0-9_.:-]{8,128}$/
@@ -188,8 +173,8 @@ const sendEvm = (input: SendEvmInput): Fx<SendResult> =>
 		const chainId = Object.entries(CHAIN_ID_TO_KEY).find(([, k]) => k === asset)?.[0]
 		if (!chainId) return yield* Effect.fail(bankErr('ASSET_UNSUPPORTED', `No EVM chain id for ${asset}`))
 		const w = yield* loadWallet(input.account)
-		return yield* withWalletLock(
-			`${input.account.chain}:${w.address.toLowerCase()}`,
+		return yield* withDbLock(
+			`bank-wallet:${input.account.chain}:${w.address.toLowerCase()}`,
 			Effect.gen(function* () {
 				const built = yield* Effect.tryPromise({
 					try: () =>
@@ -199,6 +184,7 @@ const sendEvm = (input: SendEvmInput): Fx<SendResult> =>
 							? bankErr('WALLET_UNAVAILABLE', e.message)
 							: bankErr('UPSTREAM', `Transaction would fail or RPC unavailable: ${e instanceof Error ? e.message : String(e)}`, { cause: e }),
 				})
+				if (input.guard) yield* input.guard()
 				const signed = yield* signPayload(w, 'evm', JSON.stringify(built.tx), built.tx as unknown as Record<string, unknown>)
 				const txHash = chain.evmTxHash(signed)
 				// Persist hash BEFORE broadcast: a crash after this point is recoverable by the reconciler.
@@ -215,16 +201,18 @@ const sendSolana = (
 	recipient: string,
 	amount: bigint,
 	onSigned: (info: { txHash: string; lastValidBlockHeight: number }) => Effect.Effect<void, BankError, BankDeps>,
+	guard?: () => Effect.Effect<void, BankError, BankDeps>,
 ): Fx<SendResult> =>
 	Effect.gen(function* () {
 		const w = yield* loadWallet(acct)
-		return yield* withWalletLock(
-			`solana:${w.address}`,
+		return yield* withDbLock(
+			`bank-wallet:solana:${w.address}`,
 			Effect.gen(function* () {
 				const built = yield* Effect.tryPromise({
 					try: () => chain.solBuildSplTransfer(asset, w.address, recipient, amount),
 					catch: (e) => bankErr('UPSTREAM', `Could not build Solana transfer: ${e instanceof Error ? e.message : String(e)}`, { cause: e }),
 				})
+				if (guard) yield* guard()
 				const signed = yield* signPayload(w, 'solana', built.unsignedHex, { hex: built.unsignedHex })
 				const sig = yield* Effect.try({
 					try: () => chain.solSignatureOf(signed),
@@ -247,34 +235,82 @@ const reserveLegs = (t: BankTransfer, clearing: string): LedgerLeg[] => [
 	{ accountId: clearing, direction: 'credit', amountMinor: BigInt(t.amountMinor) },
 ]
 
-const failAndReverse = (t: BankTransfer, reason: string): Fx<BankTransfer> =>
-	Effect.gen(function* () {
-		const ledger = yield* BankLedgerService
-		const clearing = clearingFor(t)
-		if (clearing && t.fromAccount) {
-			const reserved = yield* bankDb(async (db) => {
-				const rows = await db
+type TransferPatch = Partial<typeof bankTransfers.$inferInsert>
+
+/**
+ * Atomic status transition + ledger posting in ONE transaction, with the transfer row locked.
+ * No-ops (returns the current row) if the status is no longer in `from`, so a confirm and a
+ * reverse can never both apply. `onlyIfReserved` skips the legs when no 'submit' phase exists.
+ */
+const finalizeTransfer = (
+	id: string,
+	opts: { from: BankTransfer['status'][]; phase?: string; legs?: LedgerLeg[]; onlyIfReserved?: boolean; patch: TransferPatch },
+): Fx<BankTransfer> =>
+	bankDb((db) =>
+		db.transaction(async (tx) => {
+			const [cur] = await tx.select().from(bankTransfers).where(eq(bankTransfers.id, id)).for('update')
+			if (!cur) throw bankErr('NOT_FOUND', 'Transfer not found')
+			if (!opts.from.includes(cur.status)) return cur
+			let legs = opts.legs
+			if (legs && opts.onlyIfReserved) {
+				const reserved = await tx
 					.select({ id: bankLedgerEntries.id })
 					.from(bankLedgerEntries)
-					.where(and(eq(bankLedgerEntries.transferId, t.id), eq(bankLedgerEntries.phase, 'submit')))
+					.where(and(eq(bankLedgerEntries.transferId, id), eq(bankLedgerEntries.phase, 'submit')))
 					.limit(1)
-				return rows.length > 0
-			})
-			if (reserved)
-				yield* ledger.post({
-					transferId: t.id,
-					phase: 'reverse',
-					legs: [
-						{ accountId: clearing, direction: 'debit', amountMinor: BigInt(t.amountMinor) },
-						{ accountId: t.fromAccount, direction: 'credit', amountMinor: BigInt(t.amountMinor) },
-					],
-				})
-		}
-		logger.warn({ transferId: t.id, reason }, '[bank] transfer failed and reversed')
-		return yield* patchTransfer(t.id, { status: 'failed', failureReason: reason.slice(0, 1000) })
+				if (reserved.length === 0) legs = undefined
+			}
+			if (legs && opts.phase) await postInTx(tx, { transferId: id, phase: opts.phase, legs })
+			const [row] = await tx
+				.update(bankTransfers)
+				.set({ ...opts.patch, updatedAt: new Date() })
+				.where(eq(bankTransfers.id, id))
+				.returning()
+			return row!
+		}),
+	)
+
+const failAndReverse = (t: BankTransfer, reason: string): Fx<BankTransfer> =>
+	Effect.gen(function* () {
+		const clearing = clearingFor(t)
+		const amount = BigInt(t.amountMinor)
+		const out = yield* finalizeTransfer(t.id, {
+			from: ['pending', 'submitted'],
+			phase: 'reverse',
+			onlyIfReserved: true,
+			...(clearing && t.fromAccount
+				? {
+						legs: [
+							{ accountId: clearing, direction: 'debit' as const, amountMinor: amount },
+							{ accountId: t.fromAccount, direction: 'credit' as const, amountMinor: amount },
+						],
+					}
+				: {}),
+			patch: { status: 'failed', failureReason: reason.slice(0, 1000) },
+		})
+		if (out.status === 'failed') logger.warn({ transferId: t.id, reason }, '[bank] transfer failed and reversed')
+		return out
+	})
+
+const reread = (id: string): Fx<BankTransfer> =>
+	bankDb(async (db) => {
+		const [r] = await db.select().from(bankTransfers).where(eq(bankTransfers.id, id)).limit(1)
+		if (!r) throw bankErr('NOT_FOUND', 'Transfer not found')
+		return r
 	})
 
 // ------------------------------------------------------------------ execution of one transfer
+
+/** Extends our claim; fails CONFLICT if the transfer is no longer pending under this token. */
+const touchClaim = (id: string, token: string): Fx<void> =>
+	bankDb(async (db) => {
+		const rows = await db
+			.update(bankTransfers)
+			.set({ claimedAt: new Date(), updatedAt: new Date() })
+			.where(and(eq(bankTransfers.id, id), eq(bankTransfers.status, 'pending'), eq(bankTransfers.claimToken, token)))
+			.returning({ id: bankTransfers.id })
+		if (rows.length !== 1) throw bankErr('CONFLICT', 'Transfer claim lost or no longer pending; aborting before signing')
+	})
 
 /** Drives a pending transfer forward (idempotent; safe to call on retries and from the reconciler). */
 const advance = (t0: BankTransfer): Fx<BankTransfer> =>
@@ -286,20 +322,23 @@ const advance = (t0: BankTransfer): Fx<BankTransfer> =>
 		const asset = requireAsset(t.asset, t.chain)
 		const amount = BigInt(t.amountMinor)
 
-		// Atomic claim so a retry and the reconciler never sign the same transfer twice.
+		// Atomic, single-row claim: only one worker may execute a pending transfer.
+		const token = randomUUID()
 		const claimed = yield* bankDb(async (db) => {
 			const rows = await db
 				.update(bankTransfers)
-				.set({ metadata: sql`${bankTransfers.metadata} || ${JSON.stringify({ claimedAt: Date.now() })}::jsonb`, updatedAt: new Date() })
+				.set({ claimedAt: new Date(), claimToken: token, updatedAt: new Date() })
 				.where(
 					and(
 						eq(bankTransfers.id, t.id),
 						eq(bankTransfers.status, 'pending'),
-						sql`(${bankTransfers.metadata}->>'claimedAt') is null or (${bankTransfers.metadata}->>'claimedAt')::bigint < ${Date.now() - CLAIM_STALE_MS}`,
+						or(isNull(bankTransfers.claimedAt), lt(bankTransfers.claimedAt, new Date(Date.now() - CLAIM_STALE_MS))),
 					),
 				)
 				.returning()
-			return rows[0] ?? null
+			if (rows.length === 0) return null
+			if (rows.length !== 1 || rows[0]!.id !== t.id) throw bankErr('DB', `Claim matched unexpected rows for ${t.id}`)
+			return rows[0]!
 		})
 		if (!claimed) return t
 		t = claimed
@@ -314,26 +353,36 @@ const advance = (t0: BankTransfer): Fx<BankTransfer> =>
 			to.address.toLowerCase() === from.address.toLowerCase()
 
 		if (sameWallet) {
-			yield* ledger.post({
-				transferId: t.id,
+			return yield* finalizeTransfer(t.id, {
+				from: ['pending'],
 				phase: 'settle',
 				legs: [
 					{ accountId: from.id, direction: 'debit', amountMinor: amount },
 					{ accountId: to!.id, direction: 'credit', amountMinor: amount },
 				],
+				patch: { status: 'confirmed', confirmedAt: new Date(), failureReason: null },
 			})
-			return yield* patchTransfer(t.id, { status: 'confirmed', confirmedAt: new Date(), failureReason: null })
 		}
 
 		// Reserve funds first.
 		const clearing = (yield* ledger.ensureSystemAccount('clearing', t.asset, t.chain)).id
 		if (clearingFor(t) !== clearing) t = yield* patchTransfer(t.id, { metadata: mergeMeta(t, { clearingAccountId: clearing }) })
 		const reserve = yield* Effect.either(ledger.post({ transferId: t.id, phase: 'submit', legs: reserveLegs(t, clearing) }))
-		if (reserve._tag === 'Left') return yield* patchTransfer(t.id, { status: 'failed', failureReason: reserve.left.message })
+		if (reserve._tag === 'Left')
+			return yield* finalizeTransfer(t.id, { from: ['pending'], patch: { status: 'failed', failureReason: reserve.left.message.slice(0, 1000) } })
 
 		const recipient = to ? to.address! : t.toExternal!.address
+		// Persist 'submitted' + hash ONLY while we still own the pending claim; else abort before broadcast.
 		const persist = (txHash: string, extra: Record<string, unknown>) =>
-			patchTransfer(t.id, { status: 'submitted', txHash, metadata: mergeMeta(t, { clearingAccountId: clearing, ...extra }) }).pipe(Effect.asVoid)
+			bankDb(async (db) => {
+				const rows = await db
+					.update(bankTransfers)
+					.set({ status: 'submitted', txHash, metadata: mergeMeta(t, { clearingAccountId: clearing, ...extra }), updatedAt: new Date() })
+					.where(and(eq(bankTransfers.id, t.id), eq(bankTransfers.status, 'pending'), eq(bankTransfers.claimToken, token)))
+					.returning({ id: bankTransfers.id })
+				if (rows.length !== 1) throw bankErr('CONFLICT', 'Transfer no longer pending / claim lost; aborting before broadcast')
+			})
+		const guard = () => touchClaim(t.id, token)
 
 		const sent = yield* Effect.either(
 			asset.family === 'evm'
@@ -341,21 +390,21 @@ const advance = (t0: BankTransfer): Fx<BankTransfer> =>
 						account: from,
 						to: asset.address,
 						data: chain.erc20TransferData(recipient, amount),
+						guard,
 						onSigned: ({ txHash, nonce }) => persist(txHash, { nonce }),
 					})
-				: sendSolana(from, asset, recipient, amount, ({ txHash, lastValidBlockHeight }) => persist(txHash, { lastValidBlockHeight })),
+				: sendSolana(from, asset, recipient, amount, ({ txHash, lastValidBlockHeight }) => persist(txHash, { lastValidBlockHeight }), guard),
 		)
+		const cur = yield* reread(t.id)
 		if (sent._tag === 'Left') {
-			// Nothing was broadcast (build / signing / hash persistence failed) -> release the reservation.
-			const reread = yield* bankDb(async (db) => (await db.select().from(bankTransfers).where(eq(bankTransfers.id, t.id)).limit(1))[0]!)
-			if (reread.txHash) return reread // hash persisted: outcome unknown, reconciler decides
-			return yield* failAndReverse(reread, sent.left.message)
+			// Lost claim / lock contention: someone else owns it (or we retry later) -> never reverse here.
+			if (sent.left.code === 'CONFLICT') return cur
+			// Nothing was broadcast (build / signing / persist failed): release only if still ours and hashless.
+			if (cur.txHash || cur.status !== 'pending' || cur.claimToken !== token) return cur
+			return yield* failAndReverse(cur, sent.left.message)
 		}
-		if (sent.right.outcome === 'rejected') {
-			const reread = yield* bankDb(async (db) => (await db.select().from(bankTransfers).where(eq(bankTransfers.id, t.id)).limit(1))[0]!)
-			return yield* failAndReverse(reread, `Broadcast rejected: ${sent.right.message}`)
-		}
-		return yield* bankDb(async (db) => (await db.select().from(bankTransfers).where(eq(bankTransfers.id, t.id)).limit(1))[0]!)
+		if (sent.right.outcome === 'rejected') return yield* failAndReverse(cur, `Broadcast rejected: ${sent.right.message}`)
+		return cur
 	})
 
 // ------------------------------------------------------------------ settlement (confirmation)
@@ -391,24 +440,28 @@ const settle = (t: BankTransfer): Fx<BankTransfer> =>
 					const fxmeta = md.fx as { toAccountId: string; toAsset: string } | undefined
 					if (!fxmeta || received === undefined || received <= 0n) return yield* patchTransfer(t.id, { metadata: mergeMeta(t, { reviewRequired: true }) })
 					const fxTo = yield* ledger.ensureSystemAccount('fx', fxmeta.toAsset, t.chain)
-					yield* ledger.post({
-						transferId: t.id,
+					return yield* finalizeTransfer(t.id, {
+						from: ['pending', 'submitted'],
 						phase: 'confirm',
 						legs: [
 							{ accountId: fxTo.id, direction: 'debit', amountMinor: received },
 							{ accountId: fxmeta.toAccountId, direction: 'credit', amountMinor: received },
 						],
-					})
-					return yield* patchTransfer(t.id, {
-						status: 'confirmed',
-						confirmedAt: new Date(),
-						failureReason: null,
-						metadata: mergeMeta(t, { fx: { ...fxmeta, receivedMinor: received.toString() } }),
+						patch: {
+							status: 'confirmed',
+							confirmedAt: new Date(),
+							failureReason: null,
+							metadata: mergeMeta(t, { fx: { ...fxmeta, receivedMinor: received.toString() } }),
+						},
 					})
 				}
 				const external = t.toAccount ? null : (yield* ledger.ensureSystemAccount('external', t.asset, t.chain)).id
-				yield* ledger.post({ transferId: t.id, phase: 'confirm', legs: confirmedLegs(t, clearing, external) })
-				return yield* patchTransfer(t.id, { status: 'confirmed', confirmedAt: new Date(), failureReason: null })
+				return yield* finalizeTransfer(t.id, {
+					from: ['pending', 'submitted'],
+					phase: 'confirm',
+					legs: confirmedLegs(t, clearing, external),
+					patch: { status: 'confirmed', confirmedAt: new Date(), failureReason: null },
+				})
 			})
 
 		if (asset.family === 'evm') {
@@ -430,8 +483,28 @@ const settle = (t: BankTransfer): Fx<BankTransfer> =>
 				},
 				catch: (e) => bankErr('UPSTREAM', `RPC error while confirming: ${String(e)}`, { cause: e }),
 			})
+			if (check.kind !== 'dropped' && (t.dropChecks > 0 || t.dropFirstSeenAt))
+				yield* patchTransfer(t.id, { dropChecks: 0, dropFirstSeenAt: null })
 			if (check.kind === 'wait') return t
-			if (check.kind === 'dropped') return yield* failAndReverse(t, 'Transaction replaced or dropped (nonce consumed by another tx)')
+			if (check.kind === 'dropped') {
+				// A single (possibly lagging) node answer never refunds: require DROP_MIN_CHECKS consecutive
+				// ticks spanning >= DROP_MIN_AGE_MS against the pinned RPC, then one final re-check.
+				const checks = t.dropChecks + 1
+				const first = t.dropFirstSeenAt ?? new Date()
+				if (checks < DROP_MIN_CHECKS || Date.now() - first.getTime() < DROP_MIN_AGE_MS) {
+					yield* patchTransfer(t.id, { dropChecks: checks, dropFirstSeenAt: first })
+					return t
+				}
+				const late = yield* Effect.tryPromise({
+					try: async () => (await chain.evmReceipt(t.chain, t.txHash!)) !== null || (await chain.evmTxKnown(t.chain, t.txHash!)),
+					catch: (e) => bankErr('UPSTREAM', `RPC error while confirming: ${String(e)}`, { cause: e }),
+				})
+				if (late) {
+					yield* patchTransfer(t.id, { dropChecks: 0, dropFirstSeenAt: null })
+					return t
+				}
+				return yield* failAndReverse(t, 'Transaction replaced or dropped (nonce consumed; verified over repeated checks)')
+			}
 			if (!check.r.success) return yield* failAndReverse(t, 'Transaction reverted on-chain')
 			if (check.conf < confirmationsFor(t.chain)) return t
 			if (t.type === 'fx') {

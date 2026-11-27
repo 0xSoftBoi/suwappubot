@@ -15,9 +15,7 @@ import { Context, Effect, Layer } from 'effect'
 import {
 	type BankAccount,
 	type BankEarnOp,
-	type BankEarnPosition,
 	type BankEarnSetting,
-	bankAccounts,
 	bankEarnOps,
 	bankEarnPositions,
 	bankEarnSettings,
@@ -43,7 +41,7 @@ import {
 } from './earnCreditChain'
 import { BankError, bankErr } from './errors'
 
-type Fx<A> = Effect.Effect<A, BankError, BankDeps>
+type Fx<A> = Effect.Effect<A, BankError, BankDeps | BankTransferService>
 
 export interface Vault {
 	address: string
@@ -696,5 +694,3 @@ export const BankEarnServiceLive = Layer.succeed(BankEarnService, {
 	snapshotPositions,
 })
 
-export type { BankEarnPosition }
-export const _bankAccounts = bankAccounts

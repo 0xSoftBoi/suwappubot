@@ -130,8 +130,8 @@ export const bankEscrowMilestones = pgTable(
 		autoReleaseAt: ts('auto_release_at'),
 		releasedMinor: num('released_minor').notNull().default('0'),
 		refundedMinor: num('refunded_minor').notNull().default('0'),
-		/** [{kind, transferId, amountMinor}] fund movements for this milestone. */
-		settlement: jsonb('settlement').$type<Array<{ kind: string; transferId: string; amountMinor: string }>>().notNull().default([]),
+		/** Fund movements for this milestone. 'intent' entries are written atomically with the state change and executed (idempotently) afterwards. */
+		settlement: jsonb('settlement').$type<Array<{ kind: 'release' | 'refund'; transferId: string; amountMinor: string; attempt: number; state: 'intent' | 'sent' | 'failed' }>>().notNull().default([]),
 		updatedAt: ts('updated_at').defaultNow().notNull(),
 	},
 	(t) => ({

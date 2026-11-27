@@ -10,6 +10,9 @@ import type { MainLayerContext } from '../../services/MainLayer'
 import type { BankOwner } from '../../services/bank/db'
 import { register as core } from './core'
 import { register as fx } from './fx'
+import { register as cards } from './cards'
+import { register as earn } from './earn'
+import { register as credit } from './credit'
 
 export type BankRouteApp = Hono<{ Variables: { agent?: Agent } }>
 
@@ -27,6 +30,9 @@ type Module = (app: BankRouteApp, deps: BankRouteDeps) => void
 export const modules: Module[] = [
 	core,
 	fx,
+	cards,
+	earn,
+	credit,
 	// <module register fns go here, one line each>
 ]
 

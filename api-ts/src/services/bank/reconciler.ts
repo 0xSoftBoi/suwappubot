@@ -6,6 +6,7 @@ import { Effect } from 'effect'
 import { logger } from '../../lib/logger'
 import { runEffect } from '../../runtime'
 import { BankTransferService } from './BankTransferService'
+import { runEarnCreditJobsOnce } from './earnCreditJobs'
 
 let timer: ReturnType<typeof setInterval> | null = null
 let running = false
@@ -21,6 +22,7 @@ export async function runBankReconcileOnce(): Promise<void> {
 			}),
 		)
 		if (r.checked > 0) logger.info(r, 'bank: reconciler tick')
+		await runEarnCreditJobsOnce() // M2 sweep/confirm + M3 LTV monitor
 	} catch (err) {
 		logger.error({ err: String(err) }, 'bank: reconciler tick failed')
 	} finally {

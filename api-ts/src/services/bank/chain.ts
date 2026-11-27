@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto'
 import { keccak256 } from 'viem'
 import { RPC_ENDPOINTS } from '../../config/chains'
 import { fetchWithRetry } from '../../lib/retry'
-import type { BankAsset } from './assets'
+import { BANK_ASSETS, type BankAsset } from './assets'
 
 // ---------------------------------------------------------------- rpc
 
@@ -312,6 +312,7 @@ const compact = (n: number): number[] => {
 }
 
 const u64le = (n: bigint): number[] => {
+	if (n < 0n || n > 0xffffffffffffffffn) throw new Error('amount exceeds u64 (Solana token amounts are 64-bit)')
 	const out: number[] = []
 	for (let i = 0; i < 8; i++) out.push(Number((n >> BigInt(8 * i)) & 0xffn))
 	return out
@@ -407,3 +408,54 @@ export async function solSignatureStatus(sig: string): Promise<SolStatus> {
 }
 
 export const solBlockHeight = async () => Number(await solRpc<number>('getBlockHeight', [{ commitment: 'confirmed' }]))
+
+// ---------------------------------------------------------------- recipient safety
+
+export class UnsafeRecipientError extends Error {}
+
+const EVM_BURN = new Set(['0x000000000000000000000000000000000000dead'])
+const SOLANA_SYSTEM_ADDRESSES = new Set([
+	SYSTEM_PROGRAM,
+	TOKEN_PROGRAM,
+	TOKEN_2022_PROGRAM,
+	ATA_PROGRAM,
+	'Sysvar1nstructions1111111111111111111111111',
+	'SysvarRent111111111111111111111111111111111',
+	'SysvarC1ock11111111111111111111111111111111',
+	'ComputeBudget111111111111111111111111111111',
+	'BPFLoaderUpgradeab1e11111111111111111111111',
+	'Vote111111111111111111111111111111111111111',
+	'Stake11111111111111111111111111111111111111',
+	'11111111111111111111111111111112',
+])
+
+/**
+ * Rejects recipients that would burn or strand funds: zero/precompile/burn addresses, any
+ * token contract or mint the bank knows about, Solana system/program addresses, and (on-chain
+ * check, fail-closed) Solana addresses owned by the Token / Token-2022 programs, i.e. token
+ * accounts or mints passed where a wallet owner is required.
+ */
+export async function assertSafeRecipient(asset: BankAsset, address: string): Promise<void> {
+	if (asset.family === 'evm') {
+		const lower = address.toLowerCase()
+		if (!isEvmAddress(address)) throw new UnsafeRecipientError('Invalid EVM address')
+		if (BigInt(lower) <= 0xffffn) throw new UnsafeRecipientError('Zero address / precompile recipients are not allowed')
+		if (EVM_BURN.has(lower)) throw new UnsafeRecipientError('Burn address recipients are not allowed')
+		if (BANK_ASSETS.some((a) => a.family === 'evm' && a.address.toLowerCase() === lower))
+			throw new UnsafeRecipientError('Recipient is a token contract; sending tokens to it would strand them')
+		return
+	}
+	if (!isSolanaAddress(address)) throw new UnsafeRecipientError('Invalid Solana address')
+	if (SOLANA_SYSTEM_ADDRESSES.has(address)) throw new UnsafeRecipientError('Recipient is a Solana system/program address')
+	if (BANK_ASSETS.some((a) => a.family === 'solana' && a.address === address))
+		throw new UnsafeRecipientError('Recipient is a token mint')
+	const info = await solRpc<{ value: { owner: string; executable: boolean } | null }>('getAccountInfo', [
+		address,
+		{ encoding: 'base64', dataSlice: { offset: 0, length: 0 } },
+	])
+	if (info.value) {
+		if (info.value.executable) throw new UnsafeRecipientError('Recipient is an executable program')
+		if (info.value.owner === TOKEN_PROGRAM || info.value.owner === TOKEN_2022_PROGRAM)
+			throw new UnsafeRecipientError('Recipient is a token account/mint; provide the wallet owner address instead')
+	}
+}

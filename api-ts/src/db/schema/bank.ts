@@ -104,6 +104,12 @@ export const bankTransfers = pgTable(
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at').defaultNow().notNull(),
 		confirmedAt: timestamp('confirmed_at'),
+		/** Execution claim (advance()): at most one worker signs a pending transfer. */
+		claimedAt: timestamp('claimed_at'),
+		claimToken: varchar('claim_token', { length: 64 }),
+		/** Dropped-tx detection: first time + consecutive ticks the tx looked dropped. */
+		dropFirstSeenAt: timestamp('drop_first_seen_at'),
+		dropChecks: integer('drop_checks').notNull().default(0),
 	},
 	(t) => ({
 		idemUniq: uniqueIndex('ux_bank_transfers_idem').on(t.ownerType, t.ownerId, t.idempotencyKey),
@@ -132,6 +138,8 @@ export const bankLedgerEntries = pgTable(
 	(t) => ({
 		accountIdx: index('ix_bank_ledger_account').on(t.accountId, t.createdAt),
 		transferIdx: index('ix_bank_ledger_transfer').on(t.transferId),
+		// A (transfer, phase, account, direction) is posted at most once (post() merges same-key legs).
+		postedUniq: uniqueIndex('ux_bank_ledger_posted').on(t.transferId, t.phase, t.accountId, t.direction),
 	}),
 )
 
