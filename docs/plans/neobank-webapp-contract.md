@@ -115,3 +115,5 @@ Verification: 390x844 screenshots with intercepted responses (script in scratchp
 Build after items 1,2,4,8,10: passes. Remaining: 3,5,6,7,9,11,12 NOT STARTED; deep-link cold-open of /bank/claim/:token and /pay/:slug NOT CHECKED.
 
 Deep links: /pay/:slug is public; /bank/claim/:token is behind ProtectedRoute, which now stores the return path in sessionStorage (and state.from) and PublicRoute returns to it after auth. Onboarding page itself not audited.
+
+Round 3 final: items 1-12 all BUILT (4 and 9 not functionally verified end-to-end: no live Stripe key / announcements feed; 3 relies on message-text matching). Build passes. Screenshots (scratchpad/webapp-verify/verify3.cjs, r3-*.png): pay signed-out, escrow tracked transfers, org transfer needing approval, developer keys, cards refund+shortfall, home alerts; no horizontal overflow.
