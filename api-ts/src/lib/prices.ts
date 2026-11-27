@@ -3,6 +3,8 @@
  * Consolidates duplicate price fetching from agent.ts and tokens.ts.
  */
 
+import { decodeFunctionResult, encodeFunctionData, parseAbi } from 'viem'
+import { RPC_ENDPOINTS } from '../config/chains'
 import { TTLCache } from './cache'
 
 // CoinGecko ID mapping. Exported (not just used internally) so routes/data.ts's
@@ -13,6 +15,48 @@ export const COINGECKO_IDS: Record<string, string> = {
 	usdt: 'tether', btc: 'bitcoin', dai: 'dai', wbtc: 'wrapped-bitcoin',
 	arb: 'arbitrum', op: 'optimism', avax: 'avalanche-2', matic: 'matic-network',
 	weth: 'weth', bonk: 'bonk', jup: 'jupiter-exchange-solana', ray: 'raydium',
+	// Bank non-USD stablecoins. Contract addresses in services/bank/assets.ts were checked against CoinGecko's
+	// per-chain platform maps for each id (EURC eth/base/sol, BRZ polygon/base, MXNB arbitrum, XSGD eth/polygon).
+	eurc: 'euro-coin', brz: 'brz', mxnb: 'mxnb', xsgd: 'xsgd',
+}
+
+/**
+ * Onchain Chainlink FX feeds for assets CoinGecko does not list at the address we hold. Each feed is verified at read
+ * time (description() must match, decimals() is read, answer must be positive) and refused when older than maxAgeSec.
+ * JPYC (Ethereum 0xE7C3...3c29, symbol() = "JPYC") is a 1:1 JPY token, so JPY/USD is its rate. Feed address, description
+ * ("JPY / USD") and 8 decimals were verified onchain 2026-11-27; Chainlink heartbeat is 24h, hence the 25h limit.
+ */
+export const CHAINLINK_FX: Record<string, { chain: string; feed: string; description: string; maxAgeSec: number }> = {
+	jpyc: { chain: 'ethereum', feed: '0xBcE206caE7f0ec07b545EdDe332A47C2F75bbeb3', description: 'JPY / USD', maxAgeSec: 90_000 },
+}
+const feedAbi = parseAbi([
+	'function description() view returns (string)',
+	'function decimals() view returns (uint8)',
+	'function latestRoundData() view returns (uint80,int256,uint256,uint256,uint80)',
+])
+async function feedCall<T>(chain: string, to: string, fn: 'description' | 'decimals' | 'latestRoundData'): Promise<T> {
+	const url = RPC_ENDPOINTS[chain]
+	if (!url) throw new Error(`No RPC endpoint for ${chain}`)
+	const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{ to, data: encodeFunctionData({ abi: feedAbi, functionName: fn } as never) }, 'latest'] }), signal: AbortSignal.timeout(10_000) })
+	const j = (await res.json()) as { result?: `0x${string}`; error?: { message: string } }
+	if (!j.result || j.result === '0x') throw new Error(j.error?.message ?? 'empty feed result')
+	return decodeFunctionResult({ abi: feedAbi, functionName: fn, data: j.result } as never) as T
+}
+async function chainlinkUsd(sym: string): Promise<PriceEntry | null> {
+	const cfg = CHAINLINK_FX[sym]
+	if (!cfg) return null
+	try {
+		const [desc, dec, round] = await Promise.all([
+			feedCall<string>(cfg.chain, cfg.feed, 'description'),
+			feedCall<number>(cfg.chain, cfg.feed, 'decimals'),
+			feedCall<readonly [bigint, bigint, bigint, bigint, bigint]>(cfg.chain, cfg.feed, 'latestRoundData'),
+		])
+		if (desc !== cfg.description || round[1] <= 0n) return null
+		if (Date.now() / 1000 - Number(round[3]) > cfg.maxAgeSec) return null // stale: no rate rather than a wrong one
+		return { usd: Number(round[1]) / 10 ** Number(dec), change_24h: null }
+	} catch {
+		return null
+	}
 }
 
 export const SUPPORTED_PRICE_SYMBOLS = Object.keys(COINGECKO_IDS).map((s) => s.toUpperCase())
@@ -35,6 +79,12 @@ export async function fetchTokenPrices(symbols: string[]): Promise<Record<string
 			result[sym.toUpperCase()] = cached
 		} else if (COINGECKO_IDS[lower]) {
 			toFetch.push(lower)
+		} else if (CHAINLINK_FX[lower]) {
+			const e = await chainlinkUsd(lower)
+			if (e) {
+				priceCache.set(lower, e)
+				result[sym.toUpperCase()] = e
+			}
 		}
 	}
 

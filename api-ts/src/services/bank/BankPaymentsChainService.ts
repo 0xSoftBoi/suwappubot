@@ -5,7 +5,7 @@
  *
  * Assumptions (flagged in the response `assumptions`): gas units per ERC-20 transfer are static
  * estimates (no funded sender to eth_estimateGas against); L2 L1-data fees are not included;
- * Tempo eth_gasPrice is read as attodollars (1e-18 USD) per gas — UNVERIFIED against Tempo docs.
+ * Tempo eth_gasPrice is read as attodollars (1e-18 USD) per gas — VERIFIED 2026-11-27 against a mined tx on rpc.tempo.xyz (0x4bdf3b30...85e6: effectiveGasPrice 600000000 x gasUsed 61666 = 3.69996e13 attodollars; the fee-token Transfer log charged 37 micro-units = ceil(x / 1e12)).
  */
 import { Context, Effect, Layer } from 'effect'
 import { decodeAbiParameters } from 'viem'
@@ -89,7 +89,7 @@ async function feeFor(chain: string, asset: BankAsset | null, usdPriced: Record<
 			const micros = ceilDiv(BigInt(gasUnits) * gasPrice, 10n ** 12n)
 			base.feeUsdMicros = micros.toString()
 			base.feeMinor = meta.decimals === 6 ? micros.toString() : null
-			notes.push('stablecoin gas: fee is paid in a USD TIP-20 via feeToken, no native token needed', 'gas price unit read as attodollars/gas (UNVERIFIED)')
+			notes.push('stablecoin gas: fee is paid in a USD TIP-20 via feeToken, no native token needed', 'gas price unit is attodollars/gas (verified against a mined receipt): fee micros = ceil(gas x price / 1e12)')
 			return base
 		}
 		const sym = NATIVE[chain]
@@ -143,7 +143,7 @@ export const feeModel = (i: { asset: string; amountMinor: string; chains: string
 			amountMinor: i.amountMinor,
 			chains: fees,
 			recommended: best ? { chain: best.chain, reason: `lowest estimated fee (${best.feeUsdMicros} USD micro-units)${best.estConfirmSeconds !== null ? `, ~${best.estConfirmSeconds}s to confirm` : ''}` } : null,
-			assumptions: ['gas units per transfer are static estimates', 'L2 L1-data fees excluded', 'Tempo gas price unit (attodollars/gas) UNVERIFIED', `Tempo chain id ${TEMPO_CHAIN_ID}; pathUSD is a USD stablecoin distinct from USDC`],
+			assumptions: ['gas units per transfer are static estimates', 'L2 L1-data fees excluded', `Tempo chain id ${TEMPO_CHAIN_ID}; pathUSD is a USD stablecoin distinct from USDC`],
 			fetchedAt: new Date().toISOString(),
 		}
 	})
