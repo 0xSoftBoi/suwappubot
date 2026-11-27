@@ -617,6 +617,16 @@ export const insertTransferGuarded = (values: typeof bankTransfers.$inferInsert,
 				const spent = BigInt((r as unknown as Array<{ s: string }>)[0]?.s ?? '0')
 				if (spent + BigInt(values.amountMinor) > BigInt(daily)) throw bankErr('LIMIT_EXCEEDED', `Exceeds daily limit of ${daily}`)
 			}
+			// MONEY-PATH: idempotent replay (key already used) returns null before any balance check.
+			const dup = await tx
+				.select({ id: bankTransfers.id })
+				.from(bankTransfers)
+				.where(and(eq(bankTransfers.ownerType, values.ownerType), eq(bankTransfers.ownerId, values.ownerId), eq(bankTransfers.idempotencyKey, values.idempotencyKey)))
+				.limit(1)
+			if (dup.length > 0) return null
+			// MONEY-PATH: under the source-account row lock, reject overdrafts / held funds / unreserved pending transfers (4xx).
+			// `consumesHold` is validated server-side (active, on this account, covers amount) inside assertAvailable.
+			await assertAvailable(from.id, tx, BigInt(values.amountMinor), consumesHold)
 			const [row] = await tx.insert(bankTransfers).values(values).onConflictDoNothing().returning()
 			return row ?? null
 		}),
@@ -795,6 +805,9 @@ export const BankTransferServiceLive = Layer.succeed(BankTransferService, {
 			const ledger = yield* BankLedgerService
 			const acct = yield* ledger.getAccount(owner, accountId)
 			if (!acct.address) return yield* Effect.fail(bankErr('VALIDATION', 'Account has no on-chain wallet'))
+			// MONEY-PATH: partner-customer deposits are only attributable on a dedicated per-customer address; legacy shared-wallet accounts cannot sync.
+			if (owner.ownerType === 'partner_customer' && (acct.metadata as Record<string, unknown> | null)?.dedicatedWallet !== true)
+				return yield* Effect.fail(bankErr('POLICY_BLOCKED', 'Deposit sync is disabled for partner accounts on a shared wallet; open a new account (dedicated deposit address)'))
 			const asset = requireAsset(acct.asset, acct.chain)
 			const address = acct.address
 			const onchain = yield* Effect.tryPromise({

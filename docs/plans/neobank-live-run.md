@@ -15,7 +15,7 @@
 | 3a accounts, statement, concurrent sync-deposit | PASS | 4 concurrent syncs over 2 accounts of one wallet: one credit of 100000000 (one deposit transfer, ledger net 0). 200s. |
 | 3b A to B transfer, receipt-verified, 5x idempotent replay | PASS | submitted (ledger debit A/credit clearing) then confirmed by reconciler only after 10 confirmations (Base depth; local chain needed evm_mine x12, expected behaviour). 5 concurrent same-key: 1 row, 1 tx; different body same key: 409 CONFLICT. All transfers net 0. |
 | 3c 10 concurrent transfers, nonce, reconcile | PASS | 10 distinct tx hashes, wallet nonce 12 (consecutive), 10 confirmed; ledger 79000000 = onchain 79000000; reconcile in_sync delta 0; no unbalanced transfer. |
-| 3d overdraft, bad recipients, cross-owner 4xx | NOT RUN | |
+| 3d overdraft, bad recipients, cross-owner 4xx | PASS (after fix) | Overdraft was 200 + persisted failed transfer (BUG 1); now 422 INSUFFICIENT_AVAILABLE. Zero address / USDC token contract / malformed -> 400 VALIDATION; amount 0 / negative -> 400. B or agent touching A's account/transfer -> 404 NOT_FOUND (non-enumerating); no auth / bad initData -> 401. Observed, not fixed: `toExternal` equal to the sender's own custody address is accepted as an onchain transfer (costs gas, ledger debits then confirm credits the external account while the funds never leave the wallet, so ledger and onchain diverge by the amount: the account is under-credited). Recommendation: in `transfer()` reject `toExternal.address` equal to the source account's wallet address (and ideally route it as an internal same-wallet transfer / return VALIDATION 'use toAccountId'). |
 | 3e kill -9 mid-flight and pre-broadcast | NOT RUN | |
 | 3f holds block and release | NOT RUN | |
 | 3g invoice / payroll / stream / remittance / org approval / FX | NOT RUN | |
@@ -24,4 +24,4 @@
 
 ## Bugs found
 
-None yet.
+1. `insertTransferGuarded` (`api-ts/src/services/bank/BankTransferService.ts` ~L618) documented an available-balance (ledger minus holds) check but never called `assertAvailable` (imported, unused; `consumesHold` param unused). Effect: overdraft returned 200 with a persisted `failed` transfer, and held funds (3f) were not protected. Fix: `if (row) await assertAvailable(from.id, tx, amount, consumesHold)` after the insert, inside the same transaction (`// MONEY-PATH`); replays still return the original row. FIXED.

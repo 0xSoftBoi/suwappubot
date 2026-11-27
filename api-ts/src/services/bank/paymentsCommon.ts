@@ -8,7 +8,9 @@ import { BankFxService } from './BankFxService'
 import { BankLedgerService } from './BankLedgerService'
 import { type BankDeps, BankTransferService } from './BankTransferService'
 import type { BankPayoutPoolService } from './BankPayoutPoolService'
-import type { BankOwner } from './db'
+import { bankTransfers } from '../../db'
+import { and, eq } from 'drizzle-orm'
+import { type BankOwner, bankDb } from './db'
 import { BankError, bankErr } from './errors'
 
 /** Everything the M7/M8 services need from the layer at call time. */
@@ -59,3 +61,21 @@ export const optional = <T>(tag: Context.Tag<T, T>): Effect.Effect<Option.Option
 
 export const ledger = BankLedgerService
 export const transfers = BankTransferService
+
+/**
+ * MONEY-PATH: idempotency key for the next transfer attempt of one logical payment. Walks base, base:r1, base:r2...
+ * and returns the first key whose transfer is NOT terminal-failed: no record yet -> that key (first use);
+ * pending/submitted/confirmed -> that key (the caller replays it and gets the same transfer, never a second payment);
+ * failed/reversed (definitely terminal, funds returned) -> rotate to the next suffix.
+ * Rotation therefore only ever happens after a looked-up terminal failure.
+ */
+export const nextAttemptKey = (owner: BankOwner, baseKey: string): Effect.Effect<string, BankError, DrizzleService> =>
+	Effect.gen(function* () {
+		for (let n = 0; n < 25; n++) {
+			const raw = n === 0 ? baseKey : `${baseKey}:r${n}`
+			const key = raw.length <= 128 ? raw : `${baseKey.slice(0, 60)}:${createHash('sha256').update(raw).digest('hex').slice(0, 40)}:r${n}`
+			const row = yield* bankDb(async (db) => (await db.select({ status: bankTransfers.status }).from(bankTransfers).where(and(eq(bankTransfers.ownerType, owner.ownerType), eq(bankTransfers.ownerId, owner.ownerId), eq(bankTransfers.idempotencyKey, key))).limit(1))[0] ?? null)
+			if (!row || (row.status !== 'failed' && row.status !== 'reversed')) return key
+		}
+		return yield* Effect.fail(bankErr('CONFLICT', 'Too many failed transfer attempts; manual review required'))
+	})

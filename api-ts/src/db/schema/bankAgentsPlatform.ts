@@ -3,7 +3,7 @@
  * Money = integer minor units in numeric(78,0). Co-created by Python
  * database/bank_ddl/agents_platform.py and drizzle 0032_bank_agents_platform.sql (ADR 0003).
  */
-import { index, integer, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core'
+import { bigint, index, integer, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core'
 
 const money = (n: string) => numeric(n, { precision: 78, scale: 0 })
 
@@ -38,7 +38,10 @@ export const bankAgentSpend = pgTable(
 		asset: varchar('asset', { length: 16 }).notNull(),
 		chain: varchar('chain', { length: 32 }).notNull(),
 		amountMinor: money('amount_minor').notNull(),
-		status: varchar('status', { length: 16 }).$type<'reserved' | 'settled' | 'failed'>().notNull().default('reserved'),
+		status: varchar('status', { length: 16 }).$type<'reserved' | 'settled' | 'failed' | 'auth_unsettled'>().notNull().default('reserved'),
+		// MONEY-PATH: set once a signed EIP-3009 authorization has left the process (review3).
+		authNonce: varchar('auth_nonce', { length: 80 }),
+		authValidBefore: bigint('auth_valid_before', { mode: 'number' }),
 		transferId: text('transfer_id'),
 		txHash: varchar('tx_hash', { length: 128 }),
 		resourceUrl: text('resource_url'),
@@ -79,9 +82,10 @@ export const bankAgentResourceSales = pgTable(
 		asset: varchar('asset', { length: 16 }).notNull(),
 		chain: varchar('chain', { length: 32 }).notNull(),
 		credited: varchar('credited', { length: 5 }).notNull().default('false'),
+		authNonce: varchar('auth_nonce', { length: 80 }),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
-	(t) => ({ txUniq: uniqueIndex('ux_bank_agent_sales_tx').on(t.txHash) }),
+	(t) => ({ txUniq: uniqueIndex('ux_bank_agent_sales_tx').on(t.txHash), nonceUniq: uniqueIndex('ux_bank_agent_sales_nonce').on(t.chain, t.authNonce) }),
 )
 
 export const bankPartners = pgTable('bank_partners', {

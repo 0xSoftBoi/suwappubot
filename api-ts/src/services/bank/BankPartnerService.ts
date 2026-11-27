@@ -2,7 +2,7 @@
  * M11 embedded banking (BaaS). A partner is an org API key (orgId). Partner customers are bank
  * owners of type 'partner_customer'. EVERY query is scoped by partner_id; destination accounts for
  * internal transfers must belong to the same partner. Customer accounts share the partner's
- * omnibus custody wallet (org owner's custodial EVM wallet) with isolated ledger accounts.
+ * a dedicated per-customer custody wallet (bank_org_wallets) with isolated ledger accounts.
  *
  * MONEY-PATH: partnerTransfer / executeFx (fee math, bps integer floor, fee credited to the
  * partner revenue account), webhook signing.
@@ -27,6 +27,7 @@ import { logger } from '../../lib/logger'
 import { findAsset } from './assets'
 import { BankFxService } from './BankFxService'
 import { BankLedgerService } from './BankLedgerService'
+import { ensureOrgCustodyWallet } from './BankOrgService'
 import { BankTransferService } from './BankTransferService'
 import { type BankOwner, bankDb, newId } from './db'
 import { type BankError, bankErr } from './errors'
@@ -76,17 +77,11 @@ const publicPartner = (p: BankPartner): Omit<BankPartner, 'webhookSecret'> => {
 	return rest
 }
 
-/** Omnibus custody wallet: the org owner's custodial EVM wallet. */
-const partnerWallet = (partnerId: string) =>
-	Effect.gen(function* () {
-		const orgOwner = yield* bankDb(async (db) => {
-			const [o] = await db.select({ ownerId: organizations.ownerId }).from(organizations).where(eq(organizations.id, partnerId)).limit(1)
-			if (!o) throw bankErr('NOT_FOUND', 'Partner organization not found')
-			return o.ownerId
-		})
-		const ledger = yield* BankLedgerService
-		return yield* ledger.resolveCustodyWallet({ ownerType: 'user', ownerId: String(orgOwner) }, 'evm')
-	})
+/** MONEY-PATH: the partner's OWN org custody wallet (bank_org_wallets), never the org owner's personal wallet. Used for revenue only. */
+const partnerWallet = (partnerId: string) => ensureOrgCustodyWallet(partnerId, 'evm')
+
+/** MONEY-PATH: one dedicated custody address per partner customer, so a deposit address maps to exactly one customer. */
+const customerWallet = (customerId: string) => ensureOrgCustodyWallet(`pcust_${customerId}`, 'evm')
 
 /** Is `accountId` owned by a customer of this partner, or by the partner org itself? */
 const accountInPartner = (partnerId: string, accountId: string) =>
@@ -176,9 +171,9 @@ export const BankPartnerServiceLive: Layer.Layer<BankPartnerService> = Layer.suc
 			yield* assertCustomer(partnerId, customerId)
 			const asset = findAsset(i.asset, i.chain)
 			if (!asset || asset.family !== 'evm') return yield* Effect.fail(bankErr('ASSET_UNSUPPORTED', `Unsupported asset ${i.asset} on ${i.chain} (partner accounts are EVM)`))
-			const wallet = yield* partnerWallet(partnerId)
+			const wallet = yield* customerWallet(customerId)
 			const ledger = yield* BankLedgerService
-			const a = yield* ledger.openAccount({ owner: owner(customerId), kind: i.kind ?? 'checking', asset: asset.symbol, chain: asset.chain, label: i.label, wallet, metadata: { partnerId, omnibus: true } })
+			const a = yield* ledger.openAccount({ owner: owner(customerId), kind: i.kind ?? 'checking', asset: asset.symbol, chain: asset.chain, label: i.label, wallet, metadata: { partnerId, dedicatedWallet: true } })
 			yield* enqueue(partnerId, 'account.opened', { customerId, accountId: a.id })
 			return a
 		}),

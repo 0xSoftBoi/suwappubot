@@ -569,22 +569,24 @@ export const bank = {
   treasury: (id: string) => get<Ok<Json>>(`/orgs/${id}/treasury`),
   runway: (id: string) => get<Ok<Json>>(`/orgs/${id}/treasury/runway`),
   fxExposure: (id: string) => get<Ok<Json>>(`/orgs/${id}/treasury/fx-exposure`),
-  vendors: (id: string) => get<Ok<Json>>(`/orgs/${id}/vendors`),
-  createVendor: (id: string, b: Json) => post<Ok<Json>>(`/orgs/${id}/vendors`, b),
-  bills: (id: string, status?: string) => get<Ok<Json>>(`/orgs/${id}/bills`, { status }),
-  createBill: (id: string, b: Json) => post<Ok<Json>>(`/orgs/${id}/bills`, b),
-  scheduleBill: (id: string, billId: string, b: { payFromAccountId: string; scheduledFor: string }) => post<Ok<Json>>(`/orgs/${id}/bills/${billId}/schedule`, b),
+  vendors: (id: string) => get<Ok<{ vendors: Vendor[] }>>(`/orgs/${id}/vendors`),
+  createVendor: (id: string, b: { name: string; email?: string; payAddress?: string; payChain?: string }) => post<Ok<{ vendor: Vendor }>>(`/orgs/${id}/vendors`, b),
+  bills: (id: string, status?: string) => get<Ok<{ bills: Bill[] }>>(`/orgs/${id}/bills`, { status }),
+  createBill: (id: string, b: { vendorId: string; reference?: string; amountMinor: string; asset: string; chain: string; dueDate: string }) => post<Ok<{ bill: Bill }>>(`/orgs/${id}/bills`, b),
+  scheduleBill: (id: string, billId: string, b: { payFromAccountId: string; scheduledFor: string }) => post<Ok<{ bill: Bill; approvalRequired: boolean }>>(`/orgs/${id}/bills/${billId}/schedule`, b),
   cancelBill: (id: string, billId: string) => post<Ok<Json>>(`/orgs/${id}/bills/${billId}/cancel`),
   booksCsv: (id: string, q?: { from?: string; to?: string }) => reqText(`/orgs/${id}/books/export.csv`, q),
 
-  policies: (id: string) => get<Ok<Json>>(`/orgs/${id}/approval-policies`),
+  policies: (id: string) => get<Ok<{ policies: ApprovalPolicy[] }>>(`/orgs/${id}/approval-policies`),
   createPolicy: (id: string, b: { ruleType: 'transfer_over' | 'new_payee' | 'payroll_run'; thresholdMinor?: string; requiredApprovals: number; approverRoles: string[]; expiryHours: number }) => post<Ok<Json>>(`/orgs/${id}/approval-policies`, b),
   deletePolicy: (id: string, policyId: string) => del<Ok<Json>>(`/orgs/${id}/approval-policies/${policyId}`),
-  requestApproval: (id: string, b: { action: 'payroll_run' | 'new_payee'; payload: Json }) => post<Ok<{ request: ApprovalRequest } & Json>>(`/orgs/${id}/approval-requests`, b),
-  approvalToken: (reqId: string) => post<Ok<Json>>(`/approval-requests/${reqId}/token`),
+  /** payroll_run payload must be exactly { runId, totalMinor }. `required:false` = no policy matches, nothing to approve. */
+  requestApproval: (id: string, b: { action: 'payroll_run' | 'new_payee'; payload: Json }) => post<Ok<{ required: false } | { required: true; request: ApprovalRequest }>>(`/orgs/${id}/approval-requests`, b),
+  /** Requester only, request must be approved; token lives 15 minutes (expiresInSeconds). */
+  approvalToken: (reqId: string) => post<Ok<{ token: string; expiresInSeconds: number; action: string }>>(`/approval-requests/${reqId}/token`),
   cancelApproval: (reqId: string) => post<Ok<Json>>(`/approval-requests/${reqId}/cancel`),
   orgTransfer: (orgId: string, b: { fromAccountId: string; toAccountId?: string; toExternal?: { address: string }; amountMinor: string; memo?: string; approvalToken?: string }, key: string) => post<Ok<OrgTransferResult>>(`/orgs/${orgId}/transfers`, b, key),
-  cardBudgets: (id: string) => get<Ok<Json>>(`/orgs/${id}/card-budgets`),
+  cardBudgets: (id: string) => get<Ok<{ budgets: CardBudget[] }>>(`/orgs/${id}/card-budgets`),
   setCardBudget: (id: string, b: { scope: 'member' | 'team'; scopeId: string; monthlyCapMinor?: string | null; perTxCapMinor?: string | null }) => put<Ok<Json>>(`/orgs/${id}/card-budgets`, b),
 
   // chains / privacy / network / platform

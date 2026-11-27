@@ -32,6 +32,7 @@ import { type BankAsset, findAsset } from './assets'
 import { BankLedgerService } from './BankLedgerService'
 import { BankTransferService } from './BankTransferService'
 import { jsonRpc, rpcUrlFor } from './chainRpc'
+import { registerBankJob } from './jobs'
 import { type BankOwner, bankDb, newId } from './db'
 import { type BankError, bankErr } from './errors'
 import { assertSpendable } from './systemDebit'
@@ -99,11 +100,20 @@ const hostOf = (url: string): string => {
 		throw bankErr('VALIDATION', 'Invalid URL')
 	}
 }
-const hostAllowed = (host: string, allowed: string[]) =>
-	allowed.some((a) => {
-		const x = a.toLowerCase()
-		return x.startsWith('*.') ? host.endsWith(x.slice(1)) && host.length > x.length - 1 : host === x
+// MONEY-PATH: '*.example.com' matches only a proper subdomain label boundary ('.example.com' suffix), never the bare
+// parent, never 'evilexample.com'; a wildcard must keep at least two labels after '*.' (no '*.com').
+const hostAllowed = (host0: string, allowed: string[]) => {
+	const host = host0.replace(/\.$/, '')
+	return allowed.some((a) => {
+		const x = a.toLowerCase().replace(/\.$/, '')
+		if (x.startsWith('*.')) {
+			const suffix = x.slice(1)
+			if (x.slice(2).split('.').length < 2) return false
+			return host.length > suffix.length && host.endsWith(suffix)
+		}
+		return host === x
 	})
+}
 
 const validateMandate = (m: MandateInput) => {
 	if (!UINT.test(m.perCallMaxMinor) || !UINT.test(m.dailyCapMinor)) throw bankErr('VALIDATION', 'perCallMaxMinor and dailyCapMinor must be positive integer strings')
@@ -167,7 +177,7 @@ const reserveSpend = (m: BankAgentMandate, a: { host: string; payee: string; ass
 			const [row] = await tx
 				.select({ total: sql<string>`coalesce(sum(${bankAgentSpend.amountMinor}), 0)` })
 				.from(bankAgentSpend)
-				.where(and(eq(bankAgentSpend.mandateId, m.id), inArray(bankAgentSpend.status, ['reserved', 'settled']), gte(bankAgentSpend.createdAt, since)))
+				.where(and(eq(bankAgentSpend.mandateId, m.id), inArray(bankAgentSpend.status, ['reserved', 'settled', 'auth_unsettled']), gte(bankAgentSpend.createdAt, since)))
 			const spent = BigInt(row?.total ?? '0')
 			if (spent + a.amountMinor > BigInt(m.dailyCapMinor))
 				throw bankErr('LIMIT_EXCEEDED', `Daily mandate cap exceeded (spent ${spent} + ${a.amountMinor} > ${m.dailyCapMinor})`)
@@ -277,7 +287,7 @@ export const BankAgentPayServiceLive = Layer.succeed(BankAgentPayService, {
 
 			// --- sign EIP-3009 transferWithAuthorization (typed data digest -> Turnkey raw-payload signing)
 			const now = Math.floor(Date.now() / 1000)
-			const auth = { from: account.address!, to: req.payTo, value: amount.toString(), validAfter: String(now - 60), validBefore: String(now + Math.max(30, Math.min(req.maxTimeoutSeconds, 600))), nonce }
+			const auth = { from: account.address!, to: req.payTo, value: amount.toString(), validAfter: String(now - 30), validBefore: String(now + Math.max(30, Math.min(req.maxTimeoutSeconds || 60, 60))), nonce }
 			const digest = authorizationDigest(auth, { ...domain, chainId: acctAsset.chainId!, verifyingContract: acctAsset.address })
 			const signed = yield* Effect.either(signDigestForAccount(account, digest))
 			if (signed._tag === 'Left') {
@@ -287,6 +297,10 @@ export const BankAgentPayServiceLive = Layer.succeed(BankAgentPayService, {
 			const header = encodePayment(req, auth, signed.right)
 
 			// --- retry with payment
+			// MONEY-PATH: from here the signed authorization may be presented by the server at any time until validBefore.
+			// Persist 'auth_unsettled' BEFORE the header leaves the process; it counts toward caps and is only ever resolved
+			// by the authorizationState job (or a confirmed settlement) - never released on a mere 402/error response.
+			yield* patchSpend(spendId, { status: 'auth_unsettled', authNonce: nonce, authValidBefore: Number(auth.validBefore), transferId })
 			const second = yield* Effect.either(Effect.tryPromise({ try: () => guardedFetch(i.url, { ...reqInit, headers: { ...(i.headers ?? {}), [header.name]: header.value } }), catch: (e) => e as BankError }))
 			if (second._tag === 'Left') {
 				// Ambiguous: the signed authorization may have been presented. Keep funds reserved in clearing.
@@ -296,8 +310,9 @@ export const BankAgentPayServiceLive = Layer.succeed(BankAgentPayService, {
 			const res = second.right
 			const settlement = decodeSettlement(res.headers)
 			if (res.status === 402) {
-				yield* reverse('payment rejected by resource server (402 after payment)')
-				return { paid: false, status: 402, body: res.body, contentType: res.headers['content-type'] ?? null, note: 'payment rejected; reservation reversed', spendId }
+				// MONEY-PATH: the server still holds a valid authorization until validBefore; keep the reservation, the job resolves it.
+				yield* bankDb((db) => db.update(bankTransfers).set({ status: 'submitted', metadata: sql`${bankTransfers.metadata} || ${JSON.stringify({ ambiguous: true, httpStatus: 402, authUnsettled: true })}::jsonb`, updatedAt: new Date() }).where(eq(bankTransfers.id, transferId)))
+				return { paid: false, status: 402, body: res.body, contentType: res.headers['content-type'] ?? null, note: 'payment not accepted; funds stay reserved until the authorization expires and is verified unused onchain', spendId }
 			}
 			if (res.status < 300 && settlement?.success && settlement.transaction) {
 				yield* ledger.post({ transferId, phase: 'confirm', legs: [{ accountId: clearing.id, direction: 'debit', amountMinor: amount }, { accountId: external.id, direction: 'credit', amountMinor: amount }] })
@@ -365,6 +380,13 @@ export const BankAgentPayServiceLive = Layer.succeed(BankAgentPayService, {
 			const payment = req.headers['payment-signature'] ?? req.headers['x-payment']
 			if (!payment) return { status: 402, headers: { ...ch.headers, 'content-type': 'application/json' }, body: JSON.stringify(ch.body) }
 
+			// MONEY-PATH: one payment (chain + EIP-3009 authorization nonce) unlocks exactly one response. Claim the nonce
+			// under a unique index BEFORE settling; a replayed/concurrent header loses the insert and gets a fresh 402.
+			const authNonce = yield* Effect.try({ try: () => String(decodePayment(payment).authorization.nonce).toLowerCase(), catch: () => null as unknown as BankError }).pipe(Effect.orElseSucceed(() => null as string | null))
+			if (!authNonce || !/^0x[0-9a-f]{64}$/.test(authNonce)) return { status: 402, headers: { ...ch.headers, 'content-type': 'application/json' }, body: JSON.stringify({ ...ch.body, error: 'invalid_payment_header' }) }
+			const claimId = newId('le').replace('le_', 'sale_')
+			const claimed = yield* bankDb((db) => db.insert(bankAgentResourceSales).values({ id: claimId, resourceId: res.id, payer: 'pending', txHash: `pending:${authNonce}`, amountMinor: String(res.priceMinor), asset: res.asset, chain: res.chain, authNonce }).onConflictDoNothing().returning({ id: bankAgentResourceSales.id }))
+			if (!claimed.length) return { status: 402, headers: { ...ch.headers, 'content-type': 'application/json' }, body: JSON.stringify({ ...ch.body, error: 'payment_already_used' }) }
 			const env = yield* EnvService.pipe(Effect.mapError((e) => bankErr('NOT_CONFIGURED', `Environment unavailable: ${String(e)}`)))
 			if (!isFacilitatorEnabled(env))
 				return yield* Effect.fail(bankErr('NOT_CONFIGURED', 'x402 facilitator is not enabled', { missing: 'X402_FACILITATOR_ENABLED=true plus X402_FACILITATOR_URL (or CDP_API_KEY_ID + CDP_API_KEY_SECRET)' }))
@@ -373,7 +395,9 @@ export const BankAgentPayServiceLive = Layer.succeed(BankAgentPayService, {
 			)
 			if (!settle.ok || !settle.txHash) return { status: 402, headers: { ...ch.headers, 'content-type': 'application/json' }, body: JSON.stringify({ ...ch.body, error: settle.ok ? 'settlement_missing_tx' : settle.error }) }
 			const payer = settle.payer ?? (yield* Effect.try({ try: () => decodePayment(payment).authorization.from, catch: () => 'unknown' as unknown as BankError }).pipe(Effect.orElseSucceed(() => 'unknown')))
-			yield* bankDb((db) => db.insert(bankAgentResourceSales).values({ id: newId('le').replace('le_', 'sale_'), resourceId: res.id, payer: String(payer), txHash: settle.txHash!, amountMinor: String(res.priceMinor), asset: res.asset, chain: res.chain }).onConflictDoNothing())
+			// Finalise the claimed row; the unique tx_hash index also rejects a second claim for the same settlement tx.
+			const finalised = yield* bankDb((db) => db.update(bankAgentResourceSales).set({ payer: String(payer), txHash: settle.txHash! }).where(eq(bankAgentResourceSales.id, claimId)).returning({ id: bankAgentResourceSales.id }))
+			if (!finalised.length) return { status: 402, headers: { ...ch.headers, 'content-type': 'application/json' }, body: JSON.stringify({ ...ch.body, error: 'payment_already_used' }) }
 			// Credit the seller's ledger from the on-chain deposit (best effort; creditSales retries).
 			const owner: BankOwner = { ownerType: 'agent', ownerId: res.sellerAgentId }
 			const credited = yield* Effect.either(BankTransferService.pipe(Effect.flatMap((t) => t.syncDeposit(owner, res.accountId))))
@@ -427,3 +451,51 @@ export const BankAgentPayServiceLive = Layer.succeed(BankAgentPayService, {
 			return { usage }
 		}),
 } satisfies BankAgentPayServiceInterface)
+
+// ------------------------------------------------------------ MONEY-PATH: resolve unsettled authorizations
+
+const AUTH_STATE_SELECTOR = '0xe94a0102' // authorizationState(address,bytes32)
+const readAuthUsed = async (chain: string, token: string, from: string, nonce: string): Promise<boolean> => {
+	const data = `${AUTH_STATE_SELECTOR}${from.toLowerCase().replace(/^0x/, '').padStart(64, '0')}${nonce.replace(/^0x/, '')}`
+	const out = await jsonRpc<string>(rpcUrlFor(chain), 'eth_call', [{ to: token, data }, 'latest'])
+	return BigInt(out as string) !== 0n
+}
+
+/** After validBefore (+margin) the authorization can no longer be submitted: used -> debit stands, unused -> release. */
+export const resolveUnsettledAuthorizations = async (): Promise<number> => {
+	const { runEffect } = await import('../../runtime')
+	const nowSec = Math.floor(Date.now() / 1000)
+	const rows = await runEffect(bankDb((db) => db.select().from(bankAgentSpend).where(and(eq(bankAgentSpend.status, 'auth_unsettled'), sql`${bankAgentSpend.authValidBefore} < ${nowSec - 120}`)).limit(50)) as never) as (typeof bankAgentSpend.$inferSelect)[]
+	let n = 0
+	for (const sp of rows) {
+		try {
+			await runEffect(
+				Effect.gen(function* () {
+					const ledger = yield* BankLedgerService
+					const account = yield* ledger.getAccountById(sp.accountId)
+					const asset = findAsset(sp.asset, sp.chain)
+					if (!asset || !account.address || !sp.authNonce || !sp.transferId) return
+					const used = yield* Effect.tryPromise({ try: () => readAuthUsed(sp.chain, asset.address, account.address!, sp.authNonce!), catch: (e) => bankErr('UPSTREAM', String(e)) })
+					const amount = BigInt(sp.amountMinor)
+					const clearing = yield* ledger.ensureSystemAccount('clearing', sp.asset, sp.chain)
+					const claim = yield* bankDb((db) => db.update(bankAgentSpend).set({ status: used ? 'settled' : 'failed', updatedAt: new Date() }).where(and(eq(bankAgentSpend.id, sp.id), eq(bankAgentSpend.status, 'auth_unsettled'))).returning({ id: bankAgentSpend.id }))
+					if (!claim.length) return
+					if (used) {
+						const external = yield* ledger.ensureSystemAccount('external', sp.asset, sp.chain)
+						yield* ledger.post({ transferId: sp.transferId!, phase: 'confirm', legs: [{ accountId: clearing.id, direction: 'debit', amountMinor: amount }, { accountId: external.id, direction: 'credit', amountMinor: amount }] })
+						yield* bankDb((db) => db.update(bankTransfers).set({ status: 'confirmed', confirmedAt: new Date(), updatedAt: new Date(), metadata: sql`${bankTransfers.metadata} || ${JSON.stringify({ authUsedOnchain: true })}::jsonb` }).where(eq(bankTransfers.id, sp.transferId!)))
+					} else {
+						yield* ledger.post({ transferId: sp.transferId!, phase: 'reverse', legs: [{ accountId: clearing.id, direction: 'debit', amountMinor: amount }, { accountId: account.id, direction: 'credit', amountMinor: amount }] })
+						yield* bankDb((db) => db.update(bankTransfers).set({ status: 'failed', failureReason: 'authorization expired unused', updatedAt: new Date() }).where(eq(bankTransfers.id, sp.transferId!)))
+					}
+					n++
+				}) as never,
+			)
+		} catch {
+			// ledger post failed after the claim: put it back so the next run retries (transfer still 'submitted')
+			await runEffect(bankDb((db) => db.update(bankAgentSpend).set({ status: 'auth_unsettled' }).where(and(eq(bankAgentSpend.id, sp.id), sql`exists (select 1 from bank_transfers t where t.id = ${sp.transferId} and t.status = 'submitted')`))) as never).catch(() => undefined)
+		}
+	}
+	return n
+}
+registerBankJob('agent-pay-auth', 60, resolveUnsettledAuthorizations)

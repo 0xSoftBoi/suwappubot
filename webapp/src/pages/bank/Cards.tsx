@@ -3,37 +3,12 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { bank, formatMinor, parseToMinor, str, type Card as BankCard, type CardRules } from '../../lib/bankApi'
 import { useBankAccounts } from '../../hooks/bank/useBankCore'
 import { useCardAuths, useCards, useCardTxs } from '../../hooks/bank/useBankDomains'
-import { useIdempotencyKey } from '../../hooks/bank/useIdempotencyKey'
-import { BankPage, Btn, Card, Chip, Empty, ErrorBox, Field, Input, QueryState, Row, SectionTitle, Sheet, Tabs } from '../../components/bank/BankUI'
-import { AccountSelect } from '../../components/bank/AccountSelect'
+import { BankPage, Btn, Card, Chip, Empty, ErrorBox, Field, Input, QueryState, Row, SectionTitle, Tabs } from '../../components/bank/BankUI'
+import { IssueCard } from '../../components/bank/IssueCard'
 import { a11yToast } from '@/lib/a11yToast'
 
 const list = (s: string) => s.split(',').map((x) => x.trim()).filter(Boolean)
 const join = (a?: string[]) => (a ?? []).join(', ')
-
-function Issue({ onClose }: { onClose: () => void }) {
-  const qc = useQueryClient()
-  const accounts = useBankAccounts()
-  const [accountId, setAccountId] = useState('')
-  const [label, setLabel] = useState('')
-  const [terms, setTerms] = useState(false)
-  const key = useIdempotencyKey()
-  const m = useMutation({
-    mutationFn: () => bank.issueCard({ accountId, type: 'virtual', label: label.trim() || undefined, termsAccepted: terms }, key.current()),
-    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['bank', 'cards'] }); a11yToast.success('Card issued'); onClose() },
-  })
-  return (
-    <Sheet title="Issue a virtual card" onClose={onClose} dismissible={!m.isPending}>
-      <div className="space-y-3">
-        <Field label="Funded from"><AccountSelect accounts={accounts.data ?? []} value={accountId} onChange={setAccountId} /></Field>
-        <Field label="Label (optional)"><Input value={label} maxLength={80} onChange={(e) => setLabel(e.target.value)} /></Field>
-        <label className="flex items-start gap-2 text-xs min-h-[44px]"><input type="checkbox" className="mt-1" checked={terms} onChange={(e) => setTerms(e.target.checked)} /><span>I accept the card issuer terms.</span></label>
-        {m.isError && <ErrorBox error={m.error} />}
-        <Btn className="w-full" disabled={!accountId || !terms || m.isPending} onClick={() => m.mutate()}>{m.isPending ? 'Issuing…' : 'Issue card'}</Btn>
-      </div>
-    </Sheet>
-  )
-}
 
 function Rules({ card, decimals }: { card: BankCard; decimals: number | null }) {
   const qc = useQueryClient()
@@ -192,7 +167,7 @@ export function Cards() {
           </>
         )}
       </QueryState>
-      {issuing && <Issue onClose={() => setIssuing(false)} />}
+      {issuing && <IssueCard onClose={() => setIssuing(false)} />}
     </BankPage>
   )
 }

@@ -246,6 +246,13 @@
       "when": 1791500000000,
       "tag": "0034_bank_integration",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1791600000000,
+      "tag": "0036_bank_review3",
+      "breakpoints": true
     }
   ]
 }

@@ -40,6 +40,27 @@ export const totalHolds = async (accountId: string, tx: BankTx, consumes?: Consu
 	return total
 }
 
+/**
+ * MONEY-PATH: server-side validation of `consumesHold`. The named provider's total for this account, with and without the hold,
+ * must differ by at least `amount` — i.e. the hold exists, is active, belongs to THIS account and covers the debit.
+ */
+export const assertHoldCovers = async (accountId: string, tx: BankTx, amount: bigint, consumes: ConsumesHold): Promise<void> => {
+	const fn = providers.get(consumes.provider)
+	if (!fn) throw bankErr('VALIDATION', `Unknown hold provider '${consumes.provider}'`)
+	const held = (await fn(accountId, tx)) - (await fn(accountId, tx, consumes.id))
+	if (held < amount) throw bankErr('VALIDATION', 'consumesHold does not reference an active hold on the source account covering this amount')
+}
+
+// MONEY-PATH: pending transfers whose 'submit' reserve is not yet posted still commit funds the ledger balance does not show yet.
+registerHoldProvider('pending-transfer', async (accountId, tx) =>
+	sumRow(
+		await tx.execute(
+			sql`select coalesce(sum(t.amount_minor), 0)::text as s from bank_transfers t where t.from_account = ${accountId} and t.status = 'pending'
+				and not exists (select 1 from bank_ledger_entries e where e.transfer_id = t.id and e.phase = 'submit')`,
+		),
+	),
+)
+
 /** MONEY-PATH: ledger balance minus all active holds. Caller must hold the account row lock. */
 export const availableBalance = async (accountId: string, tx: BankTx, consumes?: ConsumesHold): Promise<bigint> => {
 	const r = (await tx.execute(sql`select balance_minor::text as s from bank_accounts where id = ${accountId}`)) as unknown as Array<{ s: string }>
@@ -49,6 +70,7 @@ export const availableBalance = async (accountId: string, tx: BankTx, consumes?:
 
 /** MONEY-PATH: throws INSUFFICIENT_AVAILABLE unless `amount` fits in the available balance. */
 export const assertAvailable = async (accountId: string, tx: BankTx, amount: bigint, consumes?: ConsumesHold): Promise<void> => {
+	if (consumes) await assertHoldCovers(accountId, tx, amount, consumes)
 	const avail = await availableBalance(accountId, tx, consumes)
 	if (avail < amount) throw bankErr('INSUFFICIENT_AVAILABLE', `Insufficient available balance (${avail} < ${amount}); funds are reserved by pending holds`)
 }

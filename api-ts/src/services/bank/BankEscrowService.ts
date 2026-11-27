@@ -18,7 +18,7 @@ import { BankTransferService } from './BankTransferService'
 import { type BankOwner, bankDb } from './db'
 import { BankError, bankErr } from './errors'
 import { systemDebit } from './systemDebit'
-import { actorOf, guard, idemKey, type PayFx, parseMinor, sameOwner, subErr, toOwner, uid } from './paymentsCommon'
+import { actorOf, guard, idemKey, nextAttemptKey, type PayFx, parseMinor, sameOwner, subErr, toOwner, uid } from './paymentsCommon'
 
 type Entry = BankEscrowMilestone['settlement'][number]
 const DAY = 86_400
@@ -115,13 +115,14 @@ const claim = (escrowId: string, seq: number, c: Claim): PayFx<void> =>
 			if (!m) throw bankErr('NOT_FOUND', 'Milestone not found')
 			if (e.status === 'funding' || e.status === 'failed') throw subErr('INVALID_TRANSITION', 'ACCOUNT_STATE', `Escrow is ${e.status}`)
 			if (!c.from.includes(m.status)) throw subErr('INVALID_TRANSITION', 'CONFLICT', `Milestone is ${m.status}; ${c.action} requires ${c.from.join('|')}`)
-			// A milestone with unfinished fund movements may not transition again.
-			if (m.settlement.some((s) => s.state !== 'sent')) throw subErr('INVALID_TRANSITION', 'CONFLICT', 'Milestone has unfinished fund movements')
+			// A milestone with unfinished fund movements may not transition again. MONEY-PATH: terminal-'failed' movements (funds already reversed back into escrow) are finished and do not block a retry/resolution.
+			if (m.settlement.some((s) => s.state === 'intent')) throw subErr('INVALID_TRANSITION', 'CONFLICT', 'Milestone has unfinished fund movements')
 			const rel = c.releaseMinor ?? 0n
 			const ref = c.refundMinor ?? 0n
 			if (rel + ref > 0n && rel + ref !== BigInt(m.amountMinor)) throw bankErr('VALIDATION', 'release + refund must equal the milestone amount')
 			const entries: Entry[] = []
-			const attempt = m.settlement.filter((s) => s.state === 'sent').length
+			// MONEY-PATH: attempt counts ALL prior entries so every retry gets a fresh deterministic key (executeMoves additionally verifies the prior transfer is terminal-failed via nextAttemptKey).
+			const attempt = m.settlement.length
 			if (rel > 0n) entries.push({ kind: 'release', transferId: '', amountMinor: rel.toString(), attempt, state: 'intent' })
 			if (ref > 0n) entries.push({ kind: 'refund', transferId: '', amountMinor: ref.toString(), attempt, state: 'intent' })
 			const upd = await tx
@@ -170,7 +171,7 @@ const executeMoves = (escrowId: string, milestoneId: string): PayFx<number> =>
 			// MONEY-PATH: deterministic key; replays return the same transfer instead of paying twice.
 			const t = yield* xfer.transfer({
 				owner: payer,
-				idempotencyKey: idemKey('escrow', e.id, m.id, en.kind, String(en.attempt)),
+				idempotencyKey: yield* nextAttemptKey(payer, idemKey('escrow', e.id, m.id, en.kind, String(en.attempt))),
 				type: 'escrow',
 				fromAccountId: e.escrowAccountId,
 				systemDebit: systemDebit('escrow-settlement'), // MONEY-PATH: service-only capability to debit the escrow account
@@ -394,7 +395,7 @@ export const BankEscrowServiceLive = Layer.succeed(BankEscrowService, {
 			yield* requireRole(e, owner, 'payer')
 			const [m] = yield* bankDb((db) => db.select().from(bankEscrowMilestones).where(and(eq(bankEscrowMilestones.escrowId, id), eq(bankEscrowMilestones.seq, seq))).limit(1))
 			if (!m) return yield* Effect.fail(bankErr('NOT_FOUND', 'Milestone not found'))
-			return yield* act(id, seq, { actor: owner, action: 'confirm', from: ['funded', 'delivered'], to: 'released', releaseMinor: BigInt(m.amountMinor) })
+			return yield* act(id, seq, { actor: owner, action: 'confirm', /* MONEY-PATH: no arbiter -> payer may always (re)release their own funds, incl. after a failed transfer */ from: e.arbiterOwnerType ? ['funded', 'delivered'] : ['funded', 'delivered', 'disputed'], to: 'released', releaseMinor: BigInt(m.amountMinor) })
 		}),
 
 	dispute: (owner, id, seq, reason) =>
@@ -428,7 +429,7 @@ export const BankEscrowServiceLive = Layer.succeed(BankEscrowService, {
 			yield* requireRole(e, owner, 'payee')
 			const [m] = yield* bankDb((db) => db.select().from(bankEscrowMilestones).where(and(eq(bankEscrowMilestones.escrowId, id), eq(bankEscrowMilestones.seq, seq))).limit(1))
 			if (!m) return yield* Effect.fail(bankErr('NOT_FOUND', 'Milestone not found'))
-			return yield* act(id, seq, { actor: owner, action: 'refund', from: ['funded', 'delivered'], to: 'refunded', refundMinor: BigInt(m.amountMinor) })
+			return yield* act(id, seq, { actor: owner, action: 'refund', /* MONEY-PATH: payee may always give funds back, incl. after a failed transfer */ from: ['funded', 'delivered', 'disputed'], to: 'refunded', refundMinor: BigInt(m.amountMinor) })
 		}),
 
 	runJob: () =>
@@ -447,6 +448,20 @@ export const BankEscrowServiceLive = Layer.succeed(BankEscrowService, {
 				db.select().from(bankEscrowMilestones).where(sql`exists (select 1 from jsonb_array_elements(${bankEscrowMilestones.settlement}) s where s->>'state' = 'intent')`).limit(50),
 			)
 			for (const m of stuck) settled += yield* executeMoves(m.escrowId, m.id).pipe(Effect.catchAll((er) => log(er, { milestoneId: m.id }).pipe(Effect.as(0))))
+
+			// MONEY-PATH: arbiter-less milestone parked as 'disputed' by a failed transfer: timeout rule, retry the same movement after a 1h cooldown.
+			const parked = yield* bankDb((db) => db.select().from(bankEscrowMilestones).where(and(eq(bankEscrowMilestones.status, 'disputed'), lte(bankEscrowMilestones.updatedAt, new Date(Date.now() - 3600_000)))).limit(50))
+			for (const m of parked) {
+				const last = [...m.settlement].reverse().find((x) => x.state === 'failed')
+				if (!last || m.settlement.some((x) => x.state === 'intent')) continue
+				yield* Effect.gen(function* () {
+					const esc = yield* loadEscrow(m.escrowId)
+					if (esc.arbiterOwnerType) return
+					const amt = BigInt(m.amountMinor)
+					yield* act(m.escrowId, m.seq, { actor: 'system', action: 'retry_failed', from: ['disputed'], to: last.kind === 'release' ? 'released' : 'refunded', releaseMinor: last.kind === 'release' ? amt : 0n, refundMinor: last.kind === 'release' ? 0n : amt })
+					settled++
+				}).pipe(Effect.catchAll((er) => log(er, { milestoneId: m.id })))
+			}
 
 			// Payer silence after delivery -> auto-release to payee.
 			const now = new Date()
