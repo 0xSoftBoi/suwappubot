@@ -1386,6 +1386,8 @@ export interface BankAgentPayArgs {
   method?: "GET" | "POST" | "PUT" | "DELETE";
   body?: string;
   headers?: Record<string, string>;
+  /** Optional idempotency key (8-128 chars of A-Za-z0-9_.:-). When set, the call is retryable and a replay returns the original result. */
+  idempotencyKey?: string;
 }
 export interface BankAgentResourceArgs {
   accountId: string; title: string; description?: string; upstreamUrl: string; priceMinor: string; slug?: string;
@@ -1431,4 +1433,43 @@ export interface BankPrivacyAnnouncementsArgs {
 }
 /** Escrow/stream/pay-invoice responses carry the ledger transfer id. Invoices carry `acceptance` state (see POST /payments/invoices/:id/accept). */
 export interface BankTransferRef { transferId?: string; [k: string]: unknown }
+/** Present on a card (GET /cards, GET /cards/:id) only while a card shortfall is open. Integer minor units. */
+export interface BankCardShortfall {
+  amountMinor: string;
+  /** Card currency. */
+  asset: string;
+  /** ISO instant the shortfall opened. */
+  since: string;
+  reason: "CAPTURE_EXCEEDED_AVAILABLE";
+}
+/** Additive card-view fields. `providerCardId` is the issuer's opaque card id for the issuer's own reveal elements (never a PAN/CVC). */
+export interface BankCardViewExtras {
+  providerCardId: string;
+  shortfall?: BankCardShortfall;
+}
+/** Stable machine-readable refusal `reason` on credit/receivables errors (alongside `error`/`message`). Match on this, not on message text. */
+export type BankCreditRefusalReason =
+  | "RELATED_PARTIES"
+  | "EXPOSURE_CAP"
+  | "DELINQUENT_LINE"
+  | "NOT_ACCEPTED"
+  | "SETTLEMENT_ACCOUNT_MISMATCH"
+  | "ALREADY_FINANCED"
+  | "INVOICE_STATE"
+  | "NO_PRICE"
+  | "LENDER_POOL_UNFUNDED";
+/** GET /privacy/announcements response extras: `toBlock` is the hex block actually scanned (inclusive); defaults to min(fromBlock + 9999, head) when omitted. */
+export interface BankPrivacyAnnouncementsPage {
+  toBlock: string;
+  nextCursor: number | null;
+  total: number;
+}
+/** POST /agents/pay response extras. `idempotent` is false when no key was supplied; `replayed` is true when the stored original result is returned. */
+export interface BankAgentPayIdempotency { idempotent?: boolean; replayed?: boolean }
+/** Paywall: a 502 `upstream_failed_after_settlement` body (also the `X-Retrieval-Token` header) carries the one-time retrieval token. */
+export interface BankPaywallUpstreamFailedBody { error: "upstream_failed_after_settlement"; retrievalToken: string; note?: string }
+/** POST /pay/:slug/recover request. */
+export interface BankPaywallRecoverArgs { chain: string; nonce: string; signature?: string }
+/** POST /pay/:slug/recover response: first call returns a challenge to sign; the signed call returns the retrieval token. */
+export interface BankPaywallRecoverResult { challenge?: string; expiresAt?: string; retrievalToken?: string }
 // ============================ end Bank section =============================

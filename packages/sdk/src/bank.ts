@@ -667,10 +667,14 @@ class BankAgentsNamespace extends Sub {
   /** DELETE /agents/mandates/:id */
   revokeMandate(id: string) { return this.b._call<BankRecord>("DELETE", `/agents/mandates/${enc(id)}`); }
   /**
-   * POST /agents/pay — x402 pay-per-call within a mandate. The route has no
-   * idempotency key, so this call is NOT auto-retried.
+   * POST /agents/pay — x402 pay-per-call within a mandate. `idempotencyKey` is
+   * OPTIONAL: with one, the call is sent as the Idempotency-Key header and is
+   * retried with the same key; without one it is NOT auto-retried.
    */
-  pay(args: BankAgentPayArgs) { return this.b._call<BankRecord>("POST", "/agents/pay", { json: args }); }
+  pay(args: BankAgentPayArgs) {
+    const { idempotencyKey, ...json } = args;
+    return this.b._call<BankRecord>("POST", "/agents/pay", idempotencyKey === undefined ? { json } : { json, idempotencyKey: this.b._key(idempotencyKey) });
+  }
   /** POST /agents/resources — register a paywalled resource you sell. */
   registerResource(args: BankAgentResourceArgs) { return this.b._call<BankRecord>("POST", "/agents/resources", { json: args }); }
   /** GET /agents/resources */

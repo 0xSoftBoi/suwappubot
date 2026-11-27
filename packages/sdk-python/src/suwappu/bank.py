@@ -1824,13 +1824,16 @@ class _AgentsNamespace(_Sub):
         method: str | None = None,
         body: str | None = None,
         headers: dict[str, str] | None = None,
+        idempotency_key: str | None = None,
     ) -> BankRecord:
-        """POST /agents/pay: x402 pay-per-call within a mandate. The route has no
-        idempotency key, so this call is NOT auto-retried."""
+        """POST /agents/pay: x402 pay-per-call within a mandate. ``idempotency_key`` is
+        OPTIONAL: with one, the call is retried with the same key; without one it is
+        NOT auto-retried."""
         return await self._b._call(
             "POST",
             "/agents/pay",
             json=_body(mandate_id=mandate_id, url=url, method=method, body=body, headers=headers),
+            idempotency_key=None if idempotency_key is None else self._b._key(idempotency_key),
         )
 
     async def register_resource(
