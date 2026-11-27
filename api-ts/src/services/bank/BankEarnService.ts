@@ -28,7 +28,6 @@ import { BankTransferService, type BankDeps } from './BankTransferService'
 import { evmTokenBalance } from './chain'
 import { type BankOwner, bankDb, newId } from './db'
 import {
-	MORPHO_API,
 	call,
 	erc20Abi,
 	hashOf,
@@ -130,57 +129,63 @@ const up = <A>(f: () => Promise<A>, what: string): Effect.Effect<A, BankError> =
 		catch: (e) => (e instanceof BankError ? e : bankErr('UPSTREAM', `${what}: ${e instanceof Error ? e.message : String(e)}`, { cause: e })),
 	})
 
-async function morphoGql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
-	const res = await fetch(MORPHO_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query, variables }) })
-	if (!res.ok) throw new Error(`Morpho API ${res.status}`)
-	const j = (await res.json()) as { data?: T; errors?: Array<{ message?: string }> }
-	if (j.errors?.length) throw new Error(`Morpho API: ${j.errors.map((e) => e.message).join('; ')}`)
-	if (!j.data) throw new Error('Morpho API: missing data')
+// Morpho REST API v0 (the GraphQL API incl. `vaults` is retired 2027-01-25; verified live 2026-11-27).
+const MORPHO_REST = 'https://api.morpho.org/v0'
+/** REST has no `listed` flag, so curation is approximated: a vault must have a curator, a guardian, a >=1 day timelock and TVL >= MIN_VAULT_TVL_UNITS whole asset units. */
+const MIN_VAULT_TVL_UNITS = 1_000_000n
+const MIN_TIMELOCK_SECONDS = 86_400
+const ZERO_ADDR = /^0x0{40}$/i
+const MAX_LIST_CANDIDATES = 15
+
+async function morphoRest<T>(path: string): Promise<T | null> {
+	const res = await fetch(`${MORPHO_REST}${path}`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(15_000) })
+	if (res.status === 404) return null
+	if (!res.ok) throw new Error(`Morpho API ${res.status} ${path}`)
+	const j = (await res.json()) as { data?: T }
+	if (j.data === undefined) throw new Error('Morpho API: missing data')
 	return j.data
 }
 
-interface ApiVault {
-	address: string
-	name: string
-	symbol: string
-	listed: boolean
-	asset: { address: string; symbol: string; decimals: number }
-	state: { totalAssets: number | string | null; totalAssetsUsd: number | null; apy: number | null; netApy: number | null; fee: number | null } | null
+interface RestVaultListItem { chain_id: number; vault_address: string; curator: string | null; guardian: string | null; asset_address: string }
+interface RestVault {
+	chain_id: number; address: string; name: string; symbol: string
+	asset: { address: string; decimals: number; symbol: string }
+	fee_wad: string | null; curator: string | null; guardian: string | null; timelock_seconds: number | null
+}
+interface RestState { total_assets: string }
+interface RestApy { apy: number | null }
+
+const wadPct = (w: string | null): number => (w ? Number((BigInt(w) * 10_000n) / 10n ** 18n) / 100 : 0)
+const nonZero = (a: string | null | undefined): boolean => !!a && !ZERO_ADDR.test(a)
+
+async function buildVault(chainId: number, chain: string, address: string): Promise<Vault | null> {
+	const sel = `${chainId}:${address}`
+	const [d, st, apy] = await Promise.all([
+		morphoRest<RestVault>(`/vaults-v1/${sel}`),
+		morphoRest<RestState>(`/vaults-v1/${sel}/state`),
+		morphoRest<RestApy>(`/vaults-v1/${sel}/apy-averages?lookback=seven_days`),
+	])
+	if (!d || !st) return null
+	const total = BigInt(st.total_assets)
+	const listed = nonZero(d.curator) && nonZero(d.guardian) && (d.timelock_seconds ?? 0) >= MIN_TIMELOCK_SECONDS && total >= MIN_VAULT_TVL_UNITS * 10n ** BigInt(d.asset.decimals)
+	const rate = (apy?.apy ?? 0) * 100
+	return {
+		address: d.address, name: d.name, symbol: d.symbol, chain, asset: d.asset.symbol, assetAddress: d.asset.address, decimals: d.asset.decimals,
+		apy: rate, netApy: rate, feePct: wadPct(d.fee_wad), totalAssetsMinor: total.toString(), totalAssetsUsd: null, listed,
+	}
 }
 
-const VAULT_FIELDS = `address name symbol listed asset { address symbol decimals } state { totalAssets totalAssetsUsd apy netApy fee }`
-
-const toVault = (v: ApiVault, chain: string): Vault => ({
-	address: v.address,
-	name: v.name,
-	symbol: v.symbol,
-	chain,
-	asset: v.asset.symbol,
-	assetAddress: v.asset.address,
-	decimals: v.asset.decimals,
-	apy: (v.state?.apy ?? 0) * 100,
-	netApy: (v.state?.netApy ?? 0) * 100,
-	feePct: (v.state?.fee ?? 0) * 100,
-	// totalAssets arrives as a JSON number that can exceed 2^53 only for 18-dec assets; BigInt(Math.trunc) is exact enough for display.
-	totalAssetsMinor: BigInt(Math.trunc(Number(v.state?.totalAssets ?? 0))).toString(),
-	totalAssetsUsd: v.state?.totalAssetsUsd ?? null,
-	listed: v.listed,
-})
-
 export async function fetchVaults(chainId: number, chain: string, assetAddress: string): Promise<Vault[]> {
-	const data = await morphoGql<{ vaults: { items: ApiVault[] } }>(
-		`query V($c:[Int!]!, $a:[String!]!) { vaults(first: 25, where:{ chainId_in:$c, assetAddress_in:$a, listed:true }, orderBy: TotalAssetsUsd, orderDirection: Desc) { items { ${VAULT_FIELDS} } } }`,
-		{ c: [chainId], a: [assetAddress] },
-	)
-	return data.vaults.items.map((v) => toVault(v, chain))
+	const items = (await morphoRest<RestVaultListItem[]>(`/vaults-v1?chain_ids=${chainId}&asset_addresses=${assetAddress}&limit=100`)) ?? []
+	const candidates = items.filter((i) => i.chain_id === chainId && nonZero(i.curator) && nonZero(i.guardian))
+	const states = await Promise.all(candidates.map(async (c) => ({ c, st: await morphoRest<RestState>(`/vaults-v1/${chainId}:${c.vault_address}/state`).catch(() => null) })))
+	const top = states.filter((x) => x.st).sort((x, y) => (BigInt(y.st!.total_assets) > BigInt(x.st!.total_assets) ? 1 : -1)).slice(0, MAX_LIST_CANDIDATES)
+	const built = await Promise.all(top.map((x) => buildVault(chainId, chain, x.c.vault_address).catch(() => null)))
+	return built.filter((v): v is Vault => !!v && v.listed).sort((x, y) => (BigInt(y.totalAssetsMinor) > BigInt(x.totalAssetsMinor) ? 1 : -1))
 }
 
 async function fetchVault(chainId: number, chain: string, address: string): Promise<Vault | null> {
-	const data = await morphoGql<{ vaultByAddress: ApiVault | null }>(
-		`query V($a:String!, $c:Int!) { vaultByAddress(address:$a, chainId:$c) { ${VAULT_FIELDS} } }`,
-		{ a: address, c: chainId },
-	)
-	return data.vaultByAddress ? toVault(data.vaultByAddress, chain) : null
+	return buildVault(chainId, chain, address)
 }
 
 /** Resolves + validates a vault: listed on Morpho, same underlying as the account asset (verified on-chain). */

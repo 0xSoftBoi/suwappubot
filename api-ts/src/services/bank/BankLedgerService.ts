@@ -85,6 +85,8 @@ export interface ReconcileReport {
 		vaultPositionMinor: string
 		/** Same-asset collateral supplied to Morpho Blue from the wallet (not ledger-debited). */
 		collateralPostedMinor: string
+		/** Vault value above ledger principal (yield not yet realised on the ledger); excluded from delta. */
+		unrealizedYieldMinor: string
 	}
 	deltaMinor: string
 	inFlightTransfers: number
@@ -486,6 +488,7 @@ export const BankLedgerServiceLive = Layer.succeed(BankLedgerService, {
 				throw bankErr('UPSTREAM', `Could not read on-chain balance: ${String(e)}`, { cause: e })
 			}
 			let vaultValue = 0n
+			let vaultPrincipal = 0n
 			let collateralPosted = 0n
 			if (asset.family === 'evm') {
 				const { readContract, vaultAbi, blueAbi, MORPHO_BLUE } = await import('./earnCreditChain')
@@ -497,6 +500,7 @@ export const BankLedgerServiceLive = Layer.succeed(BankLedgerService, {
 						if (seen.has(p.savingsAccountId) || p.chain !== acct.chain || !groupIds.includes(p.savingsAccountId)) continue
 						seen.add(p.savingsAccountId)
 						const shares = BigInt(p.sharesMinor) + BigInt(p.pledgedSharesMinor)
+						vaultPrincipal += BigInt(group.find((g) => g.id === p.savingsAccountId)?.balanceMinor ?? '0')
 						if (shares > 0n) vaultValue += await readContract<bigint>(p.chain, p.vault, vaultAbi, 'convertToAssets', [shares])
 					}
 					const lines = await db
@@ -513,6 +517,7 @@ export const BankLedgerServiceLive = Layer.succeed(BankLedgerService, {
 				}
 			}
 			const onchain = wallet + vaultValue + collateralPosted
+			const unrealizedYield = vaultValue > vaultPrincipal ? vaultValue - vaultPrincipal : 0n
 			const ids = group.map((g) => g.id)
 			const inflight = await db
 				.select({ id: bankTransfers.id })
@@ -523,7 +528,7 @@ export const BankLedgerServiceLive = Layer.succeed(BankLedgerService, {
 						or(inArray(bankTransfers.fromAccount, ids), inArray(bankTransfers.toAccount, ids)),
 					),
 				)
-			const delta = onchain - ledger
+			const delta = onchain - unrealizedYield - ledger
 			return {
 				accountId,
 				chain: acct.chain,
@@ -532,7 +537,7 @@ export const BankLedgerServiceLive = Layer.succeed(BankLedgerService, {
 				accountsInGroup: ids,
 				ledgerMinor: ledger.toString(),
 				onchainMinor: onchain.toString(),
-				components: { walletMinor: wallet.toString(), vaultPositionMinor: vaultValue.toString(), collateralPostedMinor: collateralPosted.toString() },
+				components: { walletMinor: wallet.toString(), vaultPositionMinor: vaultValue.toString(), collateralPostedMinor: collateralPosted.toString(), unrealizedYieldMinor: unrealizedYield.toString() },
 				deltaMinor: delta.toString(),
 				inFlightTransfers: inflight.length,
 				status: delta === 0n ? 'in_sync' : inflight.length > 0 ? 'pending_settlement' : 'drift',
