@@ -34,8 +34,8 @@ import { type BankError, bankErr } from './errors'
 import { guardedFetch } from './ssrfFetch'
 import { type CreditTransferBatch } from './iso20022'
 
-type Deps = DrizzleService | BankLedgerService | BankTransferService | BankFxService | never
-type Fx<A> = Effect.Effect<A, BankError, Deps | import('../TurnkeyService').TurnkeyService | import('../PolicyService').PolicyService>
+import type { MainLayerContext } from '../MainLayer'
+type Fx<A> = Effect.Effect<A, BankError, MainLayerContext>
 
 export interface PartnerConfigInput { feeBpsTransfer?: number; feeBpsFx?: number; webhookUrl?: string | null }
 export interface PartnerTransferInput { customerId: string; fromAccountId: string; toAccountId?: string; toExternal?: { address: string }; amountMinor: string; idempotencyKey: string; memo?: string }
@@ -306,5 +306,5 @@ export const BankPartnerServiceLive: Layer.Layer<BankPartnerService> = Layer.suc
 			}
 			return { messageId: batch.messageId, results }
 		}),
-} as unknown as BankPartnerServiceInterface)
+})
 void cust

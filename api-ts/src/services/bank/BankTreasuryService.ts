@@ -13,7 +13,7 @@ import { BankEarnService } from './BankEarnService'
 import { ingestBooks, valueInReporting } from './BankBooksService'
 import { BankLedgerService, type ReconcileReport } from './BankLedgerService'
 import { type OrgCtx, authorize, nid, writeAudit } from './BankOrgService'
-import { type BankDeps } from './BankTransferService'
+import { type BankDeps, type BankTransferService } from './BankTransferService'
 import { findAsset, fromMinor } from './assets'
 import { currencyDecimals, fxExposure, runway, sweepAmount } from './bankOrgPure'
 import { type BankOwner, bankDb } from './db'
@@ -159,7 +159,7 @@ const impl = {
 		}),
 
 	/** MONEY-PATH. Moves excess above each account's floor into its earn vault via BankEarnService. */
-	executeSweep: (owner: BankOwner, orgId: string, idempotencyKey: string): Effect.Effect<unknown, BankError, BankDeps | EnvService> =>
+	executeSweep: (owner: BankOwner, orgId: string, idempotencyKey: string): Effect.Effect<unknown, BankError, BankDeps | BankTransferService | EnvService> =>
 		Effect.gen(function* () {
 			const c = yield* authorize(owner, orgId, 'treasury.manage')
 			const earnOpt = yield* Effect.serviceOption(BankEarnService)

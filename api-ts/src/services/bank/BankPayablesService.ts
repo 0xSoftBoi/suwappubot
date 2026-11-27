@@ -12,7 +12,7 @@ import { valueInReporting } from './BankBooksService'
 import { BankLedgerService } from './BankLedgerService'
 import { type Actor, authorize, authorizeActor, nid, orgSecret, writeAudit } from './BankOrgService'
 import { performOrgTransfer, releaseApproval } from './BankApprovalService'
-import { type BankDeps } from './BankTransferService'
+import { type BankDeps, type BankTransferService } from './BankTransferService'
 import { ageingBucket, AGEING_BUCKETS, DUNNING_SCHEDULE_DAYS, dunningStage, hashPayload, matchPolicy, mintApprovalToken, type PolicyLite } from './bankOrgPure'
 import { type BankOwner, bankDb } from './db'
 import { type BankError, bankErr } from './errors'
@@ -31,7 +31,7 @@ const policiesOf = (orgId: string) =>
 const INVOICE_DONE = ['paid', 'void', 'voided', 'cancelled', 'canceled', 'draft', 'refunded']
 
 /** MONEY-PATH. Recurring job: pay due scheduled bills as the scheduling member, reconcile in-flight ones. */
-export const runDueBills = (now = new Date()): Effect.Effect<{ paid: number; started: number; failed: number }, BankError, BankDeps | EnvService> =>
+export const runDueBills = (now = new Date()): Effect.Effect<{ paid: number; started: number; failed: number }, BankError, BankDeps | BankTransferService | EnvService> =>
 	Effect.gen(function* () {
 		let started = 0, paid = 0, failed = 0
 		// 1. Settle bills whose transfer finished.
@@ -64,7 +64,7 @@ export const runDueBills = (now = new Date()): Effect.Effect<{ paid: number; sta
 		return { paid, started, failed }
 	})
 
-const payBill = (b: BankOrgBill): Effect.Effect<void, BankError, BankDeps | EnvService> =>
+const payBill = (b: BankOrgBill): Effect.Effect<void, BankError, BankDeps | BankTransferService | EnvService> =>
 	Effect.gen(function* () {
 		const vendor = yield* bankDb(async (db) => (await db.select().from(bankOrgVendors).where(and(eq(bankOrgVendors.id, b.vendorId), eq(bankOrgVendors.orgId, b.orgId))).limit(1))[0])
 		if (!vendor?.payAddress) return yield* Effect.fail(bankErr('VALIDATION', 'Vendor has no payment address', { missing: 'vendor.payAddress' }))

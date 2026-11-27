@@ -180,7 +180,7 @@ const normAddr = (a: string): string => (a.startsWith('0x') ? a.toLowerCase() : 
 export const performOrgTransfer = (
 	ctx: OrgCtx,
 	i: OrgTransferInput,
-): Effect.Effect<OrgTransferResult, BankError, BankDeps | EnvService> =>
+): Effect.Effect<OrgTransferResult, BankError, BankDeps | BankTransferService | EnvService> =>
 	Effect.gen(function* () {
 		const orgOwner: BankOwner = { ownerType: 'org', ownerId: ctx.org.id }
 		if (!/^[1-9]\d*$/.test(i.amountMinor)) return yield* Effect.fail(bankErr('VALIDATION', 'amountMinor must be a positive integer string'))
@@ -407,7 +407,7 @@ const impl = {
 		}),
 
 	/** Policy-enforcing org transfer endpoint (see performOrgTransfer). */
-	transfer: (owner: BankOwner, orgId: string, i: OrgTransferInput): Effect.Effect<OrgTransferResult, BankError, BankDeps | EnvService> =>
+	transfer: (owner: BankOwner, orgId: string, i: OrgTransferInput): Effect.Effect<OrgTransferResult, BankError, BankDeps | BankTransferService | EnvService> =>
 		Effect.gen(function* () {
 			const c = yield* authorize(owner, orgId, 'transfer.create')
 			return yield* performOrgTransfer(c, i)

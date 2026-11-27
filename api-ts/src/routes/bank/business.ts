@@ -41,7 +41,7 @@ const S = {
 		approverRoles: z.array(role).min(1),
 		expiryHours: z.number().int().min(1).max(720).default(72),
 	}),
-	approvalReq: z.object({ action: z.enum(['payroll_run', 'new_payee']), payload: z.record(z.unknown()) }),
+	approvalReq: z.object({ action: z.enum(['payroll_run', 'new_payee']), payload: z.record(z.string(), z.unknown()) }),
 	decide: z.object({ comment: z.string().max(280).optional() }),
 	transfer: z
 		.object({
@@ -63,7 +63,7 @@ const S = {
 	category: z.object({ code: z.string().regex(/^[0-9A-Za-z.-]{1,16}$/), name: z.string().min(1).max(120), kind: z.enum(['income', 'expense', 'transfer', 'asset', 'liability', 'equity']) }),
 	categorize: z.object({ categoryId: z.string().max(64).nullable() }),
 	close: z.object({ through: date }),
-	cardBudget: z.object({ scope: z.enum(['member', 'team']), scopeId: z.string().min(1).max(64), monthlyCapMinor: minorOrZero.nullable().optional(), perTxCapMinor: minorOrZero.nullable().optional(), categoryBudgets: z.record(minorOrZero).optional() }),
+	cardBudget: z.object({ scope: z.enum(['member', 'team']), scopeId: z.string().min(1).max(64), monthlyCapMinor: minorOrZero.nullable().optional(), perTxCapMinor: minorOrZero.nullable().optional(), categoryBudgets: z.record(z.string(), minorOrZero).optional() }),
 }
 
 export function register(app: BankRouteApp, deps: BankRouteDeps): void {

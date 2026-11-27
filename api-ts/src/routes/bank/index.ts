@@ -10,6 +10,10 @@ import type { MainLayerContext } from '../../services/MainLayer'
 import type { BankOwner } from '../../services/bank/db'
 import { register as core } from './core'
 import { register as fx } from './fx'
+import { register as segments } from './segments'
+import { register as chains } from './chains'
+import { register as platform } from './platform'
+import { register as agents } from './agents'
 import { register as ramps } from './ramps'
 import { register as remittance } from './remittance'
 import { register as cards } from './cards'
@@ -39,6 +43,10 @@ export const modules: Module[] = [
 	earn,
 	credit,
 	business,
+	agents,
+	platform,
+	chains,
+	segments,
 	// <module register fns go here, one line each>
 ]
 
