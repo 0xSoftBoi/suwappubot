@@ -80,7 +80,15 @@ Central `describeBankError(code, message)` in bankApi.ts covers every `BankError
 6. Offramp `bankTransferId` is nullable and the response does not say when it is set; the UI polls the ramp transfer if null.
 7. Response for `payInvoice` -> `payment` row shape is not typed in the service interface read (only `BankInvoicePayment`); `transferId` presence is assumed from the schema column (bankPaymentsPayroll.ts:70).
 
-## Status (update as work lands)
-- bankApi.ts: typed accessors, `describeBankError(code,message)`, fiat decimals, EscrowView/StreamView/PayrollPreview/PublicInvoice types, new endpoints: DONE.
-- Consumers (Convert, Credit, Earn, Ramps, Send, MoneyAction, BankUI, Payments streams): IN PROGRESS (typecheck errors being fixed).
-- `/pay/:slug`, Part 2 features, Part 3 verification: see end of file when done.
+8. Receivables financing now requires the payer to have ACCEPTED the invoice, but no payer-side "accept invoice" route was visible in routes/bank/payments.ts when read (publish/void/pay only) and Invoice has no documented accepted flag. The webapp lists invoices with their real `status` and surfaces the server's refusal; it cannot build the accept action until the route and field exist.
+9. `GET /payroll/my-payouts` (Receipt, BankPayrollService.ts:80-) carries no scheduleId/payeeId, so a worker cannot discover which schedule/payee to use for earned-wage access; the UI asks for the two ids.
+10. Public invoice (`/public/bank/invoices/:slug`) has no asset decimals and `/assets` needs a session. Unauthenticated payers see Solana Pay decimals from the URI, but EVM amounts only as base units (signed-in users get formatted amounts). Fix: add `decimals` to PublicInvoice/PaymentRequest.
+11. Approval policy `thresholdMinor` is in reporting-currency minor units (BankApprovalService.ts:277); card-budget cap units are not stated in the service signature (UI assumes reporting currency; unverified).
+12. Card ephemeral-key reveal NOT built (see 3): no Stripe.js dependency, no publishable key endpoint. PAN is never rendered or stored.
+13. Transient retries: client retries 429 and non-"not configured" 503 up to 3 times with the SAME idempotency key (lib/bankApi.ts `req`). Wallet-busy has no stable error code in errors.ts; if it uses WALLET_UNAVAILABLE (HTTP 409) it will NOT be retried.
+
+## Status
+- Part 1 (a-h): DONE in webapp/src/lib/bankApi.ts (transferIdOf.*, units, fiatDecimals, describeBankError(code,message), types) and consumers (Convert, Credit, Earn, Ramps, Send, Payments, MoneyAction).
+- `/pay/:slug`: public route in App.tsx -> pages/bank/PayInvoice.tsx; share link = `invoicePayLink(slug)`.
+- Part 2 built: card issuing with cardholder + physical shipping (components/bank/IssueCard.tsx); escrow deliver/confirm/dispute/resolve/refund role-aware (components/bank/EscrowDetail.tsx); approvals inbox + token + payroll approval request `{runId,totalMinor}` + policies editor + card budgets + bills/vendors (pages/bank/BusinessExtra.tsx); streams create/usage/EWA (components/bank/StreamsPanel.tsx); payroll schedules + my pay + EWA (pages/bank/PayrollExtra.tsx); unsecured line + receivables (components/bank/CreditExtra.tsx); Privacy (/bank/privacy); Developers (/bank/developers: handle publish with account selection, partner config/customers/usage); cheapest-chain hint in Send.
+- Part 2 NOT built: card reveal (defect 3), invoice accept (defect 8), org transfer form with approval token (no UI; client `bank.orgTransfer` + `transferIdOf.orgTransfer` exist), Payroll approve-with-token input.

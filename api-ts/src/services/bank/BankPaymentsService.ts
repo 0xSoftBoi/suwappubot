@@ -392,9 +392,10 @@ export const BankPaymentsServiceLive = Layer.succeed(BankPaymentsService, {
 			if (inv.status === 'void') return yield* view(inv)
 			if (inv.status === 'paid' || BigInt(inv.paidMinor) > 0n) return yield* Effect.fail(bankErr('CONFLICT', 'Invoice already has payments; cannot void'))
 			const [row] = yield* bankDb((db) =>
-				db.update(bankInvoices).set({ status: 'void', updatedAt: new Date() }).where(and(eq(bankInvoices.id, inv.id), eq(bankInvoices.paidMinor, '0'))).returning(),
+				db.update(bankInvoices).set({ status: 'void', updatedAt: new Date() }).where(and(eq(bankInvoices.id, inv.id), eq(bankInvoices.paidMinor, '0'), sql`not exists (select 1 from bank_credit_lines l where l.receivable_id = ${bankInvoices.id} and l.kind = 'receivable' and l.status = 'active')`)).returning(),
 			)
-			if (!row) return yield* Effect.fail(bankErr('CONFLICT', 'Invoice received a payment; cannot void'))
+			// MONEY-PATH: a financed (active receivable line) invoice cannot be voided.
+			if (!row) return yield* Effect.fail(bankErr('CONFLICT', 'Invoice received a payment or is financed; cannot void'))
 			return yield* view(row)
 		}),
 

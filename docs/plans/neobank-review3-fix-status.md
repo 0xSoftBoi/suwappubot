@@ -1,6 +1,6 @@
 # Neobank review3 fix status
 
-Migration: api-ts/drizzle/0036_bank_review3.sql + journal idx 35 + database/bank_ddl/review3.py (DONE; not yet applied to a DB).
+Migration: api-ts/drizzle/0036_bank_review3.sql + journal idx 35 + database/bank_ddl/review3.py (DONE; applied twice idempotently to local suwappu_python_first, not to suwappu_drizzle_first which the live-run agent uses).
 
 1. DONE api-ts/src/services/bank/BankAgentPayService.ts - 'auth_unsettled' state set before header is sent, counted in daily cap, never released on 402/error; job `agent-pay-auth` (resolveUnsettledAuthorizations) reads authorizationState after validBefore+120s (used -> confirm, unused -> reverse); validBefore capped at 60s; strict wildcard host match (hostAllowed); asset/payTo/value checks already precede reserve+sign.
 2. DONE BankApprovalService.ts - non-own-org destination accounts are payees (owner+account key); rolling 24h per actor and per org in transfer_over; whole evaluation+transfer under per-org pg advisory lock (withOrgTransferLock). Note: lock is org-level advisory lock, not the account row lock.
