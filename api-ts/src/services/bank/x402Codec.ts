@@ -140,7 +140,7 @@ export type PaymentValidation = { ok: true; from: string; nonce: string; signatu
  */
 export async function validatePaymentForResource(
 	payment: string,
-	req: { chainId: number; asset: string; payTo: string; amountMinor: string; domain: { name: string; version: string }; nowSec: number },
+	req: { chainId: number; asset: string; payTo: string; amountMinor: string; domain: { name: string; version: string }; nowSec: number; maxTimeoutSeconds?: number },
 ): Promise<PaymentValidation> {
 	const fail = (error: string): PaymentValidation => ({ ok: false, error })
 	let d: ReturnType<typeof decodePayment>
@@ -162,7 +162,8 @@ export async function validatePaymentForResource(
 	if (BigInt(a.value) !== BigInt(req.amountMinor)) return fail('authorization_value_mismatch')
 	const va = BigInt(a.validAfter), vb = BigInt(a.validBefore), now = BigInt(req.nowSec)
 	if (!(va <= now && now < vb)) return fail('authorization_not_currently_valid')
-	if (vb - now > 3600n) return fail('authorization_validity_window_too_long')
+	// MONEY-PATH: validBefore must not outlive the claim's reconcile horizon: cap at the advertised maxTimeoutSeconds (+30s skew).
+	if (vb - now > BigInt((req.maxTimeoutSeconds ?? 120) + 30)) return fail(`authorization_validity_window_too_long: validBefore must be within ${req.maxTimeoutSeconds ?? 120}s (+30s skew) of now`)
 	let signer: string
 	try { signer = await recoverAddress({ hash: authorizationDigest(a, { name: req.domain.name, version: req.domain.version, chainId: req.chainId, verifyingContract: req.asset }), signature: d.signature as `0x${string}` }) } catch { return fail('signature_unrecoverable') }
 	if (signer.toLowerCase() !== a.from.toLowerCase()) return fail('signature_signer_mismatch')

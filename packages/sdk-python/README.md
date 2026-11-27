@@ -239,6 +239,50 @@ link = await client.agent.link_code()   # 409 if already linked
 print(link.code, link.expires_at)
 ```
 
+## Bank
+
+`client.bank` mirrors the TypeScript SDK's `client.bank.*` (`/v1/agent/bank/*`). Money is always a
+minor-unit string (never a float). Money-moving methods require `idempotency_key` (8-128 chars of
+`A-Za-z0-9_.:-`); reads and keyed calls are retried on 429 and 503 `LOCK_BUSY` with the same key,
+honouring `Retry-After` (tune via `client.bank.retry`). Calls whose route has no key
+(`agents.pay`, `remittance.claim`, `payroll.create_run`, `earn.set_settings`, ...) are never retried.
+Failures raise `SuwappuBankError` (`code`, `retryable`, `status`, `retry_after`, `detail`, `missing`).
+
+```python
+import asyncio, uuid
+from suwappu import SuwappuClient, SuwappuConfig, SuwappuBankError
+from suwappu.bank_types import TERMINAL_TRANSFER_STATUSES
+
+async def main() -> None:
+    client = SuwappuClient(SuwappuConfig(api_key="sk_..."))
+    bank = client.bank
+    try:
+        opened = await bank.accounts.open(asset="USDC", chain="base", label="ops")
+        src = opened["account"]["id"]
+
+        # Same key => safe to retry; a replay returns the original transfer.
+        res = await bank.transfers.create(
+            idempotency_key=f"pay-{uuid.uuid4()}",
+            from_account_id=src,
+            to_external={"address": "0x..."},
+            amount_minor="1500000",  # 1.50 USDC at 6 decimals
+        )
+        transfer = res["transfer"]
+        while transfer["status"] not in TERMINAL_TRANSFER_STATUSES:
+            await asyncio.sleep(2)
+            transfer = (await bank.transfers.get(transfer["id"]))["transfer"]
+        print(transfer["status"], transfer.get("txHash"))
+    except SuwappuBankError as err:
+        print(err.status, err.code, err.retryable, err.retry_after)
+
+asyncio.run(main())
+```
+
+Namespaces: `accounts`, `transfers`, `assets`, `fx`, `earn`, `credit`, `ramps`, `remittance`, `cards`,
+`payments.{invoices,escrows,streams}`, `payroll`, `business.{orgs,members,approvals,treasury,bills,books}`,
+`agents`, `platform`, `chains`, `privacy`, `segments`, `ops`. Request args are snake_case; nested
+values are camelCase dicts (see `suwappu.bank_types`). Responses are the API's JSON dicts.
+
 ## Error handling
 
 Non-2xx responses raise `SuwappuError`, which carries `status` and `body`:

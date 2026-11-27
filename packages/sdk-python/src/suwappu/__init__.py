@@ -9,6 +9,8 @@ from suwappu.client import (
     SuwappuError,
     create_client,
 )
+from suwappu import bank_types
+from suwappu.bank import BankNamespace, BankRetryOptions, SuwappuBankError
 from suwappu.types import (
     AgentErrorCode,
     AgentProfile,
@@ -89,6 +91,10 @@ __all__ = [
     "SuwappuClient",
     "SuwappuError",
     "SuwappuApiError",
+    "SuwappuBankError",
+    "BankNamespace",
+    "BankRetryOptions",
+    "bank_types",
     "SuwappuConfig",
     "Quote",
     "SwapResult",

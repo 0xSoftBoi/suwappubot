@@ -23,9 +23,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 from suwappu.bank_types import (
-    BankAccount,
     BankAgentMandate,
-    BankAsset,
     BankCollateral,
     BankEscrowMilestone,
     BankInvoiceLineItem,
@@ -33,12 +31,9 @@ from suwappu.bank_types import (
     BankPayrollRunItem,
     BankPayrollScheduleItem,
     BankRampProvider,
-    BankReconcileReport,
     BankRecord,
     BankRemitRecipient,
-    BankStatementPage,
     BankToExternal,
-    BankTransfer,
 )
 from suwappu.client import SuwappuApiError
 
@@ -110,7 +105,9 @@ class BankRetryOptions:
     max_delay_s: float = 10.0
 
 
-def _error_from_response(status: int, text: str, retry_after_header: str | None) -> SuwappuBankError:
+def _error_from_response(
+    status: int, text: str, retry_after_header: str | None
+) -> SuwappuBankError:
     code: str | None = None
     detail: str | None = None
     missing: str | None = None
@@ -240,6 +237,12 @@ class _TransfersNamespace(_Sub):
 
 
 class _AssetsNamespace(_Sub):
+    async def __call__(
+        self, *, chain: str | None = None, currency: str | None = None
+    ) -> dict[str, Any]:
+        """``bank.assets()`` is shorthand for ``bank.assets.list()``."""
+        return await self.list(chain=chain, currency=currency)
+
     async def list(
         self, *, chain: str | None = None, currency: str | None = None
     ) -> dict[str, Any]:
@@ -861,9 +864,7 @@ class _CardsNamespace(_Sub):
 
     async def reveal_config(self, *, provider: str | None = None) -> BankRecord:
         """GET /cards/reveal-config. ``provider``: stripe|rain."""
-        return await self._b._call(
-            "GET", "/cards/reveal-config", params=_params(provider=provider)
-        )
+        return await self._b._call("GET", "/cards/reveal-config", params=_params(provider=provider))
 
     async def freeze(self, card_id: str) -> BankRecord:
         """POST /cards/:id/freeze"""
@@ -1053,12 +1054,16 @@ class _EscrowsNamespace(_Sub):
     async def deliver(self, escrow_id: str, seq: int, proof: str) -> BankRecord:
         """POST /escrows/:id/milestones/:seq/deliver"""
         return await self._b._call(
-            "POST", f"/escrows/{_enc(escrow_id)}/milestones/{int(seq)}/deliver", json={"proof": proof}
+            "POST",
+            f"/escrows/{_enc(escrow_id)}/milestones/{int(seq)}/deliver",
+            json={"proof": proof},
         )
 
     async def confirm(self, escrow_id: str, seq: int) -> BankRecord:
         """POST /escrows/:id/milestones/:seq/confirm"""
-        return await self._b._call("POST", f"/escrows/{_enc(escrow_id)}/milestones/{int(seq)}/confirm")
+        return await self._b._call(
+            "POST", f"/escrows/{_enc(escrow_id)}/milestones/{int(seq)}/confirm"
+        )
 
     async def dispute(self, escrow_id: str, seq: int, reason: str) -> BankRecord:
         """POST /escrows/:id/milestones/:seq/dispute"""
@@ -1080,7 +1085,9 @@ class _EscrowsNamespace(_Sub):
 
     async def refund(self, escrow_id: str, seq: int) -> BankRecord:
         """POST /escrows/:id/milestones/:seq/refund"""
-        return await self._b._call("POST", f"/escrows/{_enc(escrow_id)}/milestones/{int(seq)}/refund")
+        return await self._b._call(
+            "POST", f"/escrows/{_enc(escrow_id)}/milestones/{int(seq)}/refund"
+        )
 
 
 class _StreamsNamespace(_Sub):
@@ -1756,9 +1763,7 @@ class _BooksNamespace(_Sub):
             params=_params(from_=from_, to=to, category_id=category_id, limit=limit),
         )
 
-    async def categorize(
-        self, org_id: str, entry_id: str, category_id: str | None
-    ) -> BankRecord:
+    async def categorize(self, org_id: str, entry_id: str, category_id: str | None) -> BankRecord:
         """PATCH /orgs/:orgId/books/entries/:entryId (``None`` clears the category)."""
         return await self._b._call(
             "PATCH",
@@ -1861,9 +1866,7 @@ class _AgentsNamespace(_Sub):
         action = "enable" if enabled else "disable"
         return await self._b._call("POST", f"/agents/resources/{_enc(resource_id)}/{action}")
 
-    async def directory(
-        self, *, asset: str | None = None, limit: int | None = None
-    ) -> BankRecord:
+    async def directory(self, *, asset: str | None = None, limit: int | None = None) -> BankRecord:
         """GET /agents/directory"""
         return await self._b._call(
             "GET", "/agents/directory", params=_params(asset=asset, limit=limit)
@@ -2029,9 +2032,7 @@ class _PlatformNamespace(_Sub):
         """GET /platform/usage"""
         return await self._b._call("GET", "/platform/usage", params=_params(from_=from_, to=to))
 
-    async def connector_convert(
-        self, *, xml: str | None = None, batch: Any = None
-    ) -> BankRecord:
+    async def connector_convert(self, *, xml: str | None = None, batch: Any = None) -> BankRecord:
         """POST /platform/connector/convert: ``xml`` (pain.001 -> JSON) or ``batch`` (JSON -> pain.001 XML)."""
         return await self._b._call(
             "POST", "/platform/connector/convert", json=_body(xml=xml, batch=batch)
@@ -2162,10 +2163,6 @@ class BankNamespace:
         self.privacy = _PrivacyNamespace(self)
         self.segments = _SegmentsNamespace(self)
         self.ops = _OpsNamespace(self)
-
-    async def assets_list(self, **kw: Any) -> dict[str, Any]:
-        """Alias of ``bank.assets.list`` (the spec's ``bank.assets()`` shorthand)."""
-        return await self.assets.list(**kw)
 
     @staticmethod
     def _key(key: str | None) -> str:

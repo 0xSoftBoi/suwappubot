@@ -273,7 +273,9 @@ export async function facilitatorVerifyAndSettle(
 		const serverReq = { ...accepted, scheme: requirements.scheme, network: requirements.network, payTo: requirements.payTo, asset: requirements.asset, extra: requirements.extra ?? accepted.extra } as typeof accepted
 
 		const v = await client.verify(payload, serverReq)
-		if (!v.isValid) return { ok: false, error: v.invalidReason || 'payment_invalid', definite: true } // verify refused: nothing was submitted
+		// MONEY-PATH: a 'nonce/authorization already used' refusal means the authorization may have settled (e.g. a slow earlier submit):
+		// it is NOT definite; the caller keeps its claim and the reconcile job looks for the settlement tx.
+		if (!v.isValid) { const reason = v.invalidReason || 'payment_invalid'; return { ok: false, error: reason, definite: !/nonce|authori[sz]ation.*used|already.*(used|submitted)|used.*authori[sz]ation/i.test(reason) } } // verify refused: nothing was submitted (unless the nonce is already used)
 
 		const s = await client.settle(payload, serverReq)
 		if (!s.success) return { ok: false, error: s.errorReason || 'settle_failed' }

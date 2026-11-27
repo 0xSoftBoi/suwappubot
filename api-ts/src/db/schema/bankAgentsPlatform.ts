@@ -91,6 +91,11 @@ export const bankAgentResourceSales = pgTable(
 		chain: varchar('chain', { length: 32 }).notNull(),
 		credited: varchar('credited', { length: 5 }).notNull().default('false'),
 		authNonce: varchar('auth_nonce', { length: 80 }),
+		validBefore: varchar('valid_before', { length: 80 }), // MONEY-PATH: authorization expiry (unix s); claim is never released before chain time passes it
+		headBlock: varchar('head_block', { length: 40 }), // chain head when claimed: lower bound for the settlement-log search
+		retrievalHash: varchar('retrieval_hash', { length: 64 }), // sha256 of the one-shot re-serve token
+		recoverChallenge: varchar('recover_challenge', { length: 400 }),
+		recoverExpires: timestamp('recover_expires'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(t) => ({ txUniq: uniqueIndex('ux_bank_agent_sales_tx').on(t.txHash), nonceUniq: uniqueIndex('ux_bank_agent_sales_nonce').on(t.chain, t.authNonce) }),

@@ -113,7 +113,7 @@ export interface BankPayrollServiceInterface {
 	readonly createPayee: (owner: BankOwner, input: PayeeInput) => PayFx<BankPayee>
 	readonly listPayees: (owner: BankOwner) => PayFx<BankPayee[]>
 	readonly archivePayee: (owner: BankOwner, id: string) => PayFx<BankPayee>
-	readonly createRun: (owner: BankOwner, input: { fundingAccountId: string; label?: string | undefined; poolId?: string | undefined; items: RunItemInput[] }) => PayFx<RunPreview>
+	readonly createRun: (owner: BankOwner, input: { fundingAccountId: string; label?: string | undefined; poolId?: string | undefined; items: RunItemInput[]; idempotencyKey?: string | undefined }) => PayFx<RunPreview & { idempotent: boolean; replayed?: boolean }>
 	readonly previewRun: (owner: BankOwner, runId: string) => PayFx<RunPreview>
 	readonly approveRun: (owner: BankOwner, runId: string, approvalToken?: string) => PayFx<BankPayrollRun>
 	readonly executeRun: (owner: BankOwner, runId: string) => PayFx<{ run: BankPayrollRun; items: BankPayrollItem[] }>
@@ -409,13 +409,13 @@ const previewOf = (run: BankPayrollRun): PayFx<RunPreview> =>
 		return { run, items: outItems, totalMinor: run.totalMinor, fundingBalanceMinor: balance.toString(), sufficientFunds: !!run.poolId || balance >= outstanding, usesPool: !!run.poolId, approvalRequired: run.ownerType === 'org' }
 	})
 
-const insertRun = (owner: BankOwner, p: { fundingAccountId: string; asset: string; chain: string; label?: string | undefined; poolId?: string | undefined; scheduleId?: string | undefined; periodKey?: string | undefined; status: 'draft' | 'approved'; approvedBy?: string; rows: Array<{ payeeId: string; amountMinor: bigint; memo?: string | undefined }> }) =>
+const insertRun = (owner: BankOwner, p: { fundingAccountId: string; asset: string; chain: string; label?: string | undefined; poolId?: string | undefined; scheduleId?: string | undefined; periodKey?: string | undefined; status: 'draft' | 'approved'; approvedBy?: string; idemKey?: string; idemHash?: string; rows: Array<{ payeeId: string; amountMinor: bigint; memo?: string | undefined }> }) =>
 	bankDb((db) =>
 		db.transaction(async (tx) => {
 			const total = p.rows.reduce((s, r) => s + r.amountMinor, 0n)
 			const [run] = await tx
 				.insert(bankPayrollRuns)
-				.values({ id: uid('prun'), ownerType: owner.ownerType, ownerId: owner.ownerId, fundingAccountId: p.fundingAccountId, asset: p.asset, chain: p.chain, label: p.label ?? null, status: p.status, totalMinor: total.toString(), poolId: p.poolId ?? null, scheduleId: p.scheduleId ?? null, periodKey: p.periodKey ?? null, approvedBy: p.approvedBy ?? null })
+				.values({ id: uid('prun'), ownerType: owner.ownerType, ownerId: owner.ownerId, fundingAccountId: p.fundingAccountId, asset: p.asset, chain: p.chain, label: p.label ?? null, status: p.status, totalMinor: total.toString(), poolId: p.poolId ?? null, scheduleId: p.scheduleId ?? null, periodKey: p.periodKey ?? null, approvedBy: p.approvedBy ?? null, idemKey: p.idemKey ?? null, idemHash: p.idemHash ?? null })
 				.onConflictDoNothing()
 				.returning()
 			if (!run) return null
@@ -489,6 +489,14 @@ export const BankPayrollServiceLive = Layer.succeed(BankPayrollService, {
 
 	createRun: (owner, input) =>
 		Effect.gen(function* () {
+			// MONEY-PATH: optional caller key; same key + same terms -> the original run, different terms -> CONFLICT. No key: legacy, idempotent:false.
+			const idemHash = input.idempotencyKey ? createHash('sha256').update(JSON.stringify([input.fundingAccountId, input.label ?? null, input.poolId ?? null, input.items])).digest('hex') : undefined
+			const findByKey = () => bankDb(async (db) => (await db.select().from(bankPayrollRuns).where(and(eq(bankPayrollRuns.ownerType, owner.ownerType), eq(bankPayrollRuns.ownerId, owner.ownerId), eq(bankPayrollRuns.idemKey, input.idempotencyKey!))).limit(1))[0])
+			const replay = (r: BankPayrollRun) => r.idemHash !== idemHash ? Effect.fail(bankErr('CONFLICT', 'idempotencyKey already used with different terms')) : previewOf(r).pipe(Effect.map((p) => ({ ...p, idempotent: true, replayed: true })))
+			if (input.idempotencyKey) {
+				const prior = yield* findByKey()
+				if (prior) return yield* replay(prior)
+			}
 			const ledger = yield* BankLedgerService
 			const fund = yield* ledger.getAccount(owner, input.fundingAccountId)
 			{ const sysErr = assertSpendable(fund); if (sysErr) return yield* Effect.fail(sysErr) } // MONEY-PATH: system-kind accounts are never user-spendable
@@ -503,8 +511,12 @@ export const BankPayrollServiceLive = Layer.succeed(BankPayrollService, {
 			const ids = [...new Set(input.items.map((i) => i.payeeId))]
 			const payeeRows = yield* bankDb((db) => db.select().from(bankPayees).where(and(inArray(bankPayees.id, ids), eq(bankPayees.ownerType, owner.ownerType), eq(bankPayees.ownerId, owner.ownerId))))
 			const rows = yield* buildItems({ fundingAsset: fa }, new Map(payeeRows.map((p) => [p.id, p])), input.items)
-			const run = yield* insertRun(owner, { fundingAccountId: fund.id, asset: fund.asset, chain: fund.chain, label: input.label, poolId: input.poolId, status: 'draft', rows })
-			return yield* previewOf(run!)
+			const run = yield* insertRun(owner, { fundingAccountId: fund.id, asset: fund.asset, chain: fund.chain, label: input.label, poolId: input.poolId, status: 'draft', rows, ...(input.idempotencyKey ? { idemKey: input.idempotencyKey, idemHash } : {}) } as never)
+			if (!run && input.idempotencyKey) {
+				const raced = yield* findByKey()
+				if (raced) return yield* replay(raced)
+			}
+			return { ...(yield* previewOf(run!)), idempotent: !!input.idempotencyKey }
 		}),
 
 	previewRun: (owner, runId) => loadRun(owner, runId).pipe(Effect.flatMap(previewOf)),

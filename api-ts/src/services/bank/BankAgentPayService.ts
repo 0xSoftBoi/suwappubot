@@ -411,7 +411,7 @@ export const BankAgentPayServiceLive = Layer.succeed(BankAgentPayService, {
 			// under a unique index BEFORE settling; a replayed/concurrent header loses the insert and gets a fresh 402.
 			// MONEY-PATH: validate against SERVER requirements BEFORE any claim row exists (signer == from, to == payTo, exact price,
 			// validity window, chain/asset). EOA signatures only (no ERC-1271 verifier in this repo). Failure => 402, NO row.
-			const v = yield* Effect.promise(() => validatePaymentForResource(payment, { chainId: asset.chainId!, asset: asset.address, payTo: account.address!, amountMinor: String(res.priceMinor), domain, nowSec: Math.floor(Date.now() / 1000) }))
+			const v = yield* Effect.promise(() => validatePaymentForResource(payment, { chainId: asset.chainId!, asset: asset.address, payTo: account.address!, amountMinor: String(res.priceMinor), domain, nowSec: Math.floor(Date.now() / 1000), maxTimeoutSeconds: 120 }))
 			if (!v.ok) return { status: 402, headers: { ...ch.headers, 'content-type': 'application/json' }, body: JSON.stringify({ ...ch.body, error: 'invalid_payment', reason: v.error, note: 'only EOA (ECDSA) signed EIP-3009 authorizations are accepted' }) }
 			const authNonce = v.nonce
 			const payerFrom = v.from
@@ -419,27 +419,35 @@ export const BankAgentPayServiceLive = Layer.succeed(BankAgentPayService, {
 			const headerHash = createHash('sha256').update(payment).digest('hex')
 			const payerKey = `${payerFrom}#${headerHash}`
 			const claimId = newId('le').replace('le_', 'sale_')
-			const claimed = yield* bankDb((db) => db.insert(bankAgentResourceSales).values({ id: claimId, resourceId: res.id, payer: payerKey, txHash: `pending:${authNonce}`, amountMinor: String(res.priceMinor), asset: res.asset, chain: res.chain, authNonce }).onConflictDoNothing().returning({ id: bankAgentResourceSales.id }))
+			// MONEY-PATH: record validBefore + the chain head at claim time; the claim is never released/rejected before chain time passes validBefore, and the settlement-log search starts at headBlock.
+			const headBlock = yield* Effect.promise(async () => { try { return String(BigInt(await jsonRpc<string>(rpcUrlFor(res.chain), 'eth_blockNumber', []))) } catch { return null } })
+			const claimed = yield* bankDb((db) => db.insert(bankAgentResourceSales).values({ id: claimId, resourceId: res.id, payer: payerKey, txHash: `pending:${authNonce}`, amountMinor: String(res.priceMinor), asset: res.asset, chain: res.chain, authNonce, validBefore: v.authorization.validBefore, headBlock }).onConflictDoNothing().returning({ id: bankAgentResourceSales.id }))
 			// MONEY-PATH: sale states live in tx_hash: 'pending:<nonce>' (claimed, settlement unknown) -> 'unserved:<tx|nonce:<nonce>>'
 			// (settled onchain, resource not yet delivered) -> '<tx>' (served). Exactly one successful serve per settled sale.
-			const serveSettled = (saleId: string, ref: string, payerAddr: string, network: string) =>
+			// MONEY-PATH: `tokenHash` (re-serve only) must equal the stored retrieval hash; the flip consumes it (one-shot).
+			const serveSettled = (saleId: string, ref: string, payerAddr: string, network: string, tokenHash?: string) =>
 				Effect.gen(function* () {
-					const flipped = yield* bankDb((db) => db.update(bankAgentResourceSales).set({ txHash: ref }).where(and(eq(bankAgentResourceSales.id, saleId), eq(bankAgentResourceSales.txHash, `unserved:${ref}`))).returning({ id: bankAgentResourceSales.id }))
+					const flipped = yield* bankDb((db) => db.update(bankAgentResourceSales).set({ txHash: ref, retrievalHash: null }).where(and(eq(bankAgentResourceSales.id, saleId), eq(bankAgentResourceSales.txHash, `unserved:${ref}`), tokenHash ? eq(bankAgentResourceSales.retrievalHash, tokenHash) : sql`true`)).returning({ id: bankAgentResourceSales.id }))
 					if (!flipped.length) return { status: 402, headers: { ...ch.headers, 'content-type': 'application/json' }, body: JSON.stringify({ ...ch.body, error: 'payment_already_used' }) }
-					const revert = () => bankDb((db) => db.update(bankAgentResourceSales).set({ txHash: `unserved:${ref}` }).where(eq(bankAgentResourceSales.id, saleId))).pipe(Effect.ignore)
+					// The payer is in this request: hand them a fresh random retrieval token (only its sha256 is stored).
+					const retrievalToken = randomBytes(32).toString('hex')
+					const revert = () => bankDb((db) => db.update(bankAgentResourceSales).set({ txHash: `unserved:${ref}`, retrievalHash: createHash('sha256').update(retrievalToken).digest('hex') }).where(eq(bankAgentResourceSales.id, saleId))).pipe(Effect.ignore)
 					const up = yield* Effect.tryPromise({ try: () => guardedFetch(res.upstreamUrl, { method: req.method === 'POST' ? 'POST' : 'GET', body: req.method === 'POST' ? req.body : undefined, headers: req.method === 'POST' ? { 'content-type': req.headers['content-type'] ?? 'application/json' } : undefined }), catch: (e) => e as BankError }).pipe(Effect.either)
 					if (up._tag === 'Left' || up.right.status >= 500) {
 						yield* revert()
-						return { status: 502, headers: { 'content-type': 'application/json', ...encodeSettlement({ success: true, transaction: ref.startsWith('nonce:') ? undefined : ref, network, payer: payerAddr }) }, body: JSON.stringify({ error: 'upstream_failed_after_settlement', note: 'payment settled; present the same payment header again to receive the resource without paying again' }) }
+						return { status: 502, headers: { 'content-type': 'application/json', 'x-retrieval-token': retrievalToken, ...encodeSettlement({ success: true, transaction: ref.startsWith('nonce:') ? undefined : ref, network, payer: payerAddr }) }, body: JSON.stringify({ error: 'upstream_failed_after_settlement', retrievalToken, note: 'payment settled; present the same payment header plus this token in the X-Retrieval-Token header to receive the resource once without paying again' }) }
 					}
 					const upr = up.right
 					return { status: upr.status, headers: { ...encodeSettlement({ success: true, transaction: ref.startsWith('nonce:') ? undefined : ref, network, payer: payerAddr }), 'content-type': upr.headers['content-type'] ?? 'application/octet-stream' }, body: upr.body }
 				})
 			if (!claimed.length) {
-				// Re-serve path (payer + sha256 of the EXACT header must match; the signature is known only to the payer) for a settled-but-unserved sale.
+				// Re-serve path for a settled-but-unserved sale: payer + sha256 of the EXACT header AND the one-shot retrieval token (the header alone
+				// is rebuildable from the public settlement tx + challenge, so it is never sufficient). Token comes from the failed response or POST .../recover.
+				const token = req.headers['x-retrieval-token']
+				const tokenHash = token ? createHash('sha256').update(token).digest('hex') : undefined
 				const prior = (yield* bankDb((db) => db.select().from(bankAgentResourceSales).where(and(eq(bankAgentResourceSales.chain, res.chain), eq(bankAgentResourceSales.authNonce, authNonce))).limit(1)))[0]
-				if (prior && prior.resourceId === res.id && prior.txHash.startsWith('unserved:') && prior.payer.toLowerCase() === payerKey.toLowerCase())
-					return yield* serveSettled(prior.id, prior.txHash.slice('unserved:'.length), payerFrom, `eip155:${asset.chainId}`)
+				if (prior && prior.resourceId === res.id && prior.txHash.startsWith('unserved:') && prior.payer.toLowerCase() === payerKey.toLowerCase() && tokenHash && prior.retrievalHash === tokenHash)
+					return yield* serveSettled(prior.id, prior.txHash.slice('unserved:'.length), payerFrom, `eip155:${asset.chainId}`, tokenHash)
 				return { status: 402, headers: { ...ch.headers, 'content-type': 'application/json' }, body: JSON.stringify({ ...ch.body, error: 'payment_already_used' }) }
 			}
 			const env = yield* EnvService.pipe(Effect.mapError((e) => bankErr('NOT_CONFIGURED', `Environment unavailable: ${String(e)}`)))
@@ -456,8 +464,13 @@ export const BankAgentPayServiceLive = Layer.succeed(BankAgentPayService, {
 			if (!settle.ok || !settle.txHash) return { status: 402, headers: { ...ch.headers, 'content-type': 'application/json' }, body: JSON.stringify({ ...ch.body, error: settle.ok ? 'settlement_missing_tx' : settle.error }) }
 			const payer = payerFrom // verified signer; never the facilitator-claimed payer
 			// Persist settled_unserved with the settlement tx BEFORE delivering; the unique tx_hash index also rejects a second claim for the same tx.
-			const finalised = yield* bankDb((db) => db.update(bankAgentResourceSales).set({ txHash: `unserved:${settle.txHash!}` }).where(eq(bankAgentResourceSales.id, claimId)).returning({ id: bankAgentResourceSales.id }))
-			if (!finalised.length) return { status: 402, headers: { ...ch.headers, 'content-type': 'application/json' }, body: JSON.stringify({ ...ch.body, error: 'payment_already_used' }) }
+			// MONEY-PATH: only finalise a claim still in the state we created (a slow facilitator call must not overwrite a 'rejected:' row).
+			const finalised = yield* bankDb((db) => db.update(bankAgentResourceSales).set({ txHash: `unserved:${settle.txHash!}` }).where(and(eq(bankAgentResourceSales.id, claimId), eq(bankAgentResourceSales.txHash, `pending:${authNonce}`))).returning({ id: bankAgentResourceSales.id }))
+			if (!finalised.length) {
+				// 0 rows: act on the real state. The reconcile job may already have recorded THIS settlement as unserved:<tx> -> continue; anything else -> refuse.
+				const cur = (yield* bankDb((db) => db.select({ txHash: bankAgentResourceSales.txHash }).from(bankAgentResourceSales).where(eq(bankAgentResourceSales.id, claimId)).limit(1)))[0]
+				if (cur?.txHash !== `unserved:${settle.txHash!}`) return { status: 402, headers: { ...ch.headers, 'content-type': 'application/json' }, body: JSON.stringify({ ...ch.body, error: 'payment_already_used' }) }
+			}
 			// Credit the seller's ledger from the on-chain deposit (only sales actually settled reach here; creditSales retries).
 			const owner: BankOwner = { ownerType: 'agent', ownerId: res.sellerAgentId }
 			const credited = yield* Effect.either(BankTransferService.pipe(Effect.flatMap((t) => t.syncDeposit(owner, res.accountId))))

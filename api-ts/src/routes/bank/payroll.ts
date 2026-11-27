@@ -29,7 +29,7 @@ const PayeeSchema = z.object({
 const RunItem = z
 	.object({ payeeId: id, amountMinor: minor.optional(), amount: z.string().regex(/^\d+(\.\d+)?$/).optional(), memo: z.string().max(140).optional() })
 	.refine((v) => (v.amountMinor ? 1 : 0) + (v.amount ? 1 : 0) === 1, { message: 'provide exactly one of amountMinor or amount' })
-const RunCreate = z.object({ fundingAccountId: id, label: z.string().max(120).optional(), poolId: id.optional(), items: z.array(RunItem).min(1).max(1000) })
+const RunCreate = z.object({ fundingAccountId: id, label: z.string().max(120).optional(), poolId: id.optional(), items: z.array(RunItem).min(1).max(1000), idempotencyKey: idem.optional() })
 const ScheduleCreate = z.object({
 	fundingAccountId: id,
 	name: z.string().min(1).max(120),
@@ -82,7 +82,9 @@ export function register(app: BankRouteApp, deps: BankRouteDeps): void {
 		const o = await resolveOwner(c)
 		const b = await withBody(c, RunCreate)
 		if (!b.ok) return b.res
-		return run(c, Effect.gen(function* () { return yield* (yield* P).createRun(o, b.data) }))
+		const input = { ...b.data, idempotencyKey: b.data.idempotencyKey ?? c.req.header('Idempotency-Key')?.trim() } // MONEY-PATH
+		if (input.idempotencyKey && !idem.safeParse(input.idempotencyKey).success) return bad(c, { idempotencyKey: 'must match [A-Za-z0-9_.:-]{8,128}' })
+		return run(c, Effect.gen(function* () { return yield* (yield* P).createRun(o, input) }))
 	})
 	app.get('/payroll/runs', async (c) => {
 		const o = await resolveOwner(c)

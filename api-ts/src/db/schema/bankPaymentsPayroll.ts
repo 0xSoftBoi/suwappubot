@@ -270,6 +270,9 @@ export const bankPayrollRuns = pgTable(
 		approvedBy: varchar('approved_by', { length: 96 }),
 		scheduleId: text('schedule_id'),
 		periodKey: varchar('period_key', { length: 32 }),
+		// MONEY-PATH: caller idempotency key for POST /payroll/runs (0044); hash = sha256 of the create terms.
+		idemKey: varchar('idem_key', { length: 128 }),
+		idemHash: varchar('idem_hash', { length: 64 }),
 		createdAt: ts('created_at').defaultNow().notNull(),
 		updatedAt: ts('updated_at').defaultNow().notNull(),
 		executedAt: ts('executed_at'),
@@ -277,6 +280,7 @@ export const bankPayrollRuns = pgTable(
 	(t) => ({
 		ownerIdx: index('ix_bank_payroll_runs_owner').on(t.ownerType, t.ownerId, t.createdAt),
 		periodUniq: uniqueIndex('ux_bank_payroll_runs_period').on(t.scheduleId, t.periodKey),
+		idemUniq: uniqueIndex('ux_bank_payroll_runs_idem').on(t.ownerType, t.ownerId, t.idemKey).where(sql`${t.idemKey} is not null`),
 	}),
 )
 
