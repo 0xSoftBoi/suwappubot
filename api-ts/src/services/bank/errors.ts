@@ -25,6 +25,7 @@ export type BankErrorCode =
 	| 'RAIL_NO_PROVIDER'
 	| 'ISSUER_NOT_CONFIGURED'
 	| 'INSUFFICIENT_AVAILABLE'
+	| 'LOCK_BUSY'
 
 const STATUS: Record<BankErrorCode, number> = {
 	VALIDATION: 400,
@@ -51,6 +52,7 @@ const STATUS: Record<BankErrorCode, number> = {
 	RAIL_NO_PROVIDER: 422,
 	ISSUER_NOT_CONFIGURED: 503,
 	INSUFFICIENT_AVAILABLE: 422,
+	LOCK_BUSY: 503, // retryable: a per-wallet lock could not be acquired in time
 }
 
 /** Typed bank failure. `missing` names the exact external input when code is NOT_CONFIGURED. */

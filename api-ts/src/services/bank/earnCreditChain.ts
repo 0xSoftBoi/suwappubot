@@ -10,7 +10,7 @@ import { type Hex, decodeFunctionResult, encodeFunctionData, parseAbi, toEventSe
 import { RPC_ENDPOINTS } from '../../config/chains'
 import { bankTransfers, type BankAccount } from '../../db'
 import { fetchWithRetry } from '../../lib/retry'
-import { BankLedgerService } from './BankLedgerService'
+import { BankLedgerService, postInTx } from './BankLedgerService'
 import { evmReceipt, type EvmReceipt } from './chain'
 import { bankDb, newId } from './db'
 import { bankErr } from './errors'
@@ -287,11 +287,36 @@ export const postExternalLeg = (input: {
 				.limit(1)
 			return rows[0] ?? null
 		})
-		if (existing) return existing
+		if (existing) {
+			// MONEY-PATH: repair — a confirmed op whose ledger entries are missing is re-posted; postInTx is a no-op
+			// when the 'settle' entries already exist (idempotent per transfer+phase).
+			if (existing.status === 'confirmed')
+				yield* bankDb((db) =>
+					db.transaction((tx) =>
+						postInTx(tx, {
+							transferId: existing.id,
+							phase: 'settle',
+							legs:
+								input.direction === 'in'
+									? [
+											{ accountId: ext.id, direction: 'debit', amountMinor: input.amountMinor },
+											{ accountId: input.account.id, direction: 'credit', amountMinor: input.amountMinor },
+										]
+									: [
+											{ accountId: input.account.id, direction: 'debit', amountMinor: input.amountMinor },
+											{ accountId: ext.id, direction: 'credit', amountMinor: input.amountMinor },
+										],
+						}),
+					),
+				)
+			return existing
+		}
 		const id = newId('xfer')
 		const hash = hashOf(input.type, input.account.id, input.direction, input.amountMinor.toString())
+		// MONEY-PATH: op row + ledger post in ONE transaction (a confirmed op can never exist without its ledger entry).
 		yield* bankDb((db) =>
-			db.insert(bankTransfers).values({
+			db.transaction(async (tx) => {
+				const ins = await tx.insert(bankTransfers).values({
 				id,
 				ownerType: input.owner.ownerType,
 				ownerId: input.owner.ownerId,
@@ -309,22 +334,24 @@ export const postExternalLeg = (input: {
 				memo: input.memo ?? null,
 				metadata: input.metadata ?? {},
 				confirmedAt: new Date(),
+			}).onConflictDoNothing().returning({ id: bankTransfers.id })
+				if (ins.length === 0) return
+				await postInTx(tx, {
+					transferId: id,
+					phase: 'settle',
+					legs:
+						input.direction === 'in'
+							? [
+									{ accountId: ext.id, direction: 'debit', amountMinor: input.amountMinor },
+									{ accountId: input.account.id, direction: 'credit', amountMinor: input.amountMinor },
+								]
+							: [
+									{ accountId: input.account.id, direction: 'debit', amountMinor: input.amountMinor },
+									{ accountId: ext.id, direction: 'credit', amountMinor: input.amountMinor },
+								],
+				})
 			}),
 		)
-		yield* ledger.post({
-			transferId: id,
-			phase: 'settle',
-			legs:
-				input.direction === 'in'
-					? [
-							{ accountId: ext.id, direction: 'debit', amountMinor: input.amountMinor },
-							{ accountId: input.account.id, direction: 'credit', amountMinor: input.amountMinor },
-						]
-					: [
-							{ accountId: input.account.id, direction: 'debit', amountMinor: input.amountMinor },
-							{ accountId: ext.id, direction: 'credit', amountMinor: input.amountMinor },
-						],
-		})
 		return yield* bankDb(async (db) => (await db.select().from(bankTransfers).where(eq(bankTransfers.id, id)).limit(1))[0]!)
 	})
 

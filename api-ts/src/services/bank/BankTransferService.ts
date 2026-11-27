@@ -407,7 +407,7 @@ const advance = (t0: BankTransfer): Fx<BankTransfer> =>
 		const cur = yield* reread(t.id)
 		if (sent._tag === 'Left') {
 			// Lost claim / lock contention: someone else owns it (or we retry later) -> never reverse here.
-			if (sent.left.code === 'CONFLICT') return cur
+			if (sent.left.code === 'CONFLICT' || sent.left.code === 'LOCK_BUSY') return cur
 			// Nothing was broadcast (build / signing / persist failed): release only if still ours and hashless.
 			if (cur.txHash || cur.status !== 'pending' || cur.claimToken !== token) return cur
 			return yield* failAndReverse(cur, sent.left.message, true)

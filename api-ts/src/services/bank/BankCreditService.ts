@@ -27,7 +27,7 @@ bankInvoiceAcceptances,
 } from '../../db'
 import { logger } from '../../lib/logger'
 import { findAsset } from './assets'
-import { BankLedgerService } from './BankLedgerService'
+import { BankLedgerService, postInTx } from './BankLedgerService'
 import { BankTransferService, type BankDeps } from './BankTransferService'
 import { type BankOwner, bankDb, newId } from './db'
 import {
@@ -304,15 +304,23 @@ const settleExternalOp = (t: typeof bankTransfers.$inferSelect, account: BankAcc
 		const ledger = yield* BankLedgerService
 		const ext = yield* ledger.ensureSystemAccount('external', account.asset, account.chain)
 		const amount = BigInt(t.amountMinor)
-		yield* ledger.post({
-			transferId: t.id,
-			phase: 'settle',
-			legs:
-				direction === 'in'
-					? [{ accountId: ext.id, direction: 'debit', amountMinor: amount }, { accountId: account.id, direction: 'credit', amountMinor: amount }]
-					: [{ accountId: account.id, direction: 'debit', amountMinor: amount }, { accountId: ext.id, direction: 'credit', amountMinor: amount }],
-		})
-		return yield* bankDb(async (db) => (await db.update(bankTransfers).set({ status: 'confirmed', txHash, confirmedAt: new Date(), updatedAt: new Date() }).where(eq(bankTransfers.id, t.id)).returning())[0]!)
+		// MONEY-PATH: ledger post + 'confirmed' flip in ONE transaction, with the op row locked (no confirmed-without-ledger, no double post).
+		return yield* bankDb((db) =>
+			db.transaction(async (tx) => {
+				const [cur] = await tx.select().from(bankTransfers).where(eq(bankTransfers.id, t.id)).for('update')
+				if (!cur) throw bankErr('NOT_FOUND', 'Transfer not found')
+				if (cur.status === 'confirmed') return cur
+				await postInTx(tx, {
+					transferId: t.id,
+					phase: 'settle',
+					legs:
+						direction === 'in'
+							? [{ accountId: ext.id, direction: 'debit', amountMinor: amount }, { accountId: account.id, direction: 'credit', amountMinor: amount }]
+							: [{ accountId: account.id, direction: 'debit', amountMinor: amount }, { accountId: ext.id, direction: 'credit', amountMinor: amount }],
+				})
+				return (await tx.update(bankTransfers).set({ status: 'confirmed', txHash, confirmedAt: new Date(), updatedAt: new Date() }).where(eq(bankTransfers.id, t.id)).returning())[0]!
+			}),
+		)
 	})
 
 const failExternalOp = (id: string, reason: string) =>
@@ -1058,15 +1066,19 @@ const repayForRefund: BankCreditServiceInterface['repayForRefund'] = (lineId, am
 			return yield* Effect.fail(bankErr('NOT_CONFIGURED', 'CARD_REFUND_COLLATERALIZED_UNSUPPORTED: refund cash cannot be applied to a Morpho position', { missing: 'a refund settlement address owned by the custody wallet' }))
 		if (!line.poolAccountId) return yield* Effect.fail(bankErr('NOT_FOUND', 'Line has no pool account (nothing was drawn)'))
 		if (amount > BigInt(line.principalMinor)) return yield* Effect.fail(bankErr('VALIDATION', `Refund ${amount} exceeds drawn principal ${line.principalMinor}`))
-		const ledger = yield* BankLedgerService
-		const pool = yield* ledger.getAccountById(line.poolAccountId)
+		// MONEY-PATH (review1b): NO pool-ledger credit from `external` without real inflow. The refund is booked as a PENDING op
+		// (a settlement receivable: debt unchanged); settlePendingPoolOps applies it once a confirmed transfer into the pool account
+		// carries metadata.cardRefundTxn = providerTransactionId (i.e. the cash actually reached the pool wallet).
 		const key = `cardref:${ctx.providerTransactionId}`.slice(0, 120)
-		yield* postExternalLeg({
-			owner: poolOwner(pool), idempotencyKey: `credit:${line.id}:${key}`, type: 'credit', account: pool, direction: 'in', amountMinor: amount,
-			memo: 'card refund restores credit', metadata: { creditLineId: line.id, cardId: ctx.cardId, providerTransactionId: ctx.providerTransactionId },
-		})
-		const applied = yield* applyPoolDelta(line.id, 'repay', key, { principal: amount, interest: 0n })
-		return { applied }
+		const row = yield* bankDb(async (db) =>
+			(await db
+				.insert(bankCreditOps)
+				.values({ id: newId('le').replace('le_', 'cop_'), lineId: line.id, opKey: key, kind: 'repay', status: 'pending', principalMinor: amount.toString(), interestMinor: '0' })
+				.onConflictDoNothing()
+				.returning({ id: bankCreditOps.id }))[0] ?? null,
+		)
+		if (row) yield* addEvent(line, { type: 'repay', level: 'info', data: { cardRefundPending: true, providerTransactionId: ctx.providerTransactionId, amountMinor: amount.toString() } })
+		return { applied: false, pending: true }
 	})
 
 // ------------------------------------------------------------------ recurring job
@@ -1126,6 +1138,12 @@ const settlePendingPoolOps = (): Fx<{ checked: number; applied: number }> =>
 	for (const op of ops) {
 		checked++
 		const kind = op.kind as 'draw' | 'repay'
+		if (op.opKey.startsWith('cardref:')) {
+			const line = yield* loadLineById(op.lineId)
+			const inflow = yield* bankDb(async (db) => (await db.select({ id: bankTransfers.id }).from(bankTransfers).where(and(eq(bankTransfers.status, 'confirmed'), eq(bankTransfers.toAccount, line.poolAccountId ?? ''), sql`${bankTransfers.metadata}->>'cardRefundTxn' = ${op.opKey.slice('cardref:'.length)}`)).limit(1))[0] ?? null)
+			if (inflow && (yield* applyPoolDelta(op.lineId, 'repay', op.opKey, { principal: BigInt(op.principalMinor), interest: 0n }).pipe(Effect.catchAll(() => Effect.succeed(false))))) applied++
+			continue
+		}
 		const t = yield* bankDb(async (db) => (await db.select().from(bankTransfers).where(op.transferId ? eq(bankTransfers.id, op.transferId) : and(eq(bankTransfers.type, 'credit'), eq(bankTransfers.idempotencyKey, opTransferKey(op.lineId, kind, op.opKey)))).limit(1))[0] ?? null)
 		if (!t) {
 			if (Date.now() - op.createdAt.getTime() > 15 * 60_000) yield* failOp(op.lineId, op.opKey)
