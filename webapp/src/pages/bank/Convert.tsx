@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { bank, findTransferId, formatMinor, parseToMinor, str } from '../../lib/bankApi'
+import { bank, transferIdOf, formatMinor, parseToMinor, str } from '../../lib/bankApi'
 import { useBankAccounts } from '../../hooks/bank/useBankCore'
 import { useIdempotencyKey } from '../../hooks/bank/useIdempotencyKey'
 import { BankPage, Btn, Card, ErrorBox, Field, Row } from '../../components/bank/BankUI'
@@ -31,7 +31,7 @@ export function Convert() {
   })
   const qd = quote.data?.quote
   const done = () => { key.reset(); setOpen(false); exec.reset(); quote.reset(); setAmount(''); nav('/bank') }
-  const tid = exec.data ? findTransferId(exec.data) : null
+  const tid = exec.data ? transferIdOf.fx(exec.data) : null
 
   return (
     <BankPage title="Convert">
@@ -70,7 +70,7 @@ export function Convert() {
           onConfirm={() => exec.mutate()}
           onClose={() => (exec.data ? done() : setOpen(false))}
           result={exec.data && (tid ? <TransferTracker transferId={tid} onDone={done} /> : (
-            <div className="space-y-2"><Row label="Status" value={str((exec.data as Record<string, unknown>).status) ?? 'Accepted'} /><Btn className="w-full" onClick={done}>Done</Btn></div>
+            <div className="space-y-2"><Row label="Status" value={exec.data.transfer.status} /><Btn className="w-full" onClick={done}>Done</Btn></div>
           ))}
         />
       )}

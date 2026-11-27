@@ -1,7 +1,7 @@
 import { useEffect, type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AppLayout, AppHeader } from '../layout'
-import { describeBankError, isNotAvailable } from '../../lib/bankApi'
+import { bankErrorText, isNotAvailable } from '../../lib/bankApi'
 
 export function BankPage({ title, back = '/bank', children }: { title: string; back?: string | -1; children: ReactNode }) {
   const navigate = useNavigate()
@@ -97,7 +97,7 @@ export function ErrorBox({ error, onRetry }: { error: unknown; onRetry?: () => v
   const na = isNotAvailable(error)
   return (
     <div role="alert" className={`rounded-suwappu-xl p-3 text-sm border break-words ${na ? 'bg-yellow-500/10 border-yellow-500/30 text-suwappu-text' : 'bg-red-500/10 border-red-500/30 text-red-600'}`}>
-      <p>{describeBankError(error)}</p>
+      <p>{bankErrorText(error)}</p>
       {onRetry && (
         <button type="button" onClick={onRetry} className="mt-2 min-h-[36px] text-xs font-semibold underline">
           Try again

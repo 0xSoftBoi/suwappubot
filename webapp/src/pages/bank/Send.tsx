@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { QRCodeSVG } from 'qrcode.react'
-import { bank, findTransferId, formatMinor, parseToMinor, str, type Remittance } from '../../lib/bankApi'
+import { bank, transferIdOf, formatMinor, parseToMinor, str, type Remittance } from '../../lib/bankApi'
 import { useBankAccounts } from '../../hooks/bank/useBankCore'
 import { useClaimPreview, useRemittance, useRemittances } from '../../hooks/bank/useBankDomains'
 import { useIdempotencyKey } from '../../hooks/bank/useIdempotencyKey'
@@ -117,7 +117,7 @@ export function Send() {
                   <Btn variant="ghost" className="w-full" onClick={() => void navigator.clipboard.writeText(claimLink).then(() => a11yToast.success('Link copied'), () => a11yToast.error('Could not copy the link'))}>Copy claim link</Btn>
                 </div>
               )}
-              {findTransferId(send.data) || send.data.remittance ? <RemitTracker r={send.data.remittance} onDone={done} /> : <Btn className="w-full" onClick={done}>Done</Btn>}
+              {send.data.remittance ? <RemitTracker r={send.data.remittance} onDone={done} /> : <Btn className="w-full" onClick={done}>Done</Btn>}
             </div>
           )}
         />

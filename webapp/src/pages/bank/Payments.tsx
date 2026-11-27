@@ -11,8 +11,7 @@ import { MoneyAction } from '../../components/bank/MoneyAction'
 import { a11yToast } from '@/lib/a11yToast'
 
 const dec = (accts: ReturnType<typeof useBankAccounts>['data'], asset?: string, chain?: string) => accts?.find((a) => a.asset === asset && a.chain === chain)?.decimals ?? null
-const API = import.meta.env.VITE_API_URL || ''
-const linkFor = (slug: string) => `${API}/public/bank/invoices/${slug}`
+const linkFor = invoicePayLink
 const copy = (t: string) => navigator.clipboard.writeText(t).then(() => a11yToast.success('Copied'), () => a11yToast.error('Could not copy'))
 
 function CreateInvoice({ onClose }: { onClose: () => void }) {

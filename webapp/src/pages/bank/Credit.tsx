@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { bank, findTransferId, formatMinor, parseToMinor, str, type CreditLineView, type CreditMarket } from '../../lib/bankApi'
+import { bank, transferIdOf, formatMinor, parseToMinor, str, type CreditLineView, type CreditMarket } from '../../lib/bankApi'
 import { useBankAccounts } from '../../hooks/bank/useBankCore'
 import { useCreditEvents, useCreditLines, useCreditMarkets, useCreditScore } from '../../hooks/bank/useBankDomains'
 import { useIdempotencyKey } from '../../hooks/bank/useIdempotencyKey'
@@ -68,7 +68,7 @@ function LineAction({ v, mode, onClose }: { v: CreditLineView; mode: 'draw' | 'r
       </Sheet>
     )
   }
-  const tid = m.data ? findTransferId(m.data) : null
+  const tid = m.data && 'transferId' in m.data ? transferIdOf.credit(m.data) : null
   return (
     <ConfirmSheet
       title={`Confirm: ${title.toLowerCase()}`}
@@ -112,7 +112,7 @@ function OpenLine({ markets, onClose }: { markets: CreditMarket[]; onClose: () =
           { label: 'Collateral', value: `${formatMinor(minor ?? undefined, mk.collateralAsset.decimals)} ${mk.collateralAsset.symbol}` },
           { label: 'Borrow asset', value: mk.loanAsset.symbol },
           { label: 'Max loan-to-value', value: bps(mk.lltvBps) },
-          { label: 'Borrow rate', value: pctN(mk.borrowApy * 100) },
+          { label: 'Borrow rate', value: pctN(mk.borrowApy) },
           { label: 'Network', value: mk.chain },
         ]}
         note="Collateral is moved from your wallet into the lending market. It can be liquidated if the loan-to-value gets too high."
@@ -132,7 +132,7 @@ function OpenLine({ markets, onClose }: { markets: CreditMarket[]; onClose: () =
         <Field label="Market">
           <select className="w-full min-h-[44px] px-3 rounded-suwappu-lg border border-suwappu-sakura-mid/40 bg-white text-sm" value={marketId} onChange={(e) => setMarketId(e.target.value)}>
             <option value="">Select market</option>
-            {markets.map((x) => <option key={x.marketId} value={x.marketId}>{x.collateralAsset.symbol} → {x.loanAsset.symbol} · {pctN(x.borrowApy * 100)}</option>)}
+            {markets.map((x) => <option key={x.marketId} value={x.marketId}>{x.collateralAsset.symbol} → {x.loanAsset.symbol} · {pctN(x.borrowApy)}</option>)}
           </select>
         </Field>
         {mk && <Field label="Collateral amount"><AmountInput value={amount} onChange={setAmount} symbol={mk.collateralAsset.symbol} decimals={mk.collateralAsset.decimals} /></Field>}
@@ -173,7 +173,7 @@ export function Credit() {
             {(list) => <div className="space-y-2">{list.map((x) => (
               <Card key={x.marketId}>
                 <p className="text-sm font-semibold">{x.collateralAsset.symbol} → {x.loanAsset.symbol}</p>
-                <Row label="Borrow rate" value={pctN(x.borrowApy * 100)} /><Row label="Max loan-to-value" value={bps(x.lltvBps)} /><Row label="Utilization" value={pctN(x.utilizationPct)} />
+                <Row label="Borrow rate" value={pctN(x.borrowApy)} /><Row label="Max loan-to-value" value={bps(x.lltvBps)} /><Row label="Utilization" value={pctN(x.utilizationPct)} />
                 <Row label="Liquidity" value={x.liquidityUsd === null ? '—' : `$${Math.round(x.liquidityUsd).toLocaleString()}`} />
               </Card>
             ))}<Btn className="w-full" onClick={() => setOpening(true)}>Open a line</Btn></div>}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { bank, findTransferId, formatMinor, parseToMinor, str, type EarnPosition, type Vault } from '../../lib/bankApi'
+import { bank, transferIdOf, formatMinor, parseToMinor, str, type EarnPosition, type Vault } from '../../lib/bankApi'
 import { useBankAccounts } from '../../hooks/bank/useBankCore'
 import { useEarnHistory, useEarnPositions, useEarnSettings, useVaults } from '../../hooks/bank/useBankDomains'
 import { useIdempotencyKey } from '../../hooks/bank/useIdempotencyKey'
@@ -11,7 +11,7 @@ import { ConfirmSheet } from '../../components/bank/ConfirmSheet'
 import { TransferTracker } from '../../components/bank/TransferTracker'
 import { a11yToast } from '@/lib/a11yToast'
 
-const pct = (n: number | null | undefined) => (n === null || n === undefined ? '—' : `${(n * 100).toFixed(2)}%`)
+const pct = (n: number | null | undefined) => (n === null || n === undefined ? '—' : `${n.toFixed(2)}%`)
 
 function MoveSheet({ mode, vault, accountId, position, onClose }: { mode: 'deposit' | 'withdraw'; vault: Vault; accountId: string; position?: EarnPosition; onClose: () => void }) {
   const qc = useQueryClient()
@@ -30,7 +30,7 @@ function MoveSheet({ mode, vault, accountId, position, onClose }: { mode: 'depos
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['bank'] }),
   })
   const op = m.data?.operation
-  const tid = m.data ? findTransferId(m.data) : null
+  const tid = m.data ? transferIdOf.earn(m.data) : null
   const label = mode === 'deposit' ? 'Deposit' : 'Withdraw'
   if (review) {
     return (
