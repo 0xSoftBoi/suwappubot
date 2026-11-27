@@ -170,7 +170,7 @@ registerHoldProvider('agent-pay', async (accountId, tx, excludeId) =>
 
 /** MONEY-PATH: atomically enforce per-call max + daily cap under an advisory lock, then insert a 'reserved' spend row. */
 const reserveSpend = (m: BankAgentMandate, a: { host: string; payee: string; asset: string; chain: string; amountMinor: bigint; url: string }, idem?: { key: string; hash: string }) =>
-	bankDb(async (db) =>
+	bankDb(async (db) => { try { return await
 		db.transaction(async (tx): Promise<{ id: string; existing?: typeof bankAgentSpend.$inferSelect }> => {
 			await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${m.id}))`)
 			// MONEY-PATH: re-check the key under the per-mandate lock so a concurrent retry can never reserve twice.
@@ -192,8 +192,17 @@ const reserveSpend = (m: BankAgentMandate, a: { host: string; payee: string; ass
 			const id = newId('xfer').replace('xfer_', 'spend_')
 			await tx.insert(bankAgentSpend).values({ id, mandateId: m.id, agentId: m.agentId, accountId: m.accountId, host: a.host, payee: a.payee, asset: a.asset, chain: a.chain, amountMinor: a.amountMinor.toString(), status: 'reserved', resourceUrl: a.url, ...(idem ? { idemKey: idem.key, idemHash: idem.hash } : {}) })
 			return { id }
-		}),
-	)
+		})
+		} catch (e) {
+			// MONEY-PATH: cross-mandate race on (agent_id, idem_key): unique violation -> same replay/CONFLICT handling as the in-lock re-check.
+			const err = e as { code?: string; constraint_name?: string; message?: string; cause?: { code?: string; constraint_name?: string; message?: string } }
+			const code = err?.code ?? err?.cause?.code
+			const hit = idem && code === '23505' && `${err?.constraint_name ?? err?.cause?.constraint_name ?? ''}${err?.message ?? ''}${err?.cause?.message ?? ''}`.includes('ux_bank_agent_spend_idem')
+			if (!hit || !idem) throw e
+			const [ex] = await db.select().from(bankAgentSpend).where(and(eq(bankAgentSpend.agentId, m.agentId), eq(bankAgentSpend.idemKey, idem.key))).limit(1)
+			if (!ex) throw e
+			return { id: ex.id, existing: ex }
+		} })
 
 const patchSpend = (id: string, patch: Partial<typeof bankAgentSpend.$inferInsert>) =>
 	bankDb((db) => db.update(bankAgentSpend).set({ ...patch, updatedAt: new Date() }).where(eq(bankAgentSpend.id, id)).returning().then((r) => r[0]!))
@@ -566,7 +575,7 @@ export const resolveUnsettledAuthorizations = async (): Promise<number> => {
 					if (!used && !(sp.authValidBefore != null && st.chainTime > Number(sp.authValidBefore) + EXPIRY_MARGIN_SEC)) return
 					const amount = BigInt(sp.amountMinor)
 					const clearing = yield* ledger.ensureSystemAccount('clearing', sp.asset, sp.chain)
-					const claim = yield* bankDb((db) => db.update(bankAgentSpend).set({ status: used ? 'settled' : 'failed', updatedAt: new Date() }).where(and(eq(bankAgentSpend.id, sp.id), eq(bankAgentSpend.status, 'auth_unsettled'))).returning({ id: bankAgentSpend.id }))
+					const claim = yield* bankDb((db) => db.update(bankAgentSpend).set({ status: used ? 'settled' : 'failed', idemResult: sp.idemKey ? JSON.stringify(used ? { paid: true, resolved: 'used_onchain' } : { paid: false, resolved: 'expired_unused' }) : sp.idemResult, updatedAt: new Date() }).where(and(eq(bankAgentSpend.id, sp.id), eq(bankAgentSpend.status, 'auth_unsettled'))).returning({ id: bankAgentSpend.id }))
 					if (!claim.length) return
 					if (used) {
 						const external = yield* ledger.ensureSystemAccount('external', sp.asset, sp.chain)
@@ -652,7 +661,7 @@ export const reconcilePendingSales = async (): Promise<number> => {
 				// used + search incomplete (window missed the tx): stay pending and let the ops-alerts job surface it; never reject on a partial search.
 				if (st.used && !complete) continue
 				if (st.used) await reject(sale) // used, and a COMPLETE search found no payee/price match: terminal, never served
-				else await runEffect(bankDb((db) => db.delete(bankAgentResourceSales).where(and(eq(bankAgentResourceSales.id, sale.id), eq(bankAgentResourceSales.txHash, `pending:${sale.authNonce}`)))) as never)
+				else await reject(sale) // MONEY-PATH: unused -> kept as rejected:<id> for ops review (never servable), not deleted
 				n++
 			}
 		} catch {
