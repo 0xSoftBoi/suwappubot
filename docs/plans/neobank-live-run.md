@@ -10,7 +10,7 @@
 
 ## Status
 
-### Part A: `openAccount` call-site sweep (wallet resolved?)
+### openAccount sweep
 
 | Site | Result |
 |---|---|
@@ -25,7 +25,7 @@
 | routes/bank/core.ts:44 | OK (`wallet`) |
 | BankPartnerService.ts:49/195, routes/bank/platform.ts:114, business.ts:113, BankLedgerService.ts:99/294 | N-A (wrappers / interface / definition) |
 
-Type tightened: `OpenAccountInput.wallet` is now REQUIRED (`wallet: WalletRef`, BankLedgerService.ts ~L52); omitting it is a compile error. `bun run check` passes with all callers unchanged.
+Type tightened: `OpenAccountInput.wallet` is now REQUIRED (`wallet: WalletRef`, BankLedgerService.ts ~L52); omitting it is a compile error (no automatic resolution; the runtime WALLET_UNAVAILABLE guard stays as a backstop). `bun run check` passes with all callers unchanged. Behaviour of openAccount itself is unchanged.
 
 | Step | Result | Notes |
 |---|---|---|
@@ -82,7 +82,7 @@ Setup (latest re-run on HEAD e9d9824, migrations through 0045 applied, normal en
 | g3 stream | PASS (CHANGED detail) | Earlier stream (cap 20M) = 2 transfers totalling 20000000. New stream cap 4M: settle after 15s 1.5M; pause/resume/cancel 200; the post-cancel and past-cap settles do not pay while the first transfer is unconfirmed (single in-flight intent); after confirmation the `payments` job settled the 2.5M remainder (key `...:1`). Final `settled_minor` = 4000000 = total paid = cap (this was stale in the first run; now correct, updated on confirmation), stream cancelled+ended, net 0. |
 | g5 org approvals | PASS (partial re-run, see notes) | transfer_over $30 policy: transfer without token -> 200 `approvalRequired` + request; owner self-approve 403; second member B approves 200; token issued by requester only (approver 403); matching token -> transfer executed keyed `orgapp-<request>`; different amount 403 "payload mismatch"; REPLAY with new key or same key -> 409 CONFLICT "Approval already used". Org -> own personal account returned `approvalRequired` (new_payee policy). Rolling 24h: with threshold set to (24h org volume + 5M), 2M #1 and #2 pass, #3 and #4 -> `approvalRequired` (PASS). 25 parallel org transfers: 25x200 (twice), max 747ms, /health 0-9ms during (PASS); one earlier attempt had 16x422 only because the org account was underfunded (9 x 0.1M fit), not a bug. Script note: g5f/g5g/g5h hardcode request ids and issue the token as B; B may not (role), so tokens are issued by A (CHANGED script usage, same as first run); a token tested while only a new_payee policy was active is not consulted (not a bug). |
 | g6 FX | NOT RUN (yet) | |
-| g7 cards | NOT RUN (yet) | |
+| g7 cards | PASS | Temp card row (deleted after). Simulate: travel window in -> approved, future window -> declined `window`; MCC 7995 blocked -> `mcc_block`; per-tx cap 500 vs 1000 -> `per_tx_cap`, cap 1000 vs 1000 (edge) approved; allowlist exact: UBER approved, `Uber *Trip` and UBEREATS declined `merchant_allow`; daily cap 5000 with 4500 spent: +500 approved, +501 declined `daily_cap`. Issue -> 503 PROVIDER_NOT_CONFIGURED (STRIPE_ISSUING_ENABLED); unknown card simulate 404. `GET /cards`: `shortfall` key absent with no row, present (amount/asset/since/reason) while row open, absent again once `repaid` and once deleted. (Rule key names are `perTxCapMinor`/`dailyCapMinor`/`mccBlock`/`merchantAllow`/`activeWindows`; g7b.ts uses stale names.) |
 | 3h jobs | NOT RUN (yet) | |
 | n1 escrow split failed leg | PASS (CHANGED detail) | 50M escrow with arbiter (user 3), payer dispute, signer stopped, arbiter resolve release 30M + refund 20M: release leg `failed` (reversed into escrow), refund leg left as `intent`, milestone `disputed`; an immediate re-resolve -> 409 "unfinished fund movements" (CHANGED: blocked until the escrow job executes the parked refund intent, which it did within ~45s). Then (signer back) release 40M -> 400 VALIDATION "must equal remaining (30000000)"; release 30M -> 200, confirmed after mining; further resolves 409 (milestone released). Paid out total 30M release + 20M refund = 50M, never more; escrow account balance 0; no unbalanced transfer. |
 | n2 payout pool | PASS (after fix, CHANGED flow) | BUG 6 FIXED: `POST /payroll/pools` with asset+chain failed `409 WALLET_UNAVAILABLE openAccount requires a resolved custody wallet` (same class as bug 3): `BankPayoutPoolService.createPool` (~L109) now resolves `ledger.resolveCustodyWallet(operator, family)` and passes `wallet` (`// MONEY-PATH`). Flow: B operator creates pool + limit 10M for payer A; A's pool-funded run executed with pool balance 0 -> item stays `pending` with error "Pool balance 0 is below the payout of 2000000", its receivable `void`, no money moved; B topped up 5M -> the payments job re-attempted by itself (an explicit retry meanwhile returns 409 "Run is executing", CHANGED vs a manual retry) -> new receivable `open` -> recipient paid exactly once (`poolpay:<receivable>` payout confirmed 2M) -> job collected from the payer (`poolsettle:<receivable>` confirmed 2M), receivable `settled`, run `completed`, pool balance back to 5000000. |
