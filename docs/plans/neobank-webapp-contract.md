@@ -99,15 +99,15 @@ Part 2: card issuing+cardholder+shipping BUILT; card reveal NOT BUILT (defect 3)
 Verification: 390x844 screenshots with intercepted responses (script in scratchpad webapp-verify/verify.cjs) of BankHome, Send confirm, Earn vaults, Cards rules, Credit line, /pay/:slug, RAMP_UNAVAILABLE state; no horizontal overflow (scrollWidth == 390 on all).
 
 ## Round 3 status
-1. Transfer ids tracked (escrow funding/transfers[], stream transferId, payInvoice transferId): NOT STARTED
-2. /pay/:slug decimals/acceptance + Accept invoice: NOT STARTED
+1. Transfer ids tracked: BUILT (escrow fundingTransferId on create via TransferTracker + per-milestone TransferLine in EscrowDetail; stream Settle now confirm sheet + tracker; payInvoice uses top-level transferId)
+2. /pay/:slug: BUILT (symbol/decimals/chainName, acceptance row, Accept banner only if invoice is in viewer's payer list, POST /payments/invoices/:id/accept)
 3. Receivables financing acceptance + refusal explanations: NOT STARTED
-4. Card reveal via Stripe.js Issuing Elements: NOT STARTED
+4. Card reveal: BUILT (components/bank/RevealCard.tsx; Stripe.js loaded on tap; needs card.providerCardId from GET /cards/:id, else shows unavailable)
 5. Ramps decimals/stage/per-rail external-account form: NOT STARTED
 6. Payroll my-pay ids + approve-with-token: NOT STARTED
 7. Business org transfer + approval flow, thresholdCurrency, invite by email/Telegram: NOT STARTED
 8. Developers: platform config/usage/customers?orgId + API keys: NOT STARTED
 9. Privacy local scanning: NOT STARTED
-10. Cards: capCurrency, refund state, frozen shortfall, allowlist copy: NOT STARTED
+10. Cards: BUILT (capCurrency/capDecimals via GET /cards/:id; refund state; shortfall note inferred from frozen + failed settlement since no explicit field; merchantAllow editor with exact-match/id: copy)
 11. BankHome ops alerts banner: NOT STARTED
 12. Cosmetic fixes (vault name ellipsis, account dropdown clip): NOT STARTED

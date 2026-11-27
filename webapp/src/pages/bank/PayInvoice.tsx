@@ -50,6 +50,30 @@ function PayFromAccount({ inv, due, decimals }: { inv: PublicInvoice; due: strin
   )
 }
 
+/** Shown only when the signed-in viewer is the invoice's named payer (it appears in their payer-side invoice list). */
+function AcceptBanner({ slug, amount }: { slug: string; amount: string }) {
+  const [open, setOpen] = useState(false)
+  const mine = useQuery({ queryKey: ['bank', 'invoices', 'payer'], queryFn: async () => (await bank.invoices({ role: 'payer' })).invoices, retry: 1 })
+  const target = mine.data?.find((i) => i.slug === slug)
+  if (!target) return null
+  return (
+    <Card className="space-y-2">
+      <p className="text-sm font-semibold">This invoice needs your acceptance</p>
+      <p className="text-xs text-suwappu-text-secondary">The issuer may finance it once you accept. You still pay it as usual.</p>
+      <Btn className="w-full" onClick={() => setOpen(true)}>Accept invoice</Btn>
+      {open && (
+        <MoneyAction
+          title="Accept invoice"
+          rows={[{ label: 'Invoice', value: target.reference || target.memo || slug }, { label: 'Amount', value: amount }, { label: 'Asset', value: `${target.asset} on ${target.chain}` }, { label: 'Fee', value: 'None' }]}
+          confirmLabel="Accept"
+          run={() => bank.acceptInvoice(target.id)}
+          onClose={() => { setOpen(false); void mine.refetch() }}
+        />
+      )}
+    </Card>
+  )
+}
+
 /** Public, unauthenticated invoice page: /pay/:slug. */
 export function PayInvoice() {
   const { slug = '' } = useParams()
@@ -58,11 +82,12 @@ export function PayInvoice() {
   // /assets needs a session; unauthenticated visitors get the amount in the units the API carries on the wire.
   const assets = useQuery({ queryKey: bankKeys.assets, queryFn: async () => (await bank.assets()).assets, enabled: isAuthenticated, staleTime: 10 * 60_000, retry: 1 })
   const inv = q.data
-  const decimals = inv ? assets.data?.find((a) => a.symbol === inv.asset && a.chain === inv.chain)?.decimals ?? null : null
+  const decimals = inv ? inv.decimals ?? assets.data?.find((a) => a.symbol === inv.asset && a.chain === inv.chain)?.decimals ?? null : null
+  const sym = inv?.symbol ?? inv?.asset ?? ''
   const due = inv && isMinor(inv.amountMinor) && isMinor(inv.paidMinor) && BigInt(inv.amountMinor) > BigInt(inv.paidMinor) ? (BigInt(inv.amountMinor) - BigInt(inv.paidMinor)).toString() : '0'
   const req = inv?.paymentRequest
   const sol = req?.family === 'solana' ? solanaDecimalAmount(req.uri) : null
-  const amountText = (minor: string) => (decimals !== null ? `${formatMinor(minor, decimals)} ${inv?.asset}` : `${minor} ${inv?.asset} (smallest units)`)
+  const amountText = (minor: string) => (decimals !== null ? `${formatMinor(minor, decimals)} ${sym}` : `${minor} ${sym} (smallest units)`)
   const payable = !!inv && !['paid', 'void', 'draft', 'cancelled'].includes(inv.status) && due !== '0'
   return (
     <div className="min-h-screen bg-suwappu-bg">
@@ -81,7 +106,8 @@ export function PayInvoice() {
               <div className="mt-2 divide-y divide-suwappu-sakura-mid/20">
                 {BigInt(inv.paidMinor) > 0n && <Row label="Already paid" value={amountText(inv.paidMinor)} />}
                 <Row label="Still due" value={amountText(due)} />
-                <Row label="Network" value={inv.chain} />
+                <Row label="Network" value={inv.chainName ?? inv.chain} />
+                {inv.acceptance?.required && <Row label="Acceptance" value={inv.acceptance.acceptedAt ? `Accepted ${new Date(inv.acceptance.acceptedAt).toLocaleDateString()}` : 'Waiting for the payer to accept'} />}
                 {inv.dueAt && <Row label="Due" value={new Date(inv.dueAt).toLocaleDateString()} />}
               </div>
               {inv.lineItems.length > 0 && (
@@ -92,6 +118,7 @@ export function PayInvoice() {
                 </ul>
               )}
             </Card>
+            {isAuthenticated && inv.acceptance?.required && !inv.acceptance.acceptedAt && <AcceptBanner slug={inv.slug} amount={amountText(inv.amountMinor)} />}
             {payable ? (
               <>
                 <Card className="space-y-2">
@@ -102,9 +129,9 @@ export function PayInvoice() {
                   <h2 className="font-heading font-bold text-sm text-suwappu-purple-deep text-left">Pay from any wallet</h2>
                   <div className="mx-auto w-48 h-48 p-2 bg-white rounded-suwappu-lg shadow-suwappu-1"><QRCodeSVG value={req.qrPayload} size={176} /></div>
                   <div className="text-left">
-                    <Row label="Send exactly" value={sol ? `${sol} ${req.asset}` : amountText(req.payAmountMinor)} />
+                    <Row label="Send exactly" value={sol ? `${sol} ${sym}` : amountText(req.payAmountMinor)} />
                     <Row label="Pay to" value={req.payTo} mono />
-                    <Row label="Network" value={req.chain} />
+                    <Row label="Network" value={inv.chainName ?? req.chain} />
                     {req.reference && <Row label="Reference" value={req.reference} mono />}
                   </div>
                   <p className="text-xs text-suwappu-text-secondary text-left">{req.family === 'evm' ? 'The amount includes a unique tag so we can match your payment. Send exactly this amount on the network shown.' : 'Send exactly this amount on the network shown.'}</p>

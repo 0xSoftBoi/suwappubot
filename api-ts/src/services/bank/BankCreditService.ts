@@ -63,7 +63,7 @@ export const MAX_DRAW_LTV_OF_LLTV_BPS = 9000
 export const WARN_LTV_OF_LLTV_BPS = 8500
 export const CRITICAL_LTV_OF_LLTV_BPS = 9300
 const YEAR_SECONDS = 31_536_000n
-const UNSECURED_CAP_UNITS = 5_000n // whole units of the loan asset
+const UNSECURED_CAP_UNITS = 5_000n // USD cap (compared against USD-valued exposure, not whole units of the loan asset)
 const RECEIVABLE_ADVANCE_BPS = 8000
 /** Fixed-markup (interest-free) financing is priced as the product's APR over this standard term, charged ONCE up front. */
 const FIXED_MARKUP_TERM_DAYS = 30
@@ -1109,10 +1109,12 @@ const financeReceivable: BankCreditServiceInterface['financeReceivable'] = (i) =
 		const line = yield* bankDb((db) => db.transaction(async (tx) => {
 			// MONEY-PATH: lock the invoice row and re-check state/amount/payer/acceptance inside the finance transaction; void, payment credit and a
 			// concurrent finance all serialise on this row lock, so none can slip between the check and the line creation.
-			const lk = (await tx.execute(sql`select status, amount_minor::text as amount_minor, paid_minor::text as paid_minor, payee_owner_type, payee_owner_id, payer_owner_type, payer_owner_id from bank_invoices where id = ${i.invoiceId} for update`)) as unknown as Array<Record<string, string>>
+			const lk = (await tx.execute(sql`select status, payee_account_id, due_at::text as due_at, amount_minor::text as amount_minor, paid_minor::text as paid_minor, payee_owner_type, payee_owner_id, payer_owner_type, payer_owner_id from bank_invoices where id = ${i.invoiceId} for update`)) as unknown as Array<Record<string, string>>
 			const cur = lk[0]
 			if (!cur || !['open', 'sent', 'issued', 'pending', 'unpaid', 'overdue', 'partially_paid'].includes(String(cur.status).toLowerCase())) throw bankErr('CONFLICT', `Invoice is '${cur?.status ?? 'missing'}'; it can no longer be financed`)
 			if (cur.payee_owner_type !== i.owner.ownerType || cur.payee_owner_id !== i.owner.ownerId || cur.payer_owner_type !== String(pType) || cur.payer_owner_id !== String(pId)) throw bankErr('CONFLICT', 'Invoice parties changed; retry')
+			// MONEY-PATH: the invoice must settle into the SAME account the advance is paid to (the hold + collection are keyed on it); refuse otherwise.
+			if (cur.payee_account_id !== acct.id) throw bankErr('CONFLICT', 'Invoice settles into a different account than the advance account; it cannot be financed')
 			if (BigInt(cur.amount_minor) - BigInt(cur.paid_minor) !== face) throw bankErr('CONFLICT', 'Invoice amount or paid balance changed since it was read; retry')
 			const accNow = (await tx.execute(sql`select 1 as x from bank_invoice_acceptances where invoice_id = ${i.invoiceId} and payer_owner_type = ${String(pType)} and payer_owner_id = ${String(pId)} limit 1`)) as unknown as unknown[]
 			if (accNow.length === 0) throw bankErr('FORBIDDEN', 'Invoice acceptance no longer valid')
@@ -1132,7 +1134,7 @@ const financeReceivable: BankCreditServiceInterface['financeReceivable'] = (i) =
 			// MONEY-PATH: advances outstanding against the same PAYER are capped by the same limit (one payer cannot back unlimited advances).
 			const pe = (await tx.execute(sql`select coalesce(sum(l.limit_minor), 0)::text as s from bank_credit_lines l join bank_invoices v on v.id = l.receivable_id where l.kind = 'receivable' and l.status = 'active' and l.loan_asset = ${acct.asset} and l.chain = ${acct.chain} and v.payer_owner_type = ${String(pType)} and v.payer_owner_id = ${String(pId)}`)) as unknown as Array<{ s: string }>
 			if (BigInt(pe[0]?.s ?? '0') + advance > BigInt(sc.proposedLimitMinor)) throw bankErr('LIMIT_EXCEEDED', `Advances against this payer would exceed the financing limit (${sc.proposedLimitMinor})`)
-			return (await tx.insert(bankCreditLines).values({ id, ownerType: i.owner.ownerType, ownerId: i.owner.ownerId, kind: 'receivable', chain: acct.chain, loanAsset: acct.asset, accountId: acct.id, poolAccountId: pool.id, limitMinor: advance.toString(), aprBps: mode === 'markup' ? 0 : RECEIVABLE_APR_BPS, receivableId: i.invoiceId, faceMinor: face.toString(), metadata: mode === 'markup' ? { advanceRateBps: RECEIVABLE_ADVANCE_BPS, financing: FIXED_MARKUP, markupBps: fixedMarkupBps(RECEIVABLE_APR_BPS), termDays: FIXED_MARKUP_TERM_DAYS } : { advanceRateBps: RECEIVABLE_ADVANCE_BPS } }).onConflictDoNothing().returning())[0] ?? (await tx.select().from(bankCreditLines).where(eq(bankCreditLines.id, id)))[0] ?? null
+			return (await tx.insert(bankCreditLines).values({ id, ownerType: i.owner.ownerType, ownerId: i.owner.ownerId, kind: 'receivable', chain: acct.chain, loanAsset: acct.asset, accountId: acct.id, poolAccountId: pool.id, limitMinor: advance.toString(), aprBps: mode === 'markup' ? 0 : RECEIVABLE_APR_BPS, receivableId: i.invoiceId, faceMinor: face.toString(), metadata: mode === 'markup' ? { payeeAccountId: acct.id, dueAt: cur.due_at ?? null, advanceRateBps: RECEIVABLE_ADVANCE_BPS, financing: FIXED_MARKUP, markupBps: fixedMarkupBps(RECEIVABLE_APR_BPS), termDays: FIXED_MARKUP_TERM_DAYS } : { payeeAccountId: acct.id, dueAt: cur.due_at ?? null, advanceRateBps: RECEIVABLE_ADVANCE_BPS } }).onConflictDoNothing().returning())[0] ?? (await tx.select().from(bankCreditLines).where(eq(bankCreditLines.id, id)))[0] ?? null
 		}))
 		if (!line) return yield* Effect.fail(bankErr('CONFLICT', 'Invoice is already financed'))
 		const r = yield* poolDraw(i.owner, line, advance, 'advance')
@@ -1148,7 +1150,9 @@ const financeReceivable: BankCreditServiceInterface['financeReceivable'] = (i) =
 registerHoldProvider('receivable_collection', async (accountId, tx, excludeId) =>
 	sumRow(
 		await tx.execute(
-			sql`select coalesce(sum(ceil(l.principal_minor + l.accrued_interest_minor + (l.principal_minor * l.apr_bps * greatest(0, extract(epoch from ((now() at time zone 'utc') - l.last_accrual_at)))) / (10000::numeric * 31536000)) + 1), 0)::text as s
+			// MONEY-PATH: hold = least(owed incl. +1 rounding slack, invoice proceeds received since financing and not yet collected by a receivable_settled event);
+				// never more than money that actually arrived for THIS invoice (numeric, no overflow; one term per line so several lines/invoices on one account just add).
+				sql`select coalesce(sum(least(ceil(l.principal_minor + l.accrued_interest_minor + (l.principal_minor * l.apr_bps * greatest(0, extract(epoch from ((now() at time zone 'utc') - l.last_accrual_at)))) / (10000::numeric * 31536000)) + 1), greatest(0, v.paid_minor - (v.amount_minor - l.face_minor) - coalesce((select sum((e.data->>'collectedMinor')::numeric) from bank_credit_events e where e.line_id = l.id and e.type = 'receivable_settled'), 0)))), 0)::text as s
 				from bank_credit_lines l join bank_invoices v on v.id = l.receivable_id
 				where l.account_id = ${accountId} and l.kind = 'receivable' and l.status = 'active' and v.paid_minor > 0 and (${excludeId ?? null}::text is null or l.id <> ${excludeId ?? null})`,
 		),
@@ -1287,6 +1291,13 @@ const runLtvMonitor = (): Fx<{ checked: number; events: number }> =>
 				yield* addEvent(line, { type: 'delinquent', level: 'critical', data: { principalMinor: line.principalMinor } })
 				evCount++
 			}
+		}
+		// MONEY-PATH: a financed invoice still unpaid past its due_at (recorded on the line) marks the line delinquent (blocks new credit). Off-reference onchain payments cannot be attributed, so this is the backstop.
+		const late = (yield* bankDb(async (db) => await db.execute(sql`select l.id as lid from bank_credit_lines l join bank_invoices v on v.id = l.receivable_id where l.kind = 'receivable' and l.status = 'active' and l.principal_minor > 0 and v.due_at is not null and v.due_at < now() and v.paid_minor < v.amount_minor and not exists (select 1 from bank_credit_events e where e.line_id = l.id and e.type = 'delinquent') limit 500`))) as unknown as Array<{ lid: string }>
+		for (const r of late) {
+			const line = yield* loadLineById(r.lid)
+			yield* addEvent(line, { type: 'delinquent', level: 'critical', data: { principalMinor: line.principalMinor, reason: 'financed_invoice_past_due' } })
+			evCount++
 		}
 		return { checked: rows.length + pool.length, events: evCount }
 	})

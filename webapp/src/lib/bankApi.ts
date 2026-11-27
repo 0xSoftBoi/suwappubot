@@ -514,6 +514,7 @@ export const bank = {
   creditScore: (q?: { asset?: string; chain?: string }) => get<Ok<{ score: CreditScore }>>('/credit/score', q),
   /** Payer-side: accept an invoice so the payee can finance it. Body shape assumed { invoiceId } (not visible to the client author). */
   acceptReceivable: (b: { invoiceId: string }, key: string) => post<Ok<Json>>('/credit/receivables/accept', b, key),
+  acceptInvoice: (id: string) => post<Ok<Json>>(`/payments/invoices/${id}/accept`),
   financeReceivable: (b: { accountId: string; invoiceId: string }, key: string) => post<Ok<{ line: CreditLineView; advanceMinor: string }>>('/credit/receivables/finance', b, key),
   unsecuredLine: (b: { accountId: string }, key: string) => post<Ok<{ line: CreditLineView }>>('/credit/unsecured', b, key),
 

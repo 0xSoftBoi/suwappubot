@@ -938,3 +938,494 @@ export interface LiveSubscription {
   /** Close the WebSocket connection. */
   close(): void;
 }
+
+// ============================================================================
+// Bank — Suwappu Bank (`/v1/agent/bank/*`, agent API key required)
+// ----------------------------------------------------------------------------
+// Mirrors api-ts/src/routes/bank/*.ts (zod request schemas) and
+// api-ts/src/services/bank/* (return shapes). ADD-ONLY section: nothing above
+// this line may be changed by Bank work (api-ts, webapp and mobile import it).
+// Money is ALWAYS a minor-unit integer string (e.g. "1500000" = 1.50 USDC at 6
+// decimals). `amount` (human decimal string) is accepted by some routes and is
+// converted server-side using the source account's asset decimals.
+// ============================================================================
+
+/** Codes from api-ts/src/services/bank/errors.ts (BankErrorCode) plus the route-level validation code. */
+export type BankErrorCode =
+  | "VALIDATION"
+  | "VALIDATION_ERROR"
+  | "NOT_FOUND"
+  | "FORBIDDEN"
+  | "CONFLICT"
+  | "INSUFFICIENT_FUNDS"
+  | "LIMIT_EXCEEDED"
+  | "POLICY_BLOCKED"
+  | "ACCOUNT_STATE"
+  | "ASSET_UNSUPPORTED"
+  | "WALLET_UNAVAILABLE"
+  | "SIGNING_UNAVAILABLE"
+  | "UPSTREAM"
+  | "DB"
+  | "NOT_CONFIGURED"
+  | "LENDER_POOL_UNFUNDED"
+  | "POOL_UNFUNDED"
+  | "EXPOSURE_LIMIT"
+  | "RAMP_UNAVAILABLE"
+  | "RECEIVABLES_UNAVAILABLE"
+  | "PROVIDER_NOT_CONFIGURED"
+  | "PROVIDER_DOCS_REQUIRED"
+  | "RAIL_NO_PROVIDER"
+  | "ISSUER_NOT_CONFIGURED"
+  | "INSUFFICIENT_AVAILABLE"
+  | "LOCK_BUSY";
+
+/** Every successful bank response is `{ success: true, ...payload }`. */
+export type BankEnvelope<T> = { success: true } & T;
+
+/** Response payloads whose service return type is not mirrored field-by-field. */
+export type BankRecord = Record<string, unknown>;
+
+export type BankOwnerType = "user" | "agent" | "org" | "partner_customer" | "system";
+export type BankAccountKind = "checking" | "savings" | "credit" | "escrow" | "pool" | "treasury";
+export type BankAccountStatus = "active" | "frozen" | "closed";
+export type BankTransferStatus = "pending" | "submitted" | "confirmed" | "failed" | "reversed";
+export type BankRail = "ach" | "wire" | "fednow" | "sepa" | "spei" | "pix" | "upi" | "vietqr" | "bre_b" | "swift";
+export type BankRampProvider = "bridge" | "due";
+
+/** Exactly one of `amountMinor` (minor units) or `amount` (human decimal) is required. */
+export type BankAmountInput =
+  | { amountMinor: string; amount?: undefined }
+  | { amount: string; amountMinor?: undefined };
+
+/** Exactly one of `amountMinor`, `amount` or `all: true`. */
+export type BankAmountOrAllInput = BankAmountInput | { all: true; amountMinor?: undefined; amount?: undefined };
+
+export interface BankOwnerRef {
+  ownerType: "user" | "agent" | "org" | "partner_customer";
+  ownerId: string;
+}
+
+export interface BankAccount {
+  id: string;
+  ownerType: BankOwnerType;
+  ownerId: string;
+  kind: BankAccountKind;
+  currency: string;
+  asset: string;
+  chain: string;
+  walletId: number | null;
+  walletUserId: number | null;
+  address: string | null;
+  status: BankAccountStatus;
+  segmentProfile: string | null;
+  /** Ledger balance, minor units. */
+  balanceMinor: string;
+  label: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  /** Human decimal balance (presentAccount); null when the asset is unknown. */
+  balance: string | null;
+  decimals: number | null;
+}
+
+export interface BankTransfer {
+  id: string;
+  ownerType: BankOwnerType;
+  ownerId: string;
+  idempotencyKey: string;
+  requestHash: string;
+  type: string;
+  fromAccount: string | null;
+  toAccount: string | null;
+  toExternal: { address: string; chain: string } | null;
+  amountMinor: string;
+  asset: string;
+  chain: string;
+  status: BankTransferStatus;
+  txHash: string | null;
+  failureReason: string | null;
+  memo: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  confirmedAt: string | null;
+  [k: string]: unknown;
+}
+
+export interface BankLedgerEntry {
+  id: string;
+  transferId: string;
+  accountId: string;
+  direction: "debit" | "credit";
+  amountMinor: string;
+  asset: string;
+  balanceAfter: string | null;
+  phase: string;
+  createdAt: string;
+}
+
+export interface BankStatementPage {
+  entries: Array<BankLedgerEntry & { cursor: string }>;
+  nextCursor: string | null;
+}
+
+export interface BankReconcileReport {
+  accountId: string;
+  chain: string;
+  asset: string;
+  address: string | null;
+  accountsInGroup: string[];
+  ledgerMinor: string;
+  onchainMinor: string;
+  components: {
+    walletMinor: string;
+    vaultPositionMinor: string;
+    collateralPostedMinor: string;
+    unrealizedYieldMinor: string;
+  };
+  deltaMinor: string;
+  inFlightTransfers: number;
+  status: "in_sync" | "pending_settlement" | "drift";
+}
+
+export interface BankAsset {
+  symbol: string;
+  chain: string;
+  decimals: number;
+  family: "evm" | "solana";
+  [k: string]: unknown;
+}
+
+// ---- accounts / transfers / assets ----
+export interface BankOpenAccountArgs {
+  /** escrow/pool accounts are service-opened only. Default `checking`. */
+  kind?: "checking" | "savings" | "credit" | "treasury";
+  asset: string;
+  chain: string;
+  label?: string;
+  segmentProfile?: string;
+}
+export interface BankStatementArgs { limit?: number; cursor?: string }
+export interface BankListAssetsArgs { chain?: string; currency?: string }
+export type BankTransferArgs = BankAmountInput & {
+  /** REQUIRED. 8-128 chars of A-Za-z0-9_.:- . Reuse the same key to retry safely. */
+  idempotencyKey: string;
+  fromAccountId: string;
+  memo?: string;
+} & (
+    | { toAccountId: string; toExternal?: undefined }
+    | { toExternal: { address: string }; toAccountId?: undefined }
+  );
+export interface BankListTransfersArgs { accountId?: string; status?: string; limit?: number; before?: string }
+
+// ---- fx ----
+export type BankFxQuoteArgs = BankAmountInput & {
+  fromAccountId: string;
+  toAccountId: string;
+  /** 0.0001 - 0.05 */
+  slippage?: number;
+  requireDirect?: boolean;
+};
+export type BankFxExecuteArgs = BankFxQuoteArgs & { idempotencyKey: string; minToMinor?: string };
+
+// ---- earn ----
+export interface BankEarnVaultsArgs { asset: string; chain: string }
+export interface BankEarnHistoryArgs { accountId?: string; limit?: number }
+export type BankEarnDepositArgs = BankAmountInput & { idempotencyKey: string; accountId: string; vault: string };
+export type BankEarnWithdrawArgs = BankAmountOrAllInput & { idempotencyKey: string; accountId: string; vault: string };
+export interface BankEarnSettingsArgs {
+  accountId: string;
+  /** EVM address of the vault. */
+  vault: string;
+  /** Default true. */
+  enabled?: boolean;
+  floorMinor?: string;
+  floor?: string;
+  minSweepMinor?: string;
+}
+
+// ---- credit ----
+export interface BankCreditMarketsArgs { chain?: string; asset?: string; collateral?: string }
+export interface BankCreditOpenLineArgs {
+  idempotencyKey: string;
+  accountId: string;
+  /** Morpho market id (bytes32 hex). */
+  marketId: string;
+  collateral: { source?: "wallet" | "vault_shares"; amountMinor: string; savingsAccountId?: string };
+}
+export type BankCreditAmountArgs = BankAmountOrAllInput & { idempotencyKey: string; lineId: string };
+export interface BankCreditEventsArgs { lineId?: string; since?: string; limit?: number }
+export interface BankCreditScoreArgs { asset?: string; chain?: string }
+export interface BankCreditUnsecuredArgs { idempotencyKey: string; accountId: string }
+export interface BankCreditReceivableArgs { idempotencyKey: string; accountId: string; invoiceId: string }
+
+// ---- ramps ----
+export type BankRampQuoteArgs = BankAmountInput & {
+  direction: "offramp" | "onramp";
+  rail: BankRail;
+  asset: string;
+  currency?: string;
+};
+export interface BankRampKycArgs {
+  provider?: BankRampProvider;
+  email: string;
+  fullName: string;
+  type?: "individual" | "business";
+}
+export interface BankRampExternalAccountArgs {
+  provider?: BankRampProvider;
+  accountType: "us" | "iban" | "clabe";
+  ownerName: string;
+  bankName?: string;
+  label?: string;
+  account: Record<string, string>;
+  address?: { street_line_1: string; city: string; country: string; state?: string; postal_code?: string };
+}
+export interface BankRampVirtualAccountArgs {
+  provider?: BankRampProvider;
+  accountId: string;
+  sourceCurrency: "usd" | "eur" | "mxn" | "brl" | "cop" | "gbp";
+}
+export interface BankRampOfframpArgs {
+  idempotencyKey: string;
+  provider?: BankRampProvider;
+  fromAccountId: string;
+  externalAccountId: string;
+  amountMinor: string;
+}
+
+// ---- remittance ----
+export type BankRemitQuoteArgs = BankAmountInput & { fromAccountId: string; rail?: BankRail; currency?: string };
+export type BankRemitRecipient =
+  | { kind: "user"; telegramId?: number; username?: string }
+  | { kind: "address"; address: string }
+  | { kind: "claim"; label?: string }
+  | { kind: "payout"; rail: BankRail; externalAccountId: string };
+export type BankRemitSendArgs = BankAmountInput & {
+  idempotencyKey: string;
+  fromAccountId: string;
+  memo?: string;
+  autoEarn?: boolean;
+  recipient: BankRemitRecipient;
+};
+export interface BankRemitClaimArgs { accountId?: string; choice?: "keep" | "cashout"; externalAccountId?: string }
+
+// ---- cards ----
+export interface BankCardAddress {
+  line1: string; line2?: string; city: string; state?: string; postalCode: string;
+  /** ISO 3166-1 alpha-2 */
+  country: string;
+}
+export interface BankCardIssueArgs {
+  accountId: string;
+  idempotencyKey: string;
+  type?: "virtual" | "physical";
+  provider?: "stripe" | "rain";
+  label?: string;
+  rules?: Record<string, unknown>;
+  orgId?: string; memberId?: string; teamId?: string;
+  expenseCategory?: string;
+  memo?: string;
+  termsAccepted?: boolean;
+  cardholder?: {
+    name: string; email?: string; phoneNumber?: string; billing: BankCardAddress;
+    individual?: { firstName: string; lastName: string; dob: { day: number; month: number; year: number } };
+  };
+  shipping?: BankCardAddress & { name: string; speed?: "standard" | "express" | "priority" };
+}
+export interface BankCardListArgs { accountId?: string; memberId?: string; orgId?: string; [k: string]: string | undefined }
+export interface BankCardSimulateArgs {
+  amountMinor: string; merchantName?: string; merchantId?: string;
+  /** 4-digit MCC. */
+  mcc?: string; country?: string; at?: string; rules?: Record<string, unknown>;
+}
+
+// ---- payments ----
+export interface BankInvoiceLineItem { description: string; quantity: number; unitAmountMinor: string }
+export interface BankInvoiceCreateArgs {
+  payeeAccountId: string;
+  payer?: BankOwnerRef;
+  amountMinor?: string;
+  lineItems?: BankInvoiceLineItem[];
+  /** ISO date. */
+  dueAt?: string;
+  memo?: string;
+  metadata?: Record<string, unknown>;
+  idempotencyKey?: string;
+  publish?: boolean;
+}
+export interface BankInvoiceListArgs { role?: "payer" | "payee"; status?: string }
+export interface BankInvoicePayArgs {
+  idempotencyKey: string;
+  /** invoiceId or slug. */
+  invoiceId?: string;
+  slug?: string;
+  fromAccountId: string;
+  amountMinor?: string;
+}
+export interface BankEscrowMilestone { amountMinor: string; description?: string; deliverBy?: string }
+export interface BankEscrowCreateArgs {
+  idempotencyKey: string;
+  payee: BankOwnerRef;
+  payerAccountId: string;
+  payeeAccountId: string;
+  amountMinor?: string;
+  milestones?: BankEscrowMilestone[];
+  arbiter?: BankOwnerRef;
+  description?: string;
+  deliverBy?: string;
+  autoReleaseSeconds?: number;
+}
+export interface BankStreamCreateArgs {
+  idempotencyKey: string;
+  payerAccountId: string;
+  payeeAccountId: string;
+  kind: "rate" | "metered";
+  rateMinor?: string;
+  periodSeconds?: number;
+  unitPriceMinor?: string;
+  capMinor: string;
+  dustMinor?: string;
+  ewaBps?: number;
+  metadata?: Record<string, unknown>;
+}
+
+// ---- payroll ----
+export interface BankPayeeArgs {
+  kind: "worker" | "contractor";
+  name: string;
+  method: "bank_account" | "wallet" | "local_rail";
+  accountId?: string; address?: string; chain?: string; railAccountId?: string; rail?: string;
+  /** 3-letter currency code. */
+  currency: string;
+  linkedOwner?: BankOwnerRef;
+  tax?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+}
+export type BankPayrollRunItem = { payeeId: string; memo?: string } & BankAmountInput;
+export interface BankPayrollRunArgs { fundingAccountId: string; label?: string; poolId?: string; items: BankPayrollRunItem[] }
+export interface BankPayrollScheduleArgs {
+  fundingAccountId: string;
+  name: string;
+  frequency: "weekly" | "biweekly" | "monthly";
+  timezone: string;
+  dayOfWeek?: number; dayOfMonth?: number;
+  /** HH:MM */
+  localTime?: string;
+  items: Array<{ payeeId: string; amountMinor: string; memo?: string; ewaBps?: number }>;
+  poolId?: string;
+  autoApprove?: boolean;
+}
+export interface BankPayrollPoolArgs {
+  accountId?: string; asset?: string; chain?: string;
+  defaultPayerLimitMinor?: string;
+  payerLimits?: Record<string, string>;
+}
+
+// ---- business ----
+export type BankOrgRole = "owner" | "admin" | "approver" | "accountant" | "member" | "viewer";
+export interface BankOrgCreateArgs { name: string; reportingCurrency?: string }
+export interface BankOrgUpdateArgs { name?: string; reportingCurrency?: string }
+export interface BankMemberPatchArgs { role?: BankOrgRole; team?: string | null }
+export interface BankOrgInviteArgs { role: BankOrgRole; team?: string; email?: string; telegramId?: number; ttlHours?: number }
+export interface BankOrgAccountArgs { kind?: "checking" | "savings" | "treasury"; asset: string; chain: string; label?: string }
+export interface BankOrgTransferArgs {
+  idempotencyKey: string;
+  fromAccountId: string;
+  amountMinor: string;
+  memo?: string;
+  categoryId?: string;
+  approvalToken?: string;
+  toAccountId?: string;
+  toExternal?: { address: string };
+}
+export interface BankApprovalPolicyArgs {
+  ruleType: "transfer_over" | "new_payee" | "payroll_run";
+  thresholdMinor?: string;
+  requiredApprovals?: number;
+  approverRoles: BankOrgRole[];
+  expiryHours?: number;
+}
+export interface BankApprovalRequestArgs { action: "payroll_run" | "new_payee"; payload: Record<string, unknown> }
+export interface BankTreasuryPolicyArgs {
+  accountId: string; floorMinor: string; sweepEnabled?: boolean; sweepVaultId?: string; minSweepMinor?: string;
+}
+export interface BankVendorArgs { name: string; email?: string; payAddress?: string; payChain?: string; categoryId?: string }
+export interface BankBillArgs {
+  vendorId: string; reference?: string; amountMinor: string; asset: string; chain: string;
+  /** ISO date. */
+  dueDate: string; categoryId?: string;
+}
+export interface BankBillScheduleArgs { payFromAccountId: string; scheduledFor: string }
+export interface BankBooksCategoryArgs {
+  code: string; name: string; kind: "income" | "expense" | "transfer" | "asset" | "liability" | "equity";
+}
+export interface BankBooksRangeArgs { from?: string; to?: string }
+export interface BankBooksEntriesArgs extends BankBooksRangeArgs { categoryId?: string; limit?: number }
+export interface BankCardBudgetArgs {
+  scope: "member" | "team"; scopeId: string;
+  monthlyCapMinor?: string | null; perTxCapMinor?: string | null;
+  categoryBudgets?: Record<string, string>;
+}
+
+// ---- agents (x402) ----
+export interface BankAgentMandate {
+  perCallMaxMinor: string;
+  dailyCapMinor: string;
+  allowedHosts?: string[];
+  /** EVM addresses. */
+  allowedPayees?: string[];
+  allowedAssets: string[];
+  expiresAt?: string;
+}
+export interface BankAgentAccountArgs { asset: string; chain: string; label?: string; mandate: BankAgentMandate }
+export interface BankAgentPayArgs {
+  mandateId: string;
+  url: string;
+  method?: "GET" | "POST" | "PUT" | "DELETE";
+  body?: string;
+  headers?: Record<string, string>;
+}
+export interface BankAgentResourceArgs {
+  accountId: string; title: string; description?: string; upstreamUrl: string; priceMinor: string; slug?: string;
+}
+export interface BankAgentDirectoryArgs { asset?: string; limit?: number }
+export interface BankAgentStreamArgs {
+  idempotencyKey: string; payerAccountId: string; payeeAccountId: string; unitPriceMinor: string; unit: string;
+}
+export interface BankAgentUsageArgs { idempotencyKey: string; streamId: string; units: string }
+
+// ---- platform (partner API) ----
+export interface BankPlatformConfigArgs { feeBpsTransfer?: number; feeBpsFx?: number; webhookUrl?: string | null }
+export interface BankPlatformCustomerArgs { externalRef: string; displayName?: string; email?: string; country?: string }
+export interface BankPlatformAccountArgs { asset: string; chain: string; kind?: "checking" | "savings"; label?: string }
+export interface BankPlatformTransferArgs {
+  idempotencyKey: string; customerId: string; fromAccountId: string; amountMinor: string; memo?: string;
+  toAccountId?: string; toExternal?: { address: string };
+}
+export interface BankPlatformFxArgs {
+  idempotencyKey: string; customerId: string; fromAccountId: string; toAccountId: string; amountMinor: string; slippage?: number;
+}
+export interface BankPlatformUsageArgs { from?: string; to?: string }
+
+// ---- chains / privacy / segments ----
+export type BankFeeModelArgs = {
+  asset: string;
+  chains: string[];
+} & ({ amountMinor: string; amount?: undefined } | { amount: string; amountMinor?: undefined });
+export interface BankPrivacyPayoutArgs {
+  payeeMetaAddress: string; payoutRef: string; token?: { address: string; amountMinor: string };
+}
+export interface BankPrivacyAnnouncedArgs { payoutRef: string; txHash: string; chain: string }
+export interface BankPrivacyAnnouncementsArgs {
+  chain: string;
+  /** Hex block number or `earliest`. */
+  fromBlock: string;
+  /** Hex block number or `latest`. */
+  toBlock?: string;
+  cursor?: number;
+  /** 1-500 */
+  limit?: number;
+}
+// ============================ end Bank section =============================

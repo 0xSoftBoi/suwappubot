@@ -286,6 +286,35 @@ const finalizeTransfer = (
 		}),
 	)
 
+/**
+ * MONEY-PATH: a partner fee is only released once its principal is `confirmed` (set at the chain's reorg-safe confirmation depth). If a confirmed
+ * principal is later marked `reversed`, the already-released fee is compensated once: reverse-phase posting (feeTo -> payer) + status 'reversed'
+ * in ONE transaction (finalizeTransfer; the ledger's unique (transfer, phase) index makes it idempotent), with the compensation recorded in metadata.
+ */
+const compensateReversedPrincipalFees = (): Fx<number> =>
+	Effect.gen(function* () {
+		const rows = (yield* bankDb(async (db) => await db.execute(sql`select f.id as id from bank_transfers f where f.status = 'confirmed' and f.metadata->>'feeOfTransferId' is not null and exists (select 1 from bank_transfers p where p.id = f.metadata->>'feeOfTransferId' and p.status = 'reversed') limit 50`))) as unknown as Array<{ id: string }>
+		let n = 0
+		for (const r of rows) {
+			const f = (yield* bankDb((db) => db.select().from(bankTransfers).where(eq(bankTransfers.id, r.id)).limit(1)))[0]
+			if (!f || !f.fromAccount || !f.toAccount) continue
+			const res = yield* Effect.either(
+				finalizeTransfer(f.id, {
+					from: ['confirmed'],
+					phase: 'reverse',
+					legs: [
+						{ accountId: f.toAccount, direction: 'debit', amountMinor: BigInt(f.amountMinor) },
+						{ accountId: f.fromAccount, direction: 'credit', amountMinor: BigInt(f.amountMinor) },
+					],
+					patch: { status: 'reversed', failureReason: 'principal reversed after fee release; fee compensated', metadata: { ...(f.metadata ?? {}), feeCompensated: { at: new Date().toISOString(), principalId: f.metadata?.feeOfTransferId ?? null } } },
+				}),
+			)
+			if (res._tag === 'Left') logger.error({ transferId: f.id, err: res.left.message }, '[bank] fee compensation failed')
+			else n++
+		}
+		return n
+	})
+
 const failAndReverse = (t: BankTransfer, reason: string, noBroadcast = false): Fx<BankTransfer> =>
 	Effect.gen(function* () {
 		const clearing = clearingFor(t)
@@ -772,7 +801,8 @@ export const BankTransferServiceLive = Layer.succeed(BankTransferService, {
 			}
 
 			// Per-tx limit + policy engine (agents). Daily limit is enforced atomically at insert.
-			yield* enforceSpendControls({ owner: input.owner, from, asset, amount, destination: to?.address ?? input.toExternal!.address })
+			// MONEY-PATH: per-tx limit and agent policy see principal + fee (the full debit); daily limit/balance already include the fee at insert.
+			yield* enforceSpendControls({ owner: input.owner, from, asset, amount: amount + (input.feeLeg ? BigInt(input.feeLeg.amountMinor) : 0n), destination: to?.address ?? input.toExternal!.address })
 
 			const principalId = newId('xfer')
 			let feeRow: typeof bankTransfers.$inferInsert | undefined
@@ -846,6 +876,7 @@ export const BankTransferServiceLive = Layer.succeed(BankTransferService, {
 					.orderBy(bankTransfers.updatedAt)
 					.limit(opts?.limit ?? 50),
 			)
+			yield* Effect.ignore(compensateReversedPrincipalFees())
 			let confirmed = 0
 			let failed = 0
 			for (const row of rows) {
