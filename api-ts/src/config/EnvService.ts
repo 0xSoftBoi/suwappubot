@@ -134,6 +134,20 @@ export const EnvSchema = Schema.Struct({
 	AUTOPILOT_CYCLE_MINUTES: Schema.optionalWith(Schema.NumberFromString, { default: () => 0 }),
 	// Bank pending-transfer reconciler interval in seconds (0 = disabled).
 	BANK_RECONCILE_SECONDS: Schema.optionalWith(Schema.NumberFromString, { default: () => 30 }),
+	// Bank M5 ramps. All optional: unset = provider reports PROVIDER_NOT_CONFIGURED.
+	BRIDGE_API_KEY: Schema.optional(Schema.String),
+	BRIDGE_API_BASE_URL: Schema.optionalWith(Schema.String, { default: () => 'https://api.bridge.xyz/v0' }),
+	/** PEM public key returned when the Bridge webhook endpoint was created. */
+	BRIDGE_WEBHOOK_PUBLIC_KEY: Schema.optional(Schema.String),
+	DUE_API_KEY: Schema.optional(Schema.String),
+	DUE_ACCOUNT_ID: Schema.optional(Schema.String),
+	DUE_API_BASE_URL: Schema.optionalWith(Schema.String, { default: () => 'https://api.due.network/v1' }),
+	/** Comma-separated rails the operator has onboarded on Due (e.g. "sepa,spei"). Unset = Due serves no rail. */
+	DUE_ENABLED_RAILS: Schema.optional(Schema.String),
+	// Bank M4 remittance. Base URL used to build claim links; expiry in hours; expiry-refund job seconds (0 disables).
+	BANK_CLAIM_BASE_URL: Schema.optional(Schema.String),
+	BANK_REMIT_CLAIM_TTL_HOURS: Schema.optionalWith(Schema.NumberFromString, { default: () => 168 }),
+	BANK_REMIT_JOB_SECONDS: Schema.optionalWith(Schema.NumberFromString, { default: () => 300 }),
 	/**
 	 * JSON describing one PAPER agent this environment should have. Seeded on
 	 * boot if missing, never modified if it already exists. Cannot create a live
@@ -235,6 +249,13 @@ export const EnvSchema = Schema.Struct({
 	STRIPE_WEBHOOK_SECRET: Schema.optional(Schema.String),
 	STRIPE_PRO_PRICE_ID: Schema.optional(Schema.String),
 	STRIPE_PREMIUM_PRICE_ID: Schema.optional(Schema.String),
+	// Suwappu Bank cards (M6). All optional: absent -> typed PROVIDER_NOT_CONFIGURED errors.
+	STRIPE_ISSUING_ENABLED: Schema.optional(Schema.String),
+	STRIPE_ISSUING_WEBHOOK_SECRET: Schema.optional(Schema.String),
+	BANK_CARD_SETTLEMENT_ADDRESS_EVM: Schema.optional(Schema.String),
+	BANK_CARD_SETTLEMENT_ADDRESS_SOLANA: Schema.optional(Schema.String),
+	RAIN_API_KEY: Schema.optional(Schema.String),
+	RAIN_API_BASE_URL: Schema.optional(Schema.String),
 
 	// ERC-4337 smart accounts (Kernel v0.3.1 via permissionless.js / viem).
 	// OFF by default — predicting addresses is always available on supported
