@@ -44,7 +44,7 @@ import {
 	validateDecision,
 	verifyApprovalTokenWith,
 } from './bankOrgPure'
-import { type BankOwner, bankDb } from './db'
+import { type BankOwner, bankDb, withDbLock } from './db'
 import { type BankError, bankErr } from './errors'
 import { assertSpendable } from './systemDebit'
 
@@ -199,35 +199,10 @@ export const performOrgTransfer = (
 ): Effect.Effect<OrgTransferResult, BankError, BankDeps | BankTransferService | EnvService> =>
 	withOrgTransferLock(ctx.org.id, performOrgTransferLocked(ctx, i))
 
-// MONEY-PATH: serialise policy evaluation + transfer creation per org (cross-replica pg advisory lock on a reserved
-// connection) so concurrent requests cannot both pass the rolling-24h transfer_over check.
-const withOrgTransferLock = <A, E, R>(orgId: string, eff: Effect.Effect<A, E, R>): Effect.Effect<A, E | BankError, R> =>
-	Effect.acquireUseRelease(
-		Effect.tryPromise({
-			try: async () => {
-				const { requireDb } = await import('../../db')
-				const { runEffect } = await import('../../runtime')
-				const db = (await runEffect(requireDb as never)) as { $client: { reserve: () => Promise<any> } }
-				const conn = await db.$client.reserve()
-				try {
-					await conn`select pg_advisory_lock(hashtextextended(${`org-xfer:${orgId}`}, 0))`
-				} catch (e) {
-					conn.release()
-					throw e
-				}
-				return conn
-			},
-			catch: (e) => bankErr('DB', `Could not take org transfer lock: ${String(e)}`),
-		}),
-		() => eff,
-		(conn) => Effect.promise(async () => {
-			try {
-				await conn`select pg_advisory_unlock(hashtextextended(${`org-xfer:${orgId}`}, 0))`
-			} finally {
-				conn.release()
-			}
-		}).pipe(Effect.ignore),
-	)
+// MONEY-PATH: serialise policy evaluation + transfer creation per org via the hardened withDbLock primitive
+// (try-lock + jittered backoff + connection cap; retryable LOCK_BUSY) so concurrent requests cannot both pass the
+// rolling-24h transfer_over check and a lock wait can never exhaust the pool.
+const withOrgTransferLock = <A, E, R>(orgId: string, eff: Effect.Effect<A, E, R>) => withDbLock(`org-xfer:${orgId}`, eff)
 
 /** MONEY-PATH: rolling 24h outflow (non-own-org destinations) in reporting minor units, for the org and for one actor. */
 const rollingOutflow = (org: OrgCtx['org'], actorUserId: number) =>
@@ -237,7 +212,7 @@ const rollingOutflow = (org: OrgCtx['org'], actorUserId: number) =>
 				coalesce(sum(t.amount_minor) filter (where t.metadata->>'actorUserId' = ${String(actorUserId)}),0)::text as actor_total
 				from bank_transfers t left join bank_accounts ta on ta.id = t.to_account
 				where t.owner_type = 'org' and t.owner_id = ${org.id} and t.created_at > now() - interval '24 hours'
-				and t.status not in ('failed','cancelled','reversed') and t.type in ('internal','onchain')
+				and t.status not in ('failed','cancelled','reversed') and t.type not in ('fx','earn')
 				and (t.to_account is null or ta.owner_type <> 'org' or ta.owner_id <> ${org.id})
 				group by t.asset, t.chain`)
 			return (Array.isArray(r) ? r : ((r as { rows?: unknown[] }).rows ?? [])) as Array<{ asset: string; chain: string; total: string; actor_total: string }>

@@ -511,10 +511,11 @@ const lockLine = async (tx: BankTx, id: string): Promise<BankCreditLine> => {
 /** Pending (reserved, not yet applied) ops of `kind`: principal total, interest total. */
 const pendingTotals = async (tx: BankTx, lineId: string, kind: 'draw' | 'repay'): Promise<{ principal: bigint; interest: bigint }> => {
 	const r = (await tx.execute(
-		sql`select coalesce(sum(principal_minor),0)::text as p, coalesce(sum(interest_minor),0)::text as i from bank_credit_ops where line_id = ${lineId} and kind = ${kind} and status = 'pending'`,
+		sql`select coalesce(sum(principal_minor),0)::text as p, coalesce(sum(interest_minor),0)::text as i from bank_credit_ops where line_id = ${lineId} and kind = ${kind} and status = 'pending' and op_key not like 'cardref:%'`,
 	)) as unknown as Array<{ p: string; i: string }>
 	return { principal: BigInt(r[0]?.p ?? '0'), interest: BigInt(r[0]?.i ?? '0') }
 }
+// MONEY-PATH: card-refund ops (op_key 'cardref:*') are settlement receivables, excluded above so they never block the borrower's own repays.
 
 const opTransferKey = (lineId: string, kind: 'draw' | 'repay', opKey: string) => `credit:${kind}:${lineId}:${opKey.slice(kind.length + 1)}`
 
@@ -991,7 +992,7 @@ const financeReceivable: BankCreditServiceInterface['financeReceivable'] = (i) =
 		const inv = yield* loadInvoice(i.invoiceId)
 		const status = String(pick(inv, 'status') ?? '').toLowerCase()
 		if (!['open', 'sent', 'issued', 'pending', 'unpaid', 'overdue'].includes(status)) return yield* Effect.fail(bankErr('VALIDATION', `Invoice ${i.invoiceId} is '${status || 'unknown'}'; only unpaid invoices can be financed`))
-		const ownerType = pick(inv, 'owner_type', 'ownerType'); const ownerId = pick(inv, 'owner_id', 'ownerId')
+		const ownerType = pick(inv, 'payee_owner_type', 'payeeOwnerType', 'owner_type', 'ownerType'); const ownerId = pick(inv, 'payee_owner_id', 'payeeOwnerId', 'owner_id', 'ownerId')
 		if (ownerType === undefined || ownerId === undefined || String(ownerType) !== i.owner.ownerType || String(ownerId) !== i.owner.ownerId)
 			return yield* Effect.fail(bankErr('FORBIDDEN', 'Invoice does not belong to this owner (or bank_invoices has no owner_type/owner_id columns)'))
 		const faceRaw = pick(inv, 'amount_minor', 'amountMinor', 'total_minor', 'totalMinor')
@@ -1007,15 +1008,42 @@ const financeReceivable: BankCreditServiceInterface['financeReceivable'] = (i) =
 		if (!acc[0] || acc[0].payer_owner_type !== String(pType) || acc[0].payer_owner_id !== String(pId)) return yield* Effect.fail(bankErr('FORBIDDEN', 'Invoice has not been accepted by its payer (POST /credit/receivables/accept as the payer)'))
 		const already = yield* bankDb(async (db) => (await db.select({ id: bankCreditLines.id }).from(bankCreditLines).where(and(eq(bankCreditLines.receivableId, i.invoiceId), eq(bankCreditLines.status, 'active'))).limit(1))[0] ?? null)
 		if (already) return yield* Effect.fail(bankErr('CONFLICT', 'Invoice is already financed'))
-		const face = BigInt(String(faceRaw))
+		// MONEY-PATH: the advance is on what is still OUTSTANDING (face - paid), never the full face of a partly paid invoice.
+		const face = BigInt(String(faceRaw)) - BigInt(String(pick(inv, 'paid_minor', 'paidMinor') ?? '0'))
+		if (face <= 0n) return yield* Effect.fail(bankErr('VALIDATION', 'Invoice has no outstanding balance to finance'))
 		const advance = (face * BigInt(RECEIVABLE_ADVANCE_BPS)) / 10_000n
 		const { score: sc } = yield* score(i.owner, { asset: acct.asset, chain: acct.chain })
 		const pool = yield* findPool(acct.asset, acct.chain, advance)
 		const line = yield* bankDb((db) => db.transaction(async (tx) => {
+			// MONEY-PATH: lock the invoice row and re-check state/amount/payer/acceptance inside the finance transaction; void, payment credit and a
+			// concurrent finance all serialise on this row lock, so none can slip between the check and the line creation.
+			const lk = (await tx.execute(sql`select status, amount_minor::text as amount_minor, paid_minor::text as paid_minor, payee_owner_type, payee_owner_id, payer_owner_type, payer_owner_id from bank_invoices where id = ${i.invoiceId} for update`)) as unknown as Array<Record<string, string>>
+			const cur = lk[0]
+			if (!cur || !['open', 'sent', 'issued', 'pending', 'unpaid', 'overdue', 'partially_paid'].includes(String(cur.status).toLowerCase())) throw bankErr('CONFLICT', `Invoice is '${cur?.status ?? 'missing'}'; it can no longer be financed`)
+			if (cur.payee_owner_type !== i.owner.ownerType || cur.payee_owner_id !== i.owner.ownerId || cur.payer_owner_type !== String(pType) || cur.payer_owner_id !== String(pId)) throw bankErr('CONFLICT', 'Invoice parties changed; retry')
+			if (BigInt(cur.amount_minor) - BigInt(cur.paid_minor) !== face) throw bankErr('CONFLICT', 'Invoice amount or paid balance changed since it was read; retry')
+			const accNow = (await tx.execute(sql`select 1 as x from bank_invoice_acceptances where invoice_id = ${i.invoiceId} and payer_owner_type = ${String(pType)} and payer_owner_id = ${String(pId)} limit 1`)) as unknown as unknown[]
+			if (accNow.length === 0) throw bankErr('FORBIDDEN', 'Invoice acceptance no longer valid')
+			// MONEY-PATH: issuer and payer must be different PRINCIPALS (user behind an agent / org owner), not merely different owner ids.
+			const rootOf = async (t: string, id: string): Promise<string> => {
+				const r = (t === 'agent'
+					? await tx.execute(sql`select 'u:' || owner_user_id::text as r from agents where id::text = ${id} limit 1`)
+					: t === 'org'
+						? await tx.execute(sql`select 'u:' || owner_user_id::text as r from bank_orgs where id = ${id} limit 1`)
+						: null) as unknown as Array<{ r: string | null }> | null
+				return r?.[0]?.r ?? (t === 'user' ? `u:${id}` : `${t}:${id}`)
+			}
+			if ((await rootOf(i.owner.ownerType, i.owner.ownerId)) === (await rootOf(String(pType), String(pId)))) throw bankErr('FORBIDDEN', 'Issuer and payer resolve to the same principal; invoice cannot be financed')
+			// MONEY-PATH: no new advance while any of the issuer's non-collateral lines is delinquent.
+			const dq = (await tx.execute(sql`select 1 as x from bank_credit_lines l where l.owner_type = ${i.owner.ownerType} and l.owner_id = ${i.owner.ownerId} and l.kind <> 'collateralized' and l.status = 'active' and l.principal_minor > 0 and exists (select 1 from bank_credit_events e where e.line_id = l.id and e.type = 'delinquent') limit 1`)) as unknown as unknown[]
+			if (dq.length > 0) throw bankErr('POLICY_BLOCKED', 'Existing credit is delinquent; repay it before financing receivables')
 			// MONEY-PATH: serialise per owner; total advances (active receivable lines) are capped by the score-based limit.
 			await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`recv:${i.owner.ownerType}:${i.owner.ownerId}`}))`)
 			const tot = (await tx.execute(sql`select coalesce(sum(limit_minor), 0)::text as s from bank_credit_lines where owner_type = ${i.owner.ownerType} and owner_id = ${i.owner.ownerId} and kind = 'receivable' and status = 'active' and loan_asset = ${acct.asset} and chain = ${acct.chain}`)) as unknown as Array<{ s: string }>
 			if (BigInt(tot[0]?.s ?? '0') + advance > BigInt(sc.proposedLimitMinor)) throw bankErr('LIMIT_EXCEEDED', `Advance ${advance} exceeds your score-based financing limit (${sc.proposedLimitMinor}, already advanced ${tot[0]?.s ?? '0'})`)
+			// MONEY-PATH: advances outstanding against the same PAYER are capped by the same limit (one payer cannot back unlimited advances).
+			const pe = (await tx.execute(sql`select coalesce(sum(l.limit_minor), 0)::text as s from bank_credit_lines l join bank_invoices v on v.id = l.receivable_id where l.kind = 'receivable' and l.status = 'active' and l.loan_asset = ${acct.asset} and l.chain = ${acct.chain} and v.payer_owner_type = ${String(pType)} and v.payer_owner_id = ${String(pId)}`)) as unknown as Array<{ s: string }>
+			if (BigInt(pe[0]?.s ?? '0') + advance > BigInt(sc.proposedLimitMinor)) throw bankErr('LIMIT_EXCEEDED', `Advances against this payer would exceed the financing limit (${sc.proposedLimitMinor})`)
 			return (await tx.insert(bankCreditLines).values({ id, ownerType: i.owner.ownerType, ownerId: i.owner.ownerId, kind: 'receivable', chain: acct.chain, loanAsset: acct.asset, accountId: acct.id, poolAccountId: pool.id, limitMinor: advance.toString(), aprBps: mode === 'markup' ? 0 : RECEIVABLE_APR_BPS, receivableId: i.invoiceId, faceMinor: face.toString(), metadata: mode === 'markup' ? { advanceRateBps: RECEIVABLE_ADVANCE_BPS, financing: FIXED_MARKUP, markupBps: fixedMarkupBps(RECEIVABLE_APR_BPS), termDays: FIXED_MARKUP_TERM_DAYS } : { advanceRateBps: RECEIVABLE_ADVANCE_BPS } }).onConflictDoNothing().returning())[0] ?? (await tx.select().from(bankCreditLines).where(eq(bankCreditLines.id, id)))[0] ?? null
 		}))
 		if (!line) return yield* Effect.fail(bankErr('CONFLICT', 'Invoice is already financed'))
@@ -1097,7 +1125,9 @@ const repayForRefund: BankCreditServiceInterface['repayForRefund'] = (lineId, am
 		if (line.kind === 'collateralized')
 			return yield* Effect.fail(bankErr('NOT_CONFIGURED', 'CARD_REFUND_COLLATERALIZED_UNSUPPORTED: refund cash cannot be applied to a Morpho position', { missing: 'a refund settlement address owned by the custody wallet' }))
 		if (!line.poolAccountId) return yield* Effect.fail(bankErr('NOT_FOUND', 'Line has no pool account (nothing was drawn)'))
-		if (amount > BigInt(line.principalMinor)) return yield* Effect.fail(bankErr('VALIDATION', `Refund ${amount} exceeds drawn principal ${line.principalMinor}`))
+		// MONEY-PATH: checked against principal minus refunds already pending, so pending refunds can never exceed the debt in total.
+		const pendingRefunds = yield* bankDb(async (db) => BigInt(((await db.execute(sql`select coalesce(sum(principal_minor),0)::text as p from bank_credit_ops where line_id = ${line.id} and kind = 'repay' and status = 'pending' and op_key like 'cardref:%' and op_key <> ${`cardref:${ctx.providerTransactionId}`.slice(0, 120)}`)) as unknown as Array<{ p: string }>)[0]?.p ?? '0'))
+		if (amount + pendingRefunds > BigInt(line.principalMinor)) return yield* Effect.fail(bankErr('VALIDATION', `Refund ${amount} plus pending refunds ${pendingRefunds} exceeds drawn principal ${line.principalMinor}`))
 		// MONEY-PATH (review1b): NO pool-ledger credit from `external` without real inflow. The refund is booked as a PENDING op
 		// (a settlement receivable: debt unchanged); settlePendingPoolOps applies it once a confirmed transfer into the pool account
 		// carries metadata.cardRefundTxn = providerTransactionId (i.e. the cash actually reached the pool wallet).
@@ -1109,7 +1139,7 @@ const repayForRefund: BankCreditServiceInterface['repayForRefund'] = (lineId, am
 				.onConflictDoNothing()
 				.returning({ id: bankCreditOps.id }))[0] ?? null,
 		)
-		if (row) yield* addEvent(line, { type: 'repay', level: 'info', data: { cardRefundPending: true, providerTransactionId: ctx.providerTransactionId, amountMinor: amount.toString() } })
+		if (row) yield* addEvent(line, { type: 'card_refund_pending', level: 'warn', data: { status: 'AWAITING_REFUND_INFLOW', note: 'Refund recorded; the debt drops once the provider refund cash is confirmed into the lender pool account', cardRefundPending: true, providerTransactionId: ctx.providerTransactionId, amountMinor: amount.toString() } })
 		return { applied: false, pending: true }
 	})
 

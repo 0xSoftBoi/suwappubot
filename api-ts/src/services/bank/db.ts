@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { Effect } from 'effect'
 import { type DbClient, type DrizzleService, requireDb } from '../../db'
+import { logger } from '../../lib/logger'
 import { BankError, bankErr } from './errors'
 
 /** Run a Drizzle callback, mapping failures to BankError (BankError thrown inside passes through). */
@@ -110,10 +111,24 @@ export const withDbLock = <A, E, R>(
 		() => inner,
 		({ conn, releaseLocal }) =>
 			Effect.promise(async () => {
+				// MONEY-PATH: an unlock error must never mask the protected work's result, and a session that may still
+				// hold the lock must not return to the pool: terminate its backend (server drops session locks) first.
 				try {
-					await conn`select pg_advisory_unlock(hashtextextended(${key}, 0))`
-				} finally {
+					const [r] = await conn`select pg_advisory_unlock(hashtextextended(${key}, 0)) as ok`
+					if (r && r.ok === false) throw new Error('advisory lock was not held by this session')
+				} catch (e) {
+					logger.error({ key, err: String(e) }, '[bank] advisory unlock failed; discarding lock connection')
+					try {
+						await conn`select pg_terminate_backend(pg_backend_pid())`
+					} catch {
+						/* session already gone: lock died with it */
+					}
+				}
+				try {
 					conn.release()
+				} catch (e) {
+					logger.error({ key, err: String(e) }, '[bank] releasing lock connection failed')
+				} finally {
 					lockConns--
 					releaseLocal()
 				}

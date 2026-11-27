@@ -11,6 +11,7 @@ import { parseEip681, parseSolanaPay } from '../../services/bank/paymentRequest'
 import { formatZodErrors } from '../validators'
 import { readJson } from './core'
 import type { BankRouteApp, BankRouteDeps } from './index'
+import { setRetryAfter } from './retry'
 
 const minor = z.string().regex(/^[1-9][0-9]{0,77}$/, 'positive integer string in minor units')
 const idem = z.string().regex(/^[A-Za-z0-9_.:-]{8,128}$/, '8-128 chars of A-Za-z0-9_.:-')
@@ -198,7 +199,7 @@ bankPublicRoutes.get('/invoices/:slug', async (c) => {
 	const r = await runEffectEither(Effect.gen(function* () { return yield* (yield* BankPaymentsService).getPublicInvoice(slug) }))
 	if (Either.isLeft(r)) {
 		const e = r.left as unknown
-		if (e instanceof BankError) return c.json({ success: false, error: e.code, message: e.message }, e.status as 404)
+		if (e instanceof BankError) { setRetryAfter(c, e); return c.json({ success: false, error: e.code, message: e.message }, e.status as 404) }
 		return c.json({ success: false, error: 'INTERNAL', message: 'Could not load invoice' }, 500)
 	}
 	c.header('Cache-Control', 'no-store')

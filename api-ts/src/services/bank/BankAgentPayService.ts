@@ -315,13 +315,13 @@ export const BankAgentPayServiceLive = Layer.succeed(BankAgentPayService, {
 				return { paid: false, status: 402, body: res.body, contentType: res.headers['content-type'] ?? null, note: 'payment not accepted; funds stay reserved until the authorization expires and is verified unused onchain', spendId }
 			}
 			if (res.status < 300 && settlement?.success && settlement.transaction) {
-				yield* ledger.post({ transferId, phase: 'confirm', legs: [{ accountId: clearing.id, direction: 'debit', amountMinor: amount }, { accountId: external.id, direction: 'credit', amountMinor: amount }] })
+				// MONEY-PATH: the seller's PAYMENT-RESPONSE is the counterparty's word, never proof. Keep the spend 'auth_unsettled'
+				// and funds in clearing; the agent-pay-auth job confirms from chain (authorizationState used) or releases after expiry.
 				const transfer = yield* bankDb(async (db) => {
-					const [t] = await db.update(bankTransfers).set({ status: 'confirmed', txHash: settlement.transaction!, confirmedAt: new Date(), updatedAt: new Date(), metadata: sql`${bankTransfers.metadata} || ${JSON.stringify({ settlement, payer: settlement.payer })}::jsonb` }).where(eq(bankTransfers.id, transferId)).returning()
+					const [t] = await db.update(bankTransfers).set({ status: 'submitted', updatedAt: new Date(), metadata: sql`${bankTransfers.metadata} || ${JSON.stringify({ claimedSettlement: settlement, awaitingChainConfirmation: true })}::jsonb` }).where(eq(bankTransfers.id, transferId)).returning()
 					return t!
 				})
-				yield* patchSpend(spendId, { status: 'settled', transferId, txHash: settlement.transaction })
-				return { paid: true, status: res.status, body: res.body, contentType: res.headers['content-type'] ?? null, settlement, transfer, spendId }
+				return { paid: true, status: res.status, body: res.body, contentType: res.headers['content-type'] ?? null, settlement, transfer, spendId, note: 'seller reported settlement; debit is confirmed only once the authorization is seen used onchain' }
 			}
 			// Resource answered but did not confirm settlement: money may have moved. Hold in clearing, flag it.
 			yield* bankDb((db) => db.update(bankTransfers).set({ status: 'submitted', metadata: sql`${bankTransfers.metadata} || ${JSON.stringify({ ambiguous: true, httpStatus: res.status, settlementHeader: settlement })}::jsonb`, updatedAt: new Date() }).where(eq(bankTransfers.id, transferId)))
@@ -359,7 +359,7 @@ export const BankAgentPayServiceLive = Layer.succeed(BankAgentPayService, {
 		bankDb(async (db) => {
 			const rows = await db.select().from(bankAgentResources).where(q?.asset ? and(eq(bankAgentResources.status, 'active'), eq(bankAgentResources.asset, q.asset.toUpperCase())) : eq(bankAgentResources.status, 'active')).orderBy(desc(bankAgentResources.createdAt)).limit(Math.min(q?.limit ?? 50, 200))
 			// upstreamUrl and the seller's internal ids are never exposed; buyers call the paywalled proxy.
-			return rows.map((r) => ({ id: r.id, slug: r.slug, title: r.title, description: r.description, priceMinor: r.priceMinor, asset: r.asset, chain: r.chain, payPath: `/v1/agent/bank/agents/pay/${r.slug}`, protocol: 'x402', x402Versions: [1, 2] }))
+			return rows.map((r) => ({ id: r.id, slug: r.slug, title: r.title, description: r.description, priceMinor: r.priceMinor, asset: r.asset, chain: r.chain, payPath: `/v1/agent/bank/agents/pay/${r.slug}`, protocol: 'x402', x402Versions: [2] }))
 		}),
 
 	// MONEY-PATH
@@ -455,17 +455,26 @@ export const BankAgentPayServiceLive = Layer.succeed(BankAgentPayService, {
 // ------------------------------------------------------------ MONEY-PATH: resolve unsettled authorizations
 
 const AUTH_STATE_SELECTOR = '0xe94a0102' // authorizationState(address,bytes32)
-const readAuthUsed = async (chain: string, token: string, from: string, nonce: string): Promise<boolean> => {
+// MONEY-PATH: same per-chain safe depths as BankTransferService's reconciler (MIN_CONFIRMATIONS); default 10.
+const SAFE_DEPTH: Record<string, bigint> = { ethereum: 12n, polygon: 64n, bsc: 15n, base: 10n, optimism: 10n, arbitrum: 60n }
+const EXPIRY_MARGIN_SEC = 60
+/** Reads authorizationState at a block `depth` behind head and returns that block's timestamp, so expiry is judged by chain time. */
+const readAuthUsed = async (chain: string, token: string, from: string, nonce: string): Promise<{ used: boolean; chainTime: number }> => {
+	const url = rpcUrlFor(chain)
+	const head = BigInt(await jsonRpc<string>(url, 'eth_blockNumber', []))
+	const safe = head > (SAFE_DEPTH[chain] ?? 10n) ? head - (SAFE_DEPTH[chain] ?? 10n) : 0n
+	const tag = `0x${safe.toString(16)}`
+	const blk = await jsonRpc<{ timestamp: string } | null>(url, 'eth_getBlockByNumber', [tag, false])
+	if (!blk) throw new Error('safe block unavailable')
 	const data = `${AUTH_STATE_SELECTOR}${from.toLowerCase().replace(/^0x/, '').padStart(64, '0')}${nonce.replace(/^0x/, '')}`
-	const out = await jsonRpc<string>(rpcUrlFor(chain), 'eth_call', [{ to: token, data }, 'latest'])
-	return BigInt(out as string) !== 0n
+	const out = await jsonRpc<string>(url, 'eth_call', [{ to: token, data }, tag])
+	return { used: BigInt(out as string) !== 0n, chainTime: Number(BigInt(blk.timestamp)) }
 }
 
 /** After validBefore (+margin) the authorization can no longer be submitted: used -> debit stands, unused -> release. */
 export const resolveUnsettledAuthorizations = async (): Promise<number> => {
 	const { runEffect } = await import('../../runtime')
-	const nowSec = Math.floor(Date.now() / 1000)
-	const rows = await runEffect(bankDb((db) => db.select().from(bankAgentSpend).where(and(eq(bankAgentSpend.status, 'auth_unsettled'), sql`${bankAgentSpend.authValidBefore} < ${nowSec - 120}`)).limit(50)) as never) as (typeof bankAgentSpend.$inferSelect)[]
+	const rows = await runEffect(bankDb((db) => db.select().from(bankAgentSpend).where(eq(bankAgentSpend.status, 'auth_unsettled')).orderBy(bankAgentSpend.authValidBefore).limit(50)) as never) as (typeof bankAgentSpend.$inferSelect)[]
 	let n = 0
 	for (const sp of rows) {
 		try {
@@ -475,7 +484,10 @@ export const resolveUnsettledAuthorizations = async (): Promise<number> => {
 					const account = yield* ledger.getAccountById(sp.accountId)
 					const asset = findAsset(sp.asset, sp.chain)
 					if (!asset || !account.address || !sp.authNonce || !sp.transferId) return
-					const used = yield* Effect.tryPromise({ try: () => readAuthUsed(sp.chain, asset.address, account.address!, sp.authNonce!), catch: (e) => bankErr('UPSTREAM', String(e)) })
+					const st = yield* Effect.tryPromise({ try: () => readAuthUsed(sp.chain, asset.address, account.address!, sp.authNonce!), catch: (e) => bankErr('UPSTREAM', String(e)) })
+					const used = st.used
+					// Unused: only release once the SAFE block's timestamp is past validBefore + margin (never the local clock).
+					if (!used && !(sp.authValidBefore != null && st.chainTime > Number(sp.authValidBefore) + EXPIRY_MARGIN_SEC)) return
 					const amount = BigInt(sp.amountMinor)
 					const clearing = yield* ledger.ensureSystemAccount('clearing', sp.asset, sp.chain)
 					const claim = yield* bankDb((db) => db.update(bankAgentSpend).set({ status: used ? 'settled' : 'failed', updatedAt: new Date() }).where(and(eq(bankAgentSpend.id, sp.id), eq(bankAgentSpend.status, 'auth_unsettled'))).returning({ id: bankAgentSpend.id }))
@@ -493,7 +505,7 @@ export const resolveUnsettledAuthorizations = async (): Promise<number> => {
 			)
 		} catch {
 			// ledger post failed after the claim: put it back so the next run retries (transfer still 'submitted')
-			await runEffect(bankDb((db) => db.update(bankAgentSpend).set({ status: 'auth_unsettled' }).where(and(eq(bankAgentSpend.id, sp.id), sql`exists (select 1 from bank_transfers t where t.id = ${sp.transferId} and t.status = 'submitted')`))) as never).catch(() => undefined)
+			await runEffect(bankDb((db) => db.update(bankAgentSpend).set({ status: 'auth_unsettled' }).where(and(eq(bankAgentSpend.id, sp.id), sql`exists (select 1 from bank_transfers t where t.id = ${sp.transferId} and t.status in ('submitted','pending'))`))) as never).catch(() => undefined)
 		}
 	}
 	return n

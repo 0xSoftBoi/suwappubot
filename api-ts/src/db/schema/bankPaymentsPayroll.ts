@@ -2,6 +2,7 @@
  * Suwappu Bank M7 (payments) + M8 (payroll & payouts) tables. Integer minor units as numeric(78,0).
  * Co-created by drizzle/0030_bank_payments_payroll.sql and database/bank_ddl/payments_payroll.py (idempotent).
  */
+import { sql } from 'drizzle-orm'
 import { index, integer, jsonb, numeric, boolean, pgTable, text, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core'
 
 const num = (n: string) => numeric(n, { precision: 78, scale: 0 })
@@ -367,6 +368,7 @@ export const bankPoolReceivables = pgTable(
 		payrollItemId: text('payroll_item_id'),
 		payoutTransferId: text('payout_transfer_id'),
 		settleTransferId: text('settle_transfer_id'),
+		destFp: varchar('dest_fp', { length: 128 }),
 		createdAt: ts('created_at').defaultNow().notNull(),
 		settledAt: ts('settled_at'),
 	},
@@ -393,6 +395,7 @@ export const bankWageAdvances = pgTable(
 	},
 	(t) => ({
 		idemUniq: uniqueIndex('ux_bank_wage_advances_idem').on(t.workerOwnerType, t.workerOwnerId, t.idempotencyKey),
+		transferUniq: uniqueIndex('ux_bank_wage_advances_transfer').on(t.transferId).where(sql`${t.transferId} is not null`),
 		srcIdx: index('ix_bank_wage_advances_src').on(t.sourceType, t.sourceId, t.periodKey),
 	}),
 )

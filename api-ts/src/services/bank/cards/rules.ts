@@ -239,6 +239,8 @@ export interface AuthInput {
 	now: number
 	amountMinor: bigint
 	merchantName?: string | null
+	/** Stable network/merchant id when the authorization carries one; allowlist entries written `id:<value>` match it exactly. */
+	merchantId?: string | null
 	mcc?: string | null
 	country?: string | null
 	/** Non-declined authorizations this card has already had (for single-use). */
@@ -309,9 +311,16 @@ export function evaluateAuthorization(rules: NormalizedRules, a: AuthInput): Rul
 	}
 
 	const merchant = a.merchantName ? normMerchant(a.merchantName) : ''
+	const merchantId = a.merchantId ? a.merchantId.toLowerCase().trim() : ''
+	// MONEY-PATH: blocklist keeps substring matching; the ALLOWlist is exact (merchants pick their own descriptors, so substring would let 'uber gift cards xyz' in). Prefer a stable id when the authorization carries one and the list has id: entries.
 	const hit = (list: string[]) => list.some((e) => merchant.includes(e))
+	const allowHit = (list: string[]) => {
+		const ids = list.filter((e) => e.startsWith('id:'))
+		if (merchantId && ids.length) return ids.some((e) => e.slice(3).trim() === merchantId)
+		return list.some((e) => !e.startsWith('id:') && e === merchant)
+	}
 	if (rules.merchantBlock.length && hit(rules.merchantBlock)) push('merchant_block', `Merchant "${a.merchantName}" is blocked`)
-	if (rules.merchantAllow.length && !hit(rules.merchantAllow)) push('merchant_allow', `Merchant "${a.merchantName ?? 'unknown'}" is not on the allowlist`)
+	if (rules.merchantAllow.length && !allowHit(rules.merchantAllow)) push('merchant_allow', `Merchant "${a.merchantName ?? 'unknown'}" is not on the allowlist`)
 
 	if (rules.mccBlock.length && a.mcc && mccMatches(rules.mccBlock, a.mcc)) push('mcc_block', `MCC ${a.mcc} is blocked`)
 	if (rules.mccAllow.length && !(a.mcc && mccMatches(rules.mccAllow, a.mcc)))

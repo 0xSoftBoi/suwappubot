@@ -16,6 +16,7 @@ import { UserService } from '../services'
 import { BankError } from '../services/bank/errors'
 import type { BankOwner } from '../services/bank/db'
 import { type BankRouteApp, type BankRouteDeps, registerAll } from './bank/index'
+import { setRetryAfter } from './bank/retry'
 
 const run: BankRouteDeps['run'] = async (c, effect) => {
 	const result = await runEffectEither(effect)
@@ -23,7 +24,7 @@ const run: BankRouteDeps['run'] = async (c, effect) => {
 		const e = result.left as unknown
 		if (e instanceof BankError) {
 			// LOCK_BUSY is retryable with the SAME idempotency key.
-			if (e.code === 'LOCK_BUSY') c.header('Retry-After', '2')
+			setRetryAfter(c, e)
 			return c.json(
 				{ success: false, error: e.code, error_code: e.code, message: e.message, ...(e.missing ? { missing: e.missing } : {}) },
 				e.status as 400,

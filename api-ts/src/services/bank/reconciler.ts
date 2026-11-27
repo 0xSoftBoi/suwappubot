@@ -10,6 +10,7 @@ import { runDueBills } from './BankPayablesService'
 import { runRemittanceJobOnce } from './BankRemittanceService'
 import { BankTransferService } from './BankTransferService'
 import { runEarnCreditJobsOnce } from './earnCreditJobs'
+import './opsAlerts' // registers the 'ops-alerts' job
 import { registerBankJob, runBankJob, startBankJobs, stopBankJobs } from './jobs'
 import { runPaymentsJobOnce } from './paymentsJob'
 

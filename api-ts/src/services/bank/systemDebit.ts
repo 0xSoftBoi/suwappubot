@@ -10,11 +10,13 @@ declare const brand: unique symbol
 export interface SystemDebit {
 	readonly [brand]: true
 	readonly reason: string
+	readonly accountId?: string
 }
 const minted = new WeakSet<object>()
 
-export const systemDebit = (reason: string): SystemDebit => {
-	const t = Object.freeze({ reason }) as unknown as SystemDebit
+/** MONEY-PATH: bind to one account (accountId) so a token minted for one escrow/pool cannot unlock another. */
+export const systemDebit = (reason: string, accountId?: string): SystemDebit => {
+	const t = Object.freeze({ reason, accountId }) as unknown as SystemDebit
 	minted.add(t)
 	return t
 }
@@ -25,6 +27,6 @@ export const isSystemKind = (kind: string): boolean => SYSTEM_KINDS.has(kind)
 
 /** Throws FORBIDDEN-style BankError unless the account is user-spendable or a valid SystemDebit capability is presented. */
 export const assertSpendable = (acct: Pick<BankAccount, 'kind' | 'id'>, cap?: SystemDebit | undefined): BankError | null =>
-	isSystemKind(acct.kind) && !(cap && minted.has(cap as unknown as object))
+	isSystemKind(acct.kind) && !(cap && minted.has(cap as unknown as object) && cap.accountId === acct.id)
 		? bankErr('ACCOUNT_STATE', `Account ${acct.id} (${acct.kind}) is a system account and cannot be debited directly`)
 		: null

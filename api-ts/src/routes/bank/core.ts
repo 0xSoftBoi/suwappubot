@@ -4,6 +4,7 @@ import { findAsset, fromMinor, listAssets, toMinor } from '../../services/bank/a
 import { BankLedgerService } from '../../services/bank/BankLedgerService'
 import { BankTransferService } from '../../services/bank/BankTransferService'
 import { bankErr } from '../../services/bank/errors'
+import { opsAlertsEffect } from '../../services/bank/opsAlerts'
 import { formatZodErrors } from '../validators'
 import type { BankRouteApp, BankRouteDeps } from './index'
 import { OpenAccountSchema, TransferSchema } from './schemas'
@@ -45,6 +46,9 @@ export function register(app: BankRouteApp, deps: BankRouteDeps): void {
 			}),
 		)
 	})
+
+	// MONEY-PATH: the owner's own stuck transfers/ops (read-only; never auto-resolves money).
+	app.get('/ops/alerts', async (c) => run(c, opsAlertsEffect(await resolveOwner(c))))
 
 	app.get('/accounts', async (c) => {
 		const owner = await resolveOwner(c)

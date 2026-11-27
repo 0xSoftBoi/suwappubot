@@ -7,6 +7,7 @@ import { BankError } from '../../services/bank/errors'
 import { formatZodErrors } from '../validators'
 import { readJson } from './core'
 import type { BankRouteApp, BankRouteDeps } from './index'
+import { setRetryAfter } from './retry'
 
 const minor = z.string().regex(/^[1-9][0-9]{0,77}$/, 'positive integer string in minor units')
 const idem = z.string().regex(/^[A-Za-z0-9_.:-]{8,128}$/)
@@ -43,6 +44,7 @@ async function servePaywall(c: Context): Promise<Response> {
 	const r = await runEffectEither(Effect.gen(function* () { return yield* (yield* BankAgentPayService).servePaidResource(c.req.param('slug') as string, { method: c.req.method, url: c.req.url, headers, body }) }))
 	if (Either.isLeft(r)) {
 		const e = r.left as unknown
+		if (e instanceof BankError) setRetryAfter(c, e)
 		if (e instanceof BankError) return c.json({ success: false, error: e.code, message: e.message, ...(e.missing ? { missing: e.missing } : {}) }, e.status as 400)
 		return c.json({ success: false, error: 'INTERNAL', message: String(e) }, 500)
 	}

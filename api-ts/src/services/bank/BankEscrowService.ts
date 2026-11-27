@@ -100,6 +100,8 @@ interface Claim {
 	to: MilestoneStatus
 	releaseMinor?: bigint
 	refundMinor?: bigint
+	/** MONEY-PATH: arbiter split — release is explicit, refund is whatever remains of the milestone. */
+	remainder?: boolean
 	patch?: Partial<{ deliveryProof: string; deliveredAt: Date; autoReleaseAt: Date }>
 	data?: Record<string, unknown>
 }
@@ -117,9 +119,19 @@ const claim = (escrowId: string, seq: number, c: Claim): PayFx<void> =>
 			if (!c.from.includes(m.status)) throw subErr('INVALID_TRANSITION', 'CONFLICT', `Milestone is ${m.status}; ${c.action} requires ${c.from.join('|')}`)
 			// A milestone with unfinished fund movements may not transition again. MONEY-PATH: terminal-'failed' movements (funds already reversed back into escrow) are finished and do not block a retry/resolution.
 			if (m.settlement.some((s) => s.state === 'intent')) throw subErr('INVALID_TRANSITION', 'CONFLICT', 'Milestone has unfinished fund movements')
-			const rel = c.releaseMinor ?? 0n
-			const ref = c.refundMinor ?? 0n
-			if (rel + ref > 0n && rel + ref !== BigInt(m.amountMinor)) throw bankErr('VALIDATION', 'release + refund must equal the milestone amount')
+			// MONEY-PATH: only the still-movable remainder (amount - released - refunded, where failed/reversed legs were already returned) may be allocated; a sent leg is never paid twice.
+			const full = BigInt(m.amountMinor)
+			const remaining = full - BigInt(m.releasedMinor) - BigInt(m.refundedMinor)
+			let rel = c.releaseMinor ?? 0n
+			let ref = c.refundMinor ?? 0n
+			if (c.remainder) ref = remaining - rel
+			else if (remaining < full && rel + ref === full && (rel === 0n || ref === 0n)) {
+				// single-leg claim computed against the full amount (confirm/refund/auto/retry): scale to the remainder
+				rel = rel > 0n ? remaining : 0n
+				ref = ref > 0n ? remaining : 0n
+			}
+			if (remaining <= 0n && rel + ref > 0n) throw bankErr('VALIDATION', 'Milestone has nothing left to move')
+			if (rel < 0n || ref < 0n || (rel + ref > 0n && rel + ref !== remaining)) throw bankErr('VALIDATION', `release + refund must equal the remaining milestone amount (${remaining})`)
 			const entries: Entry[] = []
 			// MONEY-PATH: attempt counts ALL prior entries so every retry gets a fresh deterministic key (executeMoves additionally verifies the prior transfer is terminal-failed via nextAttemptKey).
 			const attempt = m.settlement.length
@@ -141,6 +153,8 @@ const claim = (escrowId: string, seq: number, c: Claim): PayFx<void> =>
 			const all = await tx.select().from(bankEscrowMilestones).where(eq(bankEscrowMilestones.escrowId, escrowId))
 			const relTot = all.reduce((s, x) => s + BigInt(x.releasedMinor), 0n)
 			const refTot = all.reduce((s, x) => s + BigInt(x.refundedMinor), 0n)
+			// MONEY-PATH invariant: per milestone and in total, released + refunded never exceeds the funded amount (rolls the transaction back).
+			if (all.some((x) => BigInt(x.releasedMinor) + BigInt(x.refundedMinor) > BigInt(x.amountMinor)) || relTot + refTot > BigInt(e.amountMinor)) throw subErr('INVALID_TRANSITION', 'CONFLICT', 'Escrow invariant violated: released + refunded would exceed the funded amount')
 			await tx.update(bankEscrows).set({ status: escrowStatusOf(all), releasedMinor: relTot.toString(), refundedMinor: refTot.toString(), updatedAt: new Date() }).where(eq(bankEscrows.id, escrowId))
 			await tx.insert(bankEscrowEvents).values({
 				id: uid('eev'),
@@ -174,7 +188,7 @@ const executeMoves = (escrowId: string, milestoneId: string): PayFx<number> =>
 				idempotencyKey: yield* nextAttemptKey(payer, idemKey('escrow', e.id, m.id, en.kind, String(en.attempt))),
 				type: 'escrow',
 				fromAccountId: e.escrowAccountId,
-				systemDebit: systemDebit('escrow-settlement'), // MONEY-PATH: service-only capability to debit the escrow account
+				systemDebit: systemDebit('escrow-settlement', e.escrowAccountId), // MONEY-PATH: service-only capability to debit the escrow account
 				toAccountId: en.kind === 'release' ? e.payeeAccountId : e.payerAccountId,
 				amountMinor: en.amountMinor,
 				memo: `Escrow ${en.kind}`,
@@ -420,7 +434,7 @@ export const BankEscrowServiceLive = Layer.succeed(BankEscrowService, {
 				if (r > total) throw bankErr('VALIDATION', 'releaseMinor exceeds the milestone amount')
 				return r
 			})
-			return yield* act(id, seq, { actor: owner, action: 'resolve', from: ['disputed'], to: rel === 0n ? 'refunded' : 'released', releaseMinor: rel, refundMinor: total - rel, data: { note: note?.slice(0, 1000) } })
+			return yield* act(id, seq, { actor: owner, action: 'resolve', from: ['disputed'], to: rel === 0n ? 'refunded' : 'released', releaseMinor: rel, remainder: true, data: { note: note?.slice(0, 1000) } })
 		}),
 
 	refund: (owner, id, seq) =>

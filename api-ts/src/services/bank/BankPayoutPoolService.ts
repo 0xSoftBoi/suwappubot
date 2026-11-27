@@ -11,14 +11,14 @@
  */
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { Context, Effect, Layer } from 'effect'
-import { type BankPayoutPool, type BankPoolReceivable, bankPayoutPools, bankPoolReceivables } from '../../db'
+import { type BankPayoutPool, type BankPoolReceivable, bankPayoutPools, bankPoolReceivables, bankTransfers } from '../../db'
 import { logger } from '../../lib/logger'
 import { BankLedgerService } from './BankLedgerService'
 import { BankTransferService } from './BankTransferService'
 import { type BankOwner, bankDb } from './db'
 import { type BankError, bankErr } from './errors'
 import { systemDebit } from './systemDebit'
-import { guard, idemKey, ownerKey, type PayFx, parseMinor, sameOwner, subErr, toOwner, uid } from './paymentsCommon'
+import { guard, idemKey, nextAttemptKey, ownerKey, type PayFx, parseMinor, sameOwner, subErr, toOwner, uid } from './paymentsCommon'
 
 export interface PoolView {
 	pool: BankPayoutPool
@@ -163,6 +163,7 @@ export const BankPayoutPoolServiceLive = Layer.succeed(BankPayoutPoolService, {
 			if (pool.status !== 'active') return yield* Effect.fail(bankErr('ACCOUNT_STATE', `Pool is ${pool.status}`))
 			const payerAcct = yield* ledger.getAccount(input.payer, input.payerAccountId)
 			if (payerAcct.asset !== pool.asset || payerAcct.chain !== pool.chain) return yield* Effect.fail(bankErr('VALIDATION', `Pool pays ${pool.asset} on ${pool.chain}; the payer account differs`))
+			const destFp = input.toAccountId ? `a:${input.toAccountId}` : `x:${(input.toExternal?.address ?? '').toLowerCase()}`
 
 			// Receivable first (idempotent per itemKey), under a lock so concurrent payouts cannot jointly exceed the cap.
 			const rec = yield* bankDb((db) =>
@@ -170,19 +171,35 @@ export const BankPayoutPoolServiceLive = Layer.succeed(BankPayoutPoolService, {
 					await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`pool:${pool.id}`}))`)
 					const [ex] = await tx.select().from(bankPoolReceivables).where(eq(bankPoolReceivables.payrollItemId, input.itemKey)).limit(1)
 					if (ex) {
-						if (ex.poolId !== pool.id || BigInt(ex.amountMinor) !== amount) throw bankErr('CONFLICT', 'itemKey was already used with different payout terms')
-						return ex
+						// MONEY-PATH: same key must mean same terms (pool/asset, amount, payer account, destination).
+						if (ex.poolId !== pool.id || BigInt(ex.amountMinor) !== amount || ex.payerAccountId !== payerAcct.id || (ex.destFp != null && ex.destFp !== destFp)) throw bankErr('CONFLICT', 'itemKey was already used with different payout terms')
+						if (ex.status !== 'void') return ex
+						// A voided receivable is never paid while void: either the earlier payout really went out (repair status), or re-run the exposure check and reopen atomically.
+						if (ex.payoutTransferId) {
+							const [pt] = await tx.select({ status: bankTransfers.status }).from(bankTransfers).where(eq(bankTransfers.id, ex.payoutTransferId)).limit(1)
+							if (pt && pt.status !== 'failed' && pt.status !== 'reversed') {
+								const [fixed] = await tx.update(bankPoolReceivables).set({ status: 'open' }).where(and(eq(bankPoolReceivables.id, ex.id), eq(bankPoolReceivables.status, 'void'))).returning()
+								return fixed ?? ex
+							}
+						}
+						const lim = limitFor(pool, input.payer)
+						const exposure = await exposureOf(tx, pool.id, input.payer)
+						if (exposure + amount > lim) throw subErr('EXPOSURE_LIMIT', 'LIMIT_EXCEEDED', `Payer exposure ${exposure} + ${amount} exceeds the pool limit of ${lim}`)
+						const [reopened] = await tx.update(bankPoolReceivables).set({ status: 'open', payoutTransferId: null, destFp }).where(and(eq(bankPoolReceivables.id, ex.id), eq(bankPoolReceivables.status, 'void'))).returning()
+						return reopened ?? ex
 					}
 					const limit = limitFor(pool, input.payer)
 					const cur = await exposureOf(tx, pool.id, input.payer)
 					if (cur + amount > limit) throw subErr('EXPOSURE_LIMIT', 'LIMIT_EXCEEDED', `Payer exposure ${cur} + ${amount} exceeds the pool limit of ${limit}`)
 					const [row] = await tx
 						.insert(bankPoolReceivables)
-						.values({ id: uid('prc'), poolId: pool.id, payerOwnerType: input.payer.ownerType, payerOwnerId: input.payer.ownerId, payerAccountId: payerAcct.id, amountMinor: amount.toString(), payrollItemId: input.itemKey })
+						.values({ id: uid('prc'), poolId: pool.id, payerOwnerType: input.payer.ownerType, payerOwnerId: input.payer.ownerId, payerAccountId: payerAcct.id, amountMinor: amount.toString(), payrollItemId: input.itemKey, destFp })
 						.returning()
 					return row!
 				}),
 			)
+			if (rec.status === 'void') return yield* Effect.fail(bankErr('CONFLICT', 'Payout receivable is void and could not be reopened'))
+			const payKey = yield* nextAttemptKey(toOwner(pool.operatorOwnerType, pool.operatorOwnerId), idemKey('poolpay', rec.id))
 			if (rec.payoutTransferId) {
 				return { receivable: rec, transferId: rec.payoutTransferId, status: 'replayed' }
 			}
@@ -195,10 +212,10 @@ export const BankPayoutPoolServiceLive = Layer.succeed(BankPayoutPoolService, {
 			const t = yield* xfer
 				.transfer({
 					owner: toOwner(pool.operatorOwnerType, pool.operatorOwnerId),
-					idempotencyKey: idemKey('poolpay', rec.id),
+					idempotencyKey: payKey,
 					type: 'payout',
 					fromAccountId: pool.poolAccountId,
-					systemDebit: systemDebit('pool-payout'), // MONEY-PATH: service-only capability to debit the pool account
+					systemDebit: systemDebit('pool-payout', pool.poolAccountId), // MONEY-PATH: service-only capability to debit the pool account
 					toAccountId: input.toAccountId,
 					toExternal: input.toExternal,
 					amountMinor: amount.toString(),
@@ -217,7 +234,7 @@ export const BankPayoutPoolServiceLive = Layer.succeed(BankPayoutPoolService, {
 				yield* bankDb((db) => db.update(bankPoolReceivables).set({ status: 'void', payoutTransferId: t.id }).where(eq(bankPoolReceivables.id, rec.id)))
 				return yield* Effect.fail(bankErr('UPSTREAM', `Pool payout failed: ${t.failureReason ?? 'transfer failed'}`))
 			}
-			const [updated] = yield* bankDb((db) => db.update(bankPoolReceivables).set({ payoutTransferId: t.id }).where(eq(bankPoolReceivables.id, rec.id)).returning())
+			const [updated] = yield* bankDb((db) => db.update(bankPoolReceivables).set({ payoutTransferId: t.id, status: 'open' }).where(and(eq(bankPoolReceivables.id, rec.id), inArray(bankPoolReceivables.status, ['open', 'void']))).returning())
 			return { receivable: updated ?? rec, transferId: t.id, status: t.status }
 		}),
 
@@ -264,10 +281,11 @@ export const BankPayoutPoolServiceLive = Layer.succeed(BankPayoutPoolService, {
 						if (claimed.length === 0) return
 						avail.set(r.payerAccountId, have - remaining)
 					}
+					const settleKey = yield* nextAttemptKey(payer, idemKey('poolsettle', r.id))
 					const t = yield* xfer
 						.transfer({
 							owner: payer,
-							idempotencyKey: idemKey('poolsettle', r.id),
+							idempotencyKey: settleKey, // MONEY-PATH: rotates only after the previous collection transfer is terminal-failed/reversed
 							type: 'payout',
 							fromAccountId: r.payerAccountId,
 							toAccountId: pool.poolAccountId,

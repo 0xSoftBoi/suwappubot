@@ -9,6 +9,7 @@ import { BankRampService } from '../../services/bank/BankRampService'
 import { BankError } from '../../services/bank/errors'
 import { logger } from '../../lib/logger'
 import { runEffectEither } from '../../runtime'
+import { setRetryAfter } from './retry'
 
 export const bankWebhookRoutes = new Hono()
 
@@ -27,6 +28,7 @@ bankWebhookRoutes.post('/:provider', async (c) => {
 	const e = result.left
 	if (e instanceof BankError) {
 		logger.warn({ provider: c.req.param('provider'), code: e.code, err: e.message }, 'bank webhook rejected')
+		setRetryAfter(c, e)
 		return c.json({ success: false, error_code: e.code, error: e.message, ...(e.missing ? { missing: e.missing } : {}) }, e.status as 400)
 	}
 	logger.error({ provider: c.req.param('provider'), err: String(e) }, 'bank webhook failed')

@@ -391,8 +391,16 @@ export const BankPaymentsServiceLive = Layer.succeed(BankPaymentsService, {
 			const inv = yield* ownedAsPayee(owner, invoiceId)
 			if (inv.status === 'void') return yield* view(inv)
 			if (inv.status === 'paid' || BigInt(inv.paidMinor) > 0n) return yield* Effect.fail(bankErr('CONFLICT', 'Invoice already has payments; cannot void'))
-			const [row] = yield* bankDb((db) =>
-				db.update(bankInvoices).set({ status: 'void', updatedAt: new Date() }).where(and(eq(bankInvoices.id, inv.id), eq(bankInvoices.paidMinor, '0'), sql`not exists (select 1 from bank_credit_lines l where l.receivable_id = ${bankInvoices.id} and l.kind = 'receivable' and l.status = 'active')`)).returning(),
+			// MONEY-PATH: lock the invoice row (same lock as receivables financing), then re-check paid/financed under it.
+			const row = yield* bankDb((db) =>
+				db.transaction(async (tx) => {
+					const [cur] = await tx.select().from(bankInvoices).where(eq(bankInvoices.id, inv.id)).for('update')
+					if (!cur || cur.status === 'paid' || BigInt(cur.paidMinor) > 0n) return null
+					const fin = (await tx.execute(sql`select 1 as x from bank_credit_lines where receivable_id = ${inv.id} and kind = 'receivable' and status = 'active' limit 1`)) as unknown as unknown[]
+					if (fin.length > 0) return null
+					const [u] = await tx.update(bankInvoices).set({ status: 'void', updatedAt: new Date() }).where(eq(bankInvoices.id, inv.id)).returning()
+					return u ?? null
+				}),
 			)
 			// MONEY-PATH: a financed (active receivable line) invoice cannot be voided.
 			if (!row) return yield* Effect.fail(bankErr('CONFLICT', 'Invoice received a payment or is financed; cannot void'))

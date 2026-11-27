@@ -356,26 +356,34 @@ export const BankStreamServiceLive = Layer.succeed(BankStreamService, {
 			if (bps === 0) return yield* Effect.fail(subErr('EWA_LIMIT', 'FORBIDDEN', 'Earned-wage access is not enabled on this stream'))
 			if (s.status === 'cancelled' || s.status === 'capped') return yield* Effect.fail(bankErr('CONFLICT', `Stream is ${s.status}`))
 			const amount = yield* guard(() => parseMinor(amountMinor))
-			const adv = yield* bankDb(async (db) => {
+			const adv = yield* bankDb((db0) => db0.transaction(async (db) => {
+				// MONEY-PATH: lock the stream row, then recompute availability from the fresh row inside this transaction.
+				await db.execute(sql`select id from bank_streams where id = ${streamId} for update`)
 				const [ex] = await db.select().from(bankWageAdvances).where(and(eq(bankWageAdvances.workerOwnerType, worker.ownerType), eq(bankWageAdvances.workerOwnerId, worker.ownerId), eq(bankWageAdvances.idempotencyKey, idempotencyKey))).limit(1)
 				if (ex) {
 					if (ex.sourceId !== streamId || ex.amountMinor !== amount.toString()) throw bankErr('CONFLICT', 'idempotencyKey was already used with different terms')
 					return { row: ex }
 				}
-				const v = streamView(s)
-				if (amount > BigInt(v.advanceAvailableMinor)) throw subErr('EWA_LIMIT', 'LIMIT_EXCEEDED', `Requested ${amount} exceeds the available advance of ${v.advanceAvailableMinor} (${bps / 100}% of accrued-unpaid)`)
+				const [fresh] = await db.select().from(bankStreams).where(eq(bankStreams.id, streamId)).limit(1)
+				if (!fresh || fresh.status === 'cancelled' || fresh.status === 'capped') throw bankErr('CONFLICT', `Stream is ${fresh?.status ?? 'missing'}`)
+				const v = streamView(fresh)
+				// Advances recorded but not yet paid are not reflected in settled/pending minor yet: reserve them against the ewaBps share.
+				const [res] = (await db.execute(sql`select coalesce(sum(amount_minor),0)::text as s from bank_wage_advances where source_type = 'stream' and source_id = ${streamId} and transfer_id is null`)) as unknown as Array<{ s: string }>
+				const reserved = BigInt(res?.s ?? '0')
+				const availNow = BigInt(v.advanceAvailableMinor) > reserved ? BigInt(v.advanceAvailableMinor) - reserved : 0n
+				if (amount > availNow) throw subErr('EWA_LIMIT', 'LIMIT_EXCEEDED', `Requested ${amount} exceeds the available advance of ${availNow} (${bps / 100}% of accrued-unpaid)`)
 				const [row] = await db
 					.insert(bankWageAdvances)
 					.values({ id: uid('ewa'), sourceType: 'stream', sourceId: streamId, workerOwnerType: worker.ownerType, workerOwnerId: worker.ownerId, amountMinor: amount.toString(), idempotencyKey })
 					.returning()
 				return { row: row! }
-			})
+			}))
 			if (!adv.row.transferId) {
 				const out: { transferId?: string } = {}
 				yield* settleCore(streamId, { force: true, override: amount, out })
 				if (out.transferId) {
 					const tid = out.transferId
-					yield* bankDb((db) => db.update(bankWageAdvances).set({ transferId: tid }).where(eq(bankWageAdvances.id, adv.row.id)))
+					yield* bankDb((db) => db.update(bankWageAdvances).set({ transferId: tid }).where(and(eq(bankWageAdvances.id, adv.row.id), isNull(bankWageAdvances.transferId))))
 					return { stream: yield* viewOf(streamId), advanceId: adv.row.id, transferId: tid }
 				}
 			}

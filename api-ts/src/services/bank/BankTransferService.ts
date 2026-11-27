@@ -378,7 +378,8 @@ const advance = (t0: BankTransfer): Fx<BankTransfer> =>
 		if (clearingFor(t) !== clearing) t = yield* patchTransfer(t.id, { metadata: mergeMeta(t, { clearingAccountId: clearing }) })
 		const reserve = yield* Effect.either(ledger.post({ transferId: t.id, phase: 'submit', legs: reserveLegs(t, clearing) }))
 		if (reserve._tag === 'Left')
-			return yield* finalizeTransfer(t.id, { from: ['pending'], patch: { status: 'failed', failureReason: reserve.left.message.slice(0, 1000) } })
+			// MONEY-PATH: the submit legs may have committed before the ack was lost; failAndReverse reverses only if a submit leg exists.
+			return yield* failAndReverse(t, reserve.left.message.slice(0, 1000), true)
 
 		const recipient = to ? to.address! : t.toExternal!.address
 		// Persist 'submitted' + hash ONLY while we still own the pending claim; else abort before broadcast.
@@ -832,28 +833,31 @@ export const BankTransferServiceLive = Layer.succeed(BankTransferService, {
 						.orderBy(bankAccounts.id)
 						.for('update')
 					const ids = group.map((g) => g.id)
-					const delta = onchain - group.reduce((sum, g) => sum + BigInt(g.balanceMinor), 0n)
+					let delta = onchain - group.reduce((sum, g) => sum + BigInt(g.balanceMinor), 0n)
 					if (delta <= 0n) return { creditedMinor: '0', transfer: null }
-					const inflight = await tx
-						.select({ id: bankTransfers.id })
-						.from(bankTransfers)
-						.where(
-							and(
-								inArray(bankTransfers.status, ['pending', 'submitted']),
-								or(inArray(bankTransfers.fromAccount, ids), inArray(bankTransfers.toAccount, ids)),
-							),
-						)
-						.limit(1)
-					if (inflight.length > 0) return { creditedMinor: '0', transfer: null }
-					// MONEY-PATH: pending earn ops and pending credit ops move the wallet balance too (their own finalize books
-					// the ledger side); crediting the wallet delta now would double-count. Read-only check across the wallet group.
+					// MONEY-PATH: never skip the whole group (a dust internal transfer or a stuck op must not block deposits).
+					// Credit only the part of the wallet delta that no in-flight operation will account for itself:
+					//  - outgoing transfers whose submit/reserve leg is posted (ledger already debited, funds may still be on-chain);
+					//  - incoming in-flight transfers from outside the group (credited by their own confirm);
+					//  - pending earn withdraws / credit draws (credited by their own finalize).
 					const idList = sql.join(ids.map((i) => sql`${i}`), sql`, `)
-					const opInflight = (await tx.execute(sql`
-						select 1 as x where
-							exists (select 1 from bank_earn_ops where status = 'pending' and (checking_account_id in (${idList}) or savings_account_id in (${idList})))
-							or exists (select 1 from bank_credit_ops co join bank_credit_lines cl on cl.id = co.line_id where co.status = 'pending' and cl.account_id in (${idList}))
-					`)) as unknown as unknown[]
-					if (opInflight.length > 0) return { creditedMinor: '0', transfer: null }
+					const pendRows = (await tx.execute(sql`
+						select
+							coalesce((select sum(t.amount_minor) from bank_transfers t
+								where t.status in ('pending','submitted') and t.from_account in (${idList})
+								and (t.to_account is null or t.to_account not in (${idList}))
+								and exists (select 1 from bank_ledger_entries e where e.transfer_id = t.id and e.phase = 'submit')), 0)::text as outgoing,
+							coalesce((select sum(t.amount_minor) from bank_transfers t
+								where t.status in ('pending','submitted') and t.to_account in (${idList})
+								and (t.from_account is null or t.from_account not in (${idList}))), 0)::text as incoming,
+							coalesce((select sum(o.assets_minor) from bank_earn_ops o
+								where o.status = 'pending' and o.kind = 'withdraw' and o.checking_account_id in (${idList})), 0)::text as earn,
+							coalesce((select sum(co.principal_minor) from bank_credit_ops co join bank_credit_lines cl on cl.id = co.line_id
+								where co.status = 'pending' and co.kind = 'draw' and cl.account_id in (${idList})), 0)::text as credit
+					`)) as unknown as Array<{ outgoing: string; incoming: string; earn: string; credit: string }>
+					const p = pendRows[0]
+					if (p) delta -= BigInt(p.outgoing) + BigInt(p.incoming) + BigInt(p.earn) + BigInt(p.credit)
+					if (delta <= 0n) return { creditedMinor: '0', transfer: null }
 					// Entry count makes the key unique per ledger state: a later identical balance (after spends) is a new deposit.
 					const [{ n }] = (await tx
 						.select({ n: sql<string>`count(*)::text` })
