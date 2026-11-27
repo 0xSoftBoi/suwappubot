@@ -53,7 +53,9 @@ function isPrivateIpv4(ip: string): boolean {
 	if (parts.length !== 4) return true
 	const octets = parts.map((p) => Number(p))
 	if (octets.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return true
-	const [a, b] = octets
+	const [a, b, c3] = octets
+	if (a === 198 && (b === 18 || b === 19)) return true // 198.18.0.0/15 benchmarking
+	if (a === 192 && b === 0 && c3 === 0) return true // 192.0.0.0/24 IETF protocol assignments
 	if (a === 0) return true // 0.0.0.0/8 "this host" / unspecified
 	if (a === 127) return true // 127.0.0.0/8 loopback
 	if (a === 10) return true // 10.0.0.0/8
@@ -138,6 +140,16 @@ function isPrivateIpv6(ip: string): boolean {
 		const v4 = `${(h[6] >> 8) & 0xff}.${h[6] & 0xff}.${(h[7] >> 8) & 0xff}.${h[7] & 0xff}`
 		return isPrivateIpv4(v4)
 	}
+
+	// Embedded-IPv4 transition forms: classify the embedded address.
+	const v4of = (x: number, y: number) => `${(x >> 8) & 0xff}.${x & 0xff}.${(y >> 8) & 0xff}.${y & 0xff}`
+	// NAT64 64:ff9b::/96 (RFC 6052) and local-use 64:ff9b:1::/48 (RFC 8215)
+	if (h[0] === 0x64 && h[1] === 0xff9b && h[2] === 0 && h[3] === 0 && h[4] === 0 && h[5] === 0) return isPrivateIpv4(v4of(h[6], h[7]))
+	if (h[0] === 0x64 && h[1] === 0xff9b && h[2] === 1) return true
+	// 6to4 2002::/16: IPv4 in hextets 1-2
+	if (h[0] === 0x2002) return isPrivateIpv4(v4of(h[1], h[2]))
+	// Teredo 2001:0000::/32: server in hextets 2-3, client = bitwise NOT of hextets 6-7
+	if (h[0] === 0x2001 && h[1] === 0) return isPrivateIpv4(v4of(h[2], h[3])) || isPrivateIpv4(v4of(~h[6] & 0xffff, ~h[7] & 0xffff))
 
 	// Prefix checks on the first hextet.
 	const first = h[0]

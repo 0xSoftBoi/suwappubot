@@ -65,7 +65,7 @@ export function BankHome() {
   const links: Array<[string, string, string]> = [
     ['Send', '↗', '/bank/send'], ['Add money', '＋', '/bank/add'], ['Earn', '%', '/bank/earn'], ['Card', '▭', '/bank/cards'], ['Borrow', '⇄', '/bank/credit'],
   ]
-  const more: Array<[string, string]> = [['Convert', '/bank/convert'], ['Payments', '/bank/payments'], ['Payroll', '/bank/payroll'], ['Business', '/bank/business'], ['Agents', '/bank/agents'], ['Settings', '/bank/settings']]
+  const more: Array<[string, string]> = [['Convert', '/bank/convert'], ['Payments', '/bank/payments'], ['Payroll', '/bank/payroll'], ['Business', '/bank/business'], ['Agents', '/bank/agents'], ['Privacy', '/bank/privacy'], ['Developers', '/bank/developers'], ['Settings', '/bank/settings']]
   return (
     <BankPage title="Suwappu Bank" back="/home">
       <div className="grid grid-cols-5 gap-2">

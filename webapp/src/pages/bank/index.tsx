@@ -14,6 +14,8 @@ const Payments = lz(() => import('./Payments'), 'Payments')
 const Payroll = lz(() => import('./Payroll'), 'Payroll')
 const Business = lz(() => import('./Business'), 'Business')
 const Agents = lz(() => import('./Agents'), 'Agents')
+const Privacy = lz(() => import('./Privacy'), 'Privacy')
+const Developers = lz(() => import('./Developers'), 'Developers')
 const BankSettings = lz(() => import('./BankSettings'), 'BankSettings')
 
 export function BankRoutes() {
@@ -34,6 +36,8 @@ export function BankRoutes() {
         <Route path="payroll" element={<Payroll />} />
         <Route path="business" element={<Business />} />
         <Route path="agents" element={<Agents />} />
+        <Route path="privacy" element={<Privacy />} />
+        <Route path="developers" element={<Developers />} />
         <Route path="settings" element={<BankSettings />} />
         <Route path="*" element={<Navigate to="/bank" replace />} />
       </Routes>

@@ -142,6 +142,14 @@ export function register(app: BankRouteApp, deps: BankRouteDeps): void {
 		return run(c, Effect.gen(function* () { return { line: yield* (yield* BankCreditService).openUnsecuredLine({ owner, idempotencyKey: key, accountId: b.accountId }) } }))
 	})
 
+	// MONEY-PATH: the invoice PAYER (authenticated owner) accepts an invoice; required before the payee can finance it.
+	app.post('/credit/receivables/accept', async (c) => {
+		const owner = await resolveOwner(c)
+		const parsed = z.object({ invoiceId: z.string().min(1).max(64) }).safeParse(await readJson(c))
+		if (!parsed.success) return bad(c, formatZodErrors(parsed.error))
+		return run(c, Effect.gen(function* () { return yield* (yield* BankCreditService).acceptReceivable({ owner, invoiceId: parsed.data.invoiceId }) }))
+	})
+
 	app.post('/credit/receivables/finance', async (c) => {
 		const owner = await resolveOwner(c)
 		const parsed = ReceivableSchema.safeParse(await readJson(c))

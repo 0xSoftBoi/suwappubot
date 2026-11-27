@@ -8,6 +8,7 @@ import { useClaimPreview, useRemittance, useRemittances } from '../../hooks/bank
 import { useIdempotencyKey } from '../../hooks/bank/useIdempotencyKey'
 import { BankPage, Btn, Card, Chip, Empty, ErrorBox, Field, Input, QueryState, Row, SectionTitle, Tabs } from '../../components/bank/BankUI'
 import { AccountSelect } from '../../components/bank/AccountSelect'
+import { CheapestChainHint } from '../../components/bank/CheapestChainHint'
 import { AmountInput } from '../../components/bank/Amount'
 import { ConfirmSheet } from '../../components/bank/ConfirmSheet'
 import { TransferTracker } from '../../components/bank/TransferTracker'
@@ -79,6 +80,7 @@ export function Send() {
         <Field label="From">{accounts.isLoading ? <p className="text-xs animate-pulse">Loading accounts…</p> : <AccountSelect accounts={accounts.data ?? []} value={from} onChange={setFrom} />}</Field>
         {accounts.isError && <ErrorBox error={accounts.error} onRetry={() => void accounts.refetch()} />}
         <Field label="Amount"><AmountInput value={amount} onChange={setAmount} symbol={acct?.asset} decimals={acct?.decimals ?? null} /></Field>
+        <CheapestChainHint acct={acct} amountMinor={amountMinor} />
         <Field label="Note (optional)"><Input value={memo} maxLength={280} onChange={(e) => setMemo(e.target.value)} /></Field>
         {quote.isError && <ErrorBox error={quote.error} />}
         <Btn className="w-full" disabled={!acct || !amountMinor || !recipientOk || quote.isPending} onClick={() => quote.mutate(undefined, { onSuccess: () => setConfirm(true) })}>

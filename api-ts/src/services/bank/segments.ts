@@ -3,9 +3,10 @@
  * The account's segment lives in bank_accounts.segment_profile (db/schema/bank.ts `segmentProfile`).
  * Limits are integer minor units in 6-decimal stablecoin units (1_000_000 = 1.00).
  */
-import { and, eq } from 'drizzle-orm'
+import { randomUUID } from 'node:crypto'
+import { and, eq, sql } from 'drizzle-orm'
 import { Effect } from 'effect'
-import { type BankAccount, bankAccounts } from '../../db'
+import { type BankAccount, bankAccounts, bankOrgAudit } from '../../db'
 import type { DrizzleService } from '../../db'
 import { type BankOwner, bankDb } from './db'
 import { bankErr } from './errors'
@@ -156,6 +157,18 @@ export const setAccountSegment = (owner: BankOwner, accountId: string, segment: 
 			const md = (a.metadata ?? {}) as Record<string, unknown>
 			if (md.earnPosition || md.interestBearing) throw bankErr('CONFLICT', 'Account has interest-bearing positions; close them before switching to sharia_compliant')
 		}
+		// MONEY-PATH: segment restrictions cannot be shed by the owner.
+		if (a.segmentProfile === segment) return a
+		if (a.segmentProfile === 'agent' && (a.ownerType === 'agent' || segment !== 'agent')) throw bankErr('FORBIDDEN', "Agent accounts cannot leave the 'agent' segment")
+		if (a.ownerType === 'agent' && segment !== 'agent') throw bankErr('FORBIDDEN', "Agent-owned accounts must stay in the 'agent' segment")
+		const rowsOf = (r: unknown) => (Array.isArray(r) ? r : ((r as { rows?: unknown[] }).rows ?? [])) as unknown[]
+		const open = rowsOf(
+			await db.execute(sql`select 'credit' as k from bank_credit_lines where status = 'active' and (account_id = ${accountId} or collateral_savings_account_id = ${accountId})
+				union all select 'earn' from bank_earn_positions where (savings_account_id = ${accountId} or checking_account_id = ${accountId}) and (shares_minor > 0 or pledged_shares_minor > 0)
+				union all select 'card' from bank_cards where account_id = ${accountId} and status not in ('canceled','cancelled','closed','terminated') limit 1`),
+		)
+		if (open.length) throw bankErr('CONFLICT', 'Segment cannot change while credit, financing, earn positions or card links are open on this account')
 		const [row] = await db.update(bankAccounts).set({ segmentProfile: segment, updatedAt: new Date() }).where(eq(bankAccounts.id, accountId)).returning()
+		await db.insert(bankOrgAudit).values({ id: `aud_${randomUUID().replace(/-/g, '')}`, orgId: a.ownerType === 'org' ? a.ownerId : `${a.ownerType}:${a.ownerId}`.slice(0, 120), actorKind: owner.ownerType === 'agent' ? 'agent' : 'user', actorAgentId: owner.ownerType === 'agent' ? owner.ownerId : null, action: 'account.segment.change', targetType: 'account', targetId: accountId, detail: { from: a.segmentProfile, to: segment } })
 		return row!
 	})

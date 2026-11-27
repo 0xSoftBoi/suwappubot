@@ -739,6 +739,9 @@ export const BankTransferServiceLive = Layer.succeed(BankTransferService, {
 				if (!to.address) return yield* Effect.fail(bankErr('WALLET_UNAVAILABLE', 'Destination account has no wallet address'))
 			} else {
 				yield* assertRecipientSafe(asset, input.toExternal!.address)
+				// MONEY-PATH: sending to the account's own custody address moves nothing on-chain but debits the ledger (permanent drift).
+				if (from.address && from.address.toLowerCase() === input.toExternal!.address.toLowerCase())
+					return yield* Effect.fail(bankErr('VALIDATION', 'Recipient is this account\'s own wallet address; use toAccountId for moves between your accounts'))
 			}
 
 			// Per-tx limit + policy engine (agents). Daily limit is enforced atomically at insert.

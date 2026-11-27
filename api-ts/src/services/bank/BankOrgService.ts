@@ -326,9 +326,12 @@ const impl = {
 			return { removed: true }
 		}),
 
-	createInvite: (owner: BankOwner, id: string, i: { role: OrgRole; team?: string | undefined; email?: string | undefined; ttlHours: number }) =>
+	createInvite: (owner: BankOwner, id: string, i: { role: OrgRole; team?: string | undefined; email?: string | undefined; telegramId?: number | undefined; ttlHours: number }) =>
 		Effect.gen(function* () {
 			const c = yield* authorize(owner, id, 'members.invite')
+			// MONEY-PATH: invites are bound to the invitee identity (telegram id or email) recorded here; stored in the email column as 'tg:<id>' or the lowercased email.
+			const invitee = i.telegramId !== undefined ? `tg:${i.telegramId}` : i.email ? i.email.trim().toLowerCase() : null
+			if (!invitee) return yield* Effect.fail(bankErr('VALIDATION', 'An invite must name the invitee (email or telegramId)'))
 			if (!canGrantRole(c.role, i.role)) return yield* Effect.fail(bankErr('FORBIDDEN', `Role "${c.role}" cannot invite as "${i.role}"`))
 			const secret = yield* orgSecret
 			const inv = nid('inv')
@@ -340,7 +343,7 @@ const impl = {
 					orgId: id,
 					role: i.role,
 					team: i.team ?? null,
-					email: i.email ?? null,
+					email: invitee,
 					tokenHash: sha256Hex(token),
 					expiresAt: new Date(exp),
 					createdBy: c.actor.userId,
@@ -374,6 +377,14 @@ const impl = {
 			const t = openInvite(secret, token)
 			if (!t.ok) return yield* Effect.fail(bankErr('FORBIDDEN', `Invite token ${t.reason.replace('_', ' ')}`))
 			const { inv, org, role } = t.claims
+			const ident = yield* bankDb(async (db) => {
+				const [row] = await db.select({ email: bankOrgInvites.email }).from(bankOrgInvites).where(eq(bankOrgInvites.id, inv)).limit(1)
+				const [u] = await db.select({ telegramId: users.telegramId, recoveryEmail: users.recoveryEmail }).from(users).where(eq(users.id, actor.userId)).limit(1)
+				const bound = row?.email ?? null
+				if (!bound || !u) return false
+				return bound.startsWith('tg:') ? u.telegramId !== null && `tg:${u.telegramId}` === bound : !!u.recoveryEmail && u.recoveryEmail.toLowerCase() === bound.toLowerCase()
+			})
+			if (!ident) return yield* Effect.fail(bankErr('FORBIDDEN', 'This invite was issued to a different invitee'))
 			const member = yield* bankDb(async (db) =>
 				db.transaction(async (tx) => {
 					const [row] = await tx.select().from(bankOrgInvites).where(eq(bankOrgInvites.id, inv)).limit(1)

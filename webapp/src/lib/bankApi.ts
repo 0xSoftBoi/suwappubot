@@ -427,6 +427,9 @@ export interface PayrollPreview {
 }
 /** BankPayrollService Receipt (my-payouts). No scheduleId/payeeId is included. */
 export interface PayoutReceipt { itemId: string; runId: string; payee: string; status: string; amountMinor: string; asset: string; paidAmountMinor: string | null; paidAsset: string | null; transferId: string | null; fxTransferId: string | null }
+/** BankPaymentsChainService FeeModel (POST /chains/fee-model). feeMinor is in the stablecoin's minor units; null when it cannot be expressed in-asset. */
+export interface ChainFee { chain: string; asset: string; feeToken: string | null; gasUnits: number; gasPrice: string; feeMinor: string | null; feeUsdMicros: string | null; confirmations: number; avgBlockTimeMs: number | null; estConfirmSeconds: number | null; feeError?: string; notes: string[] }
+export interface FeeModel { asset: string; amountMinor: string; chains: ChainFee[]; recommended: { chain: string; reason: string } | null; assumptions: string[]; fetchedAt: string }
 export interface FxExecuteResult { transfer: BankTransfer; quote: FxQuote }
 export interface OfframpResult { rampTransfer: RampTransfer; quote: RampQuote | null }
 export type OrgTransferResult = { approvalRequired: false; transfer: BankTransfer } | { approvalRequired: true; reason: string; request: ApprovalRequest }
@@ -607,12 +610,13 @@ export const bank = {
   setCardBudget: (id: string, b: { scope: 'member' | 'team'; scopeId: string; monthlyCapMinor?: string | null; perTxCapMinor?: string | null }) => put<Ok<Json>>(`/orgs/${id}/card-budgets`, b),
 
   // chains / privacy / network / platform
-  feeModel: (b: { asset: string; amountMinor: string; chains: string[] }) => post<Ok<{ model: Json }>>('/chains/fee-model', b),
+  feeModel: (b: { asset: string; amountMinor: string; chains: string[] }) => post<Ok<{ model: FeeModel }>>('/chains/fee-model', b),
   metaAddress: () => post<Ok<{ keys: Json; warning: string }>>('/privacy/meta-address'),
   privatePayout: (b: { payeeMetaAddress: string; payoutRef: string }) => post<Ok<{ payout: Json }>>('/privacy/payout-address', b),
   privacyScan: (b: { chain: string; fromBlock: string; viewPrivateKey: string; spendPublicKey: string }) => post<Ok<Json>>('/privacy/scan', b),
   complianceExport: () => get<Ok<{ export: Json }>>('/privacy/compliance-export'),
-  setNetworkAddress: (b: Json) => put<Ok<Json>>('/network/address', b),
+  /** PUT /network/address (routes/bank/platform.ts Publish schema); accountIds = the accounts to advertise (1-20). */
+  setNetworkAddress: (b: { handle: string; institutionName: string; domain?: string; accountIds: string[]; compliance: { kycLevel: 'none' | 'basic' | 'full'; travelRuleSupported: boolean; sanctionsScreened: boolean; jurisdictions: string[] }; ttlDays?: number }) => put<Ok<Json>>('/network/address', b),
   platformConfig: () => get<Ok<{ partner: Json }>>('/platform/config'),
   setPlatformConfig: (b: { feeBpsTransfer?: number; feeBpsFx?: number; webhookUrl?: string | null }) => put<Ok<Json>>('/platform/config', b),
   platformCustomers: () => get<Ok<{ customers: Json[] }>>('/platform/customers'),

@@ -11,11 +11,11 @@ Migration: api-ts/drizzle/0036_bank_review3.sql + journal idx 35 + database/bank
 7. PARTIAL BankPartnerService.ts withFeeFirst - fee charged first (no error after principal moved), refunded from partner revenue if principal fails; NOT a single ledger tx (needs BankTransferService two-leg change, off-limits); retry of same idempotency key after a refunded failure reuses the original fee transfer.
 8. DONE BankPaymentNetworkService.publish - setWhere owner condition + returning, CONFLICT when no row; handle is already the primary key (unique).
 9. DONE verifyDocument requires signer bound to a rail address; tempo exception removed; resolve returns verified:false + reason instead of a usable result.
-10. NOT STARTED
-11. NOT STARTED
-12. NOT STARTED
+10. DONE services/bank/segments.ts setAccountSegment - blocks while credit/earn/card positions open, agent accounts cannot leave 'agent', audit row (bank_org_audit) per change.
+11. DONE BankOrgService createInvite/acceptInvite - invite bound to invitee (email or telegramId, stored in invite email column as 'tg:<id>'); acceptor's users.telegramId/recoveryEmail must match; single-use claim already existed. createInvite now requires email or telegramId (route schema only exposes email).
+12. DONE routes/ssrfGuard.ts - additive: 198.18.0.0/15, 192.0.0.0/24, NAT64 64:ff9b::/96 (+64:ff9b:1::/48), 6to4, Teredo embedded IPv4 classified.
 13. DONE BankApprovalService.ts - currentDecisions() uses current membership/role in decide tally and in consumeApprovalToken.
 14. DONE publish requires explicit accountIds (default none), domain fixed to new env BANK_PAY_DOMAIN (EnvService.ts); platform.ts Publish schema updated (domain now ignored/optional).
 Paywall replay: DONE BankAgentPayService.servePaidResource - nonce claimed in bank_agent_resource_sales under unique (chain, auth_nonce) before settle; replay/concurrent gets 402 payment_already_used; tx_hash unique already; seller credited via syncDeposit (onchain balance) only after settlement.
 
-`bun run check`: my files clean; remaining errors only in BankCreditService.ts:521,548,580,595 ('cop' newId prefix - another fixer).
+`bun run check`: clean (0 errors) at last run.
