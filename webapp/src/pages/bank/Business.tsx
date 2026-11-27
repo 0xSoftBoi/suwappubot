@@ -3,10 +3,10 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { bank, formatMinor, type Json } from '../../lib/bankApi'
 import { useOrgData, useOrgs } from '../../hooks/bank/useBankDomains'
 import { BankPage, Btn, Card, Chip, Empty, ErrorBox, Field, Input, QueryState, Row, SectionTitle, Select, Tabs } from '../../components/bank/BankUI'
-import { ApprovalsInbox, BillsPanel, CardBudgets, PoliciesEditor } from './BusinessExtra'
+import { ApprovalsInbox, BillsPanel, CardBudgets, OrgTransfer, PoliciesEditor } from './BusinessExtra'
 import { a11yToast } from '@/lib/a11yToast'
 
-type Tab = 'members' | 'approvals' | 'treasury' | 'bills' | 'cards'
+type Tab = 'transfer' | 'members' | 'approvals' | 'treasury' | 'bills' | 'cards'
 const ROLES = ['admin', 'approver', 'accountant', 'member', 'viewer']
 const arr = (v: unknown): Array<Record<string, any>> => (Array.isArray(v) ? v : [])
 const rd = (v: unknown): number => (typeof v === 'number' ? v : 6)
@@ -16,7 +16,8 @@ function Members({ orgId }: { orgId: string }) {
   const q = useOrgData('members', orgId, bank.members)
   const [role, setRole] = useState('member')
   const [email, setEmail] = useState('')
-  const inv = useMutation({ mutationFn: () => bank.invite(orgId, { role, email: email.trim() || undefined }), onSuccess: () => { void qc.invalidateQueries({ queryKey: ['bank', 'org', orgId] }); a11yToast.success('Invite created') } })
+  const [tg, setTg] = useState('')
+  const inv = useMutation({ mutationFn: () => bank.invite(orgId, { role, ...(email.trim() ? { email: email.trim() } : { telegramId: Number(tg) }) }), onSuccess: () => { void qc.invalidateQueries({ queryKey: ['bank', 'org', orgId] }); a11yToast.success('Invite created') } })
   const token = (inv.data as Json | undefined)?.token ?? ((inv.data as Json | undefined)?.invite as Json | undefined)?.token
   return (
     <div className="space-y-3">
@@ -26,9 +27,10 @@ function Members({ orgId }: { orgId: string }) {
       <Card className="space-y-3">
         <p className="text-sm font-semibold">Invite someone</p>
         <Select value={role} onChange={(e) => setRole(e.target.value)}>{ROLES.map((r) => <option key={r}>{r}</option>)}</Select>
-        <Field label="Invitee email"><Input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
+        <Field label="Invitee email"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
+        <Field label="Or Telegram id" hint="Numeric Telegram user id. Use email or Telegram id, not both."><Input inputMode="numeric" value={tg} disabled={!!email.trim()} onChange={(e) => setTg(e.target.value.replace(/\D/g, ''))} /></Field>
         {inv.isError && <ErrorBox error={inv.error} />}
-        <Btn className="w-full" disabled={inv.isPending || !/^\S+@\S+\.\S+$/.test(email.trim())} onClick={() => inv.mutate()}>{inv.isPending ? 'Creating…' : 'Create invite'}</Btn>
+        <Btn className="w-full" disabled={inv.isPending || !(email.trim() ? /^\S+@\S+\.\S+$/.test(email.trim()) : /^[1-9]\d{0,14}$/.test(tg))} onClick={() => inv.mutate()}>{inv.isPending ? 'Creating…' : 'Create invite'}</Btn>
         {typeof token === 'string' && <p className="font-mono text-[11px] break-all">{token}</p>}
       </Card>
     </div>
@@ -86,8 +88,9 @@ export function Business() {
         {() => (
           <>
             <Select aria-label="Organization" value={active} onChange={(e) => setOrgId(e.target.value)}>{list.map((o) => <option key={String(o.id)} value={String(o.id)}>{String(o.name)} ({String(o.role)})</option>)}</Select>
-            <Tabs value={tab} onChange={setTab} tabs={[{ id: 'treasury', label: 'Treasury' }, { id: 'approvals', label: 'Approvals' }, { id: 'members', label: 'Members' }, { id: 'bills', label: 'Bills' }, { id: 'cards', label: 'Card budgets' }]} />
+            <Tabs value={tab} onChange={setTab} tabs={[{ id: 'treasury', label: 'Treasury' }, { id: 'transfer', label: 'Send' }, { id: 'approvals', label: 'Approvals' }, { id: 'members', label: 'Members' }, { id: 'bills', label: 'Bills' }, { id: 'cards', label: 'Card budgets' }]} />
             {tab === 'treasury' && <Treasury orgId={active} />}
+            {tab === 'transfer' && <OrgTransfer orgId={active} currency={cur} />}
             {tab === 'approvals' && <><ApprovalsInbox orgId={active} /><PoliciesEditor orgId={active} currency={cur} /></>}
             {tab === 'members' && <Members orgId={active} />}
             {tab === 'bills' && <BillsPanel orgId={active} />}

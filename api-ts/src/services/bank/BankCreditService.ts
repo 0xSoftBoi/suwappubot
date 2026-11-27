@@ -1152,7 +1152,7 @@ registerHoldProvider('receivable_collection', async (accountId, tx, excludeId) =
 		await tx.execute(
 			// MONEY-PATH: hold = least(owed incl. +1 rounding slack, invoice proceeds received since financing and not yet collected by a receivable_settled event);
 				// never more than money that actually arrived for THIS invoice (numeric, no overflow; one term per line so several lines/invoices on one account just add).
-				sql`select coalesce(sum(least(ceil(l.principal_minor + l.accrued_interest_minor + (l.principal_minor * l.apr_bps * greatest(0, extract(epoch from ((now() at time zone 'utc') - l.last_accrual_at)))) / (10000::numeric * 31536000)) + 1), greatest(0, v.paid_minor - (v.amount_minor - l.face_minor) - coalesce((select sum((e.data->>'collectedMinor')::numeric) from bank_credit_events e where e.line_id = l.id and e.type = 'receivable_settled'), 0)))), 0)::text as s
+				sql`select coalesce(sum(least(ceil(l.principal_minor + l.accrued_interest_minor + (l.principal_minor * l.apr_bps * greatest(0, extract(epoch from ((now() at time zone 'utc') - l.last_accrual_at)))) / (10000::numeric * 31536000)) + 1, greatest(0, v.paid_minor - (v.amount_minor - l.face_minor) - coalesce((select sum((e.data->>'collectedMinor')::numeric) from bank_credit_events e where e.line_id = l.id and e.type = 'receivable_settled'), 0)))), 0)::text as s
 				from bank_credit_lines l join bank_invoices v on v.id = l.receivable_id
 				where l.account_id = ${accountId} and l.kind = 'receivable' and l.status = 'active' and v.paid_minor > 0 and (${excludeId ?? null}::text is null or l.id <> ${excludeId ?? null})`,
 		),

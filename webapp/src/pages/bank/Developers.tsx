@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { bank } from '../../lib/bankApi'
 import { useBankAccounts } from '../../hooks/bank/useBankCore'
+import { useOrgs } from '../../hooks/bank/useBankDomains'
 import { BankPage, Btn, Card, Empty, ErrorBox, Field, Input, QueryState, Row, SectionTitle, Select } from '../../components/bank/BankUI'
 import { a11yToast } from '@/lib/a11yToast'
 
@@ -36,12 +37,12 @@ function PaymentAddress() {
   )
 }
 
-/** Partner config / customers / usage. These endpoints need an organization API key; a Telegram session is refused by the API and that message is shown as-is. */
-function Partner() {
+/** Partner config / customers / usage for an org the viewer owns or administers (?orgId=). */
+function Partner({ orgId }: { orgId: string }) {
   const qc = useQueryClient()
-  const cfg = useQuery({ queryKey: ['bank', 'platform-config'], queryFn: async () => (await bank.platformConfig()).partner, retry: 0 })
-  const cust = useQuery({ queryKey: ['bank', 'platform-customers'], queryFn: async () => (await bank.platformCustomers()).customers, retry: 0 })
-  const usage = useQuery({ queryKey: ['bank', 'platform-usage'], queryFn: async () => (await bank.platformUsage()).usage, retry: 0 })
+  const cfg = useQuery({ queryKey: ['bank', 'platform-config', orgId], queryFn: async () => (await bank.platformConfig(orgId)).partner, retry: 0 })
+  const cust = useQuery({ queryKey: ['bank', 'platform-customers', orgId], queryFn: async () => (await bank.platformCustomers(orgId)).customers, retry: 0 })
+  const usage = useQuery({ queryKey: ['bank', 'platform-usage', orgId], queryFn: async () => (await bank.platformUsage(orgId)).usage, retry: 0 })
   const [fT, setFT] = useState(''); const [fF, setFF] = useState(''); const [hook, setHook] = useState('')
   const save = useMutation({ mutationFn: () => bank.setPlatformConfig({ ...(fT.trim() ? { feeBpsTransfer: Number(fT) } : {}), ...(fF.trim() ? { feeBpsFx: Number(fF) } : {}), ...(hook.trim() ? { webhookUrl: hook.trim() } : {}) }), onSuccess: () => void qc.invalidateQueries({ queryKey: ['bank', 'platform-config'] }) })
   const [ref, setRef] = useState(''); const [nm, setNm] = useState('')
@@ -70,13 +71,76 @@ function Partner() {
   )
 }
 
+const SCOPES = ['read', 'swap', 'orders', 'portfolio', 'alerts', 'trade:read', 'swap:execute', 'admin', 'bank:platform:read', 'bank:platform:write']
+
+/** API keys for the org. The secret is returned once by the server; it is held only in this component's state. */
+function ApiKeys({ orgId }: { orgId: string }) {
+  const qc = useQueryClient()
+  const keys = useQuery({ queryKey: ['bank', 'api-keys', orgId], queryFn: async () => (await bank.apiKeys(orgId)).keys, retry: 0 })
+  const [name, setName] = useState('')
+  const [picked, setPicked] = useState<string[]>(['bank:platform:read'])
+  const [secret, setSecret] = useState<string | null>(null)
+  const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null)
+  const create = useMutation({ mutationFn: () => bank.createApiKey(orgId, { name: name.trim(), scopes: picked }), onSuccess: (r) => { setSecret(r.rawKey); setName(''); void qc.invalidateQueries({ queryKey: ['bank', 'api-keys', orgId] }) } })
+  const revoke = useMutation({ mutationFn: (id: string) => bank.revokeApiKey(orgId, id), onSuccess: () => { setConfirmRevoke(null); void qc.invalidateQueries({ queryKey: ['bank', 'api-keys', orgId] }) } })
+  return (
+    <div className="space-y-3">
+      {secret && (
+        <Card className="space-y-2 border-yellow-500/50">
+          <p className="text-sm font-semibold">Your new API key</p>
+          <p className="font-mono text-xs break-all bg-suwappu-sakura-light/50 rounded-suwappu-lg p-2">{secret}</p>
+          <p className="text-xs text-red-500 font-semibold">Copy it now. You will not see this again.</p>
+          <div className="grid grid-cols-2 gap-2">
+            <Btn onClick={() => void navigator.clipboard.writeText(secret).then(() => a11yToast.success('Copied'), () => a11yToast.error('Could not copy'))}>Copy key</Btn>
+            <Btn variant="ghost" onClick={() => setSecret(null)}>I saved it</Btn>
+          </div>
+        </Card>
+      )}
+      <QueryState query={keys} rows={1} isEmpty={(d) => d.length === 0} empty={<Empty title="No API keys" />}>
+        {(l) => <Card className="divide-y divide-suwappu-sakura-mid/20 !py-1">{l.map((k) => (
+          <div key={k.id} className="py-2.5 space-y-1">
+            <div className="flex justify-between gap-2"><p className="text-sm font-semibold truncate min-w-0">{k.name}</p>{k.revokedAt ? <span className="text-xs text-red-500 shrink-0">Revoked</span> : null}</div>
+            <p className="font-mono text-[11px] break-all">{k.keyPrefix}…</p>
+            <p className="text-[11px] text-suwappu-text-secondary break-words">{k.scopes.length ? k.scopes.join(', ') : 'no scopes'}{k.lastUsedAt ? ` · last used ${new Date(k.lastUsedAt).toLocaleDateString()}` : ' · never used'}</p>
+            {!k.revokedAt && (confirmRevoke === k.id
+              ? <div className="grid grid-cols-2 gap-2"><Btn variant="danger" disabled={revoke.isPending} onClick={() => revoke.mutate(k.id)}>Yes, revoke</Btn><Btn variant="ghost" onClick={() => setConfirmRevoke(null)}>Keep</Btn></div>
+              : <Btn variant="ghost" onClick={() => setConfirmRevoke(k.id)}>Revoke</Btn>)}
+          </div>
+        ))}</Card>}
+      </QueryState>
+      {revoke.isError && <ErrorBox error={revoke.error} />}
+      <Card className="space-y-2">
+        <p className="text-sm font-semibold">Create a key</p>
+        <Field label="Name"><Input value={name} maxLength={100} onChange={(e) => setName(e.target.value)} /></Field>
+        <p className="text-xs font-semibold text-suwappu-purple-deep">Scopes</p>
+        {SCOPES.map((sc) => <label key={sc} className="flex items-center gap-2 text-sm min-h-[40px]"><input type="checkbox" checked={picked.includes(sc)} onChange={(e) => setPicked(e.target.checked ? [...picked, sc] : picked.filter((x) => x !== sc))} /><span className="font-mono text-xs break-all">{sc}</span></label>)}
+        {create.isError && <ErrorBox error={create.error} />}
+        <Btn className="w-full" disabled={!name.trim() || create.isPending} onClick={() => create.mutate()}>{create.isPending ? 'Creating…' : 'Create key'}</Btn>
+      </Card>
+    </div>
+  )
+}
+
 export function Developers() {
+  const orgs = useOrgs()
+  const admin = (orgs.data?.orgs ?? []).filter((o) => o.role === 'owner' || o.role === 'admin')
+  const [sel, setSel] = useState('')
+  const orgId = sel || admin[0]?.id || ''
   return (
     <BankPage title="Developers">
       <SectionTitle>Payment address</SectionTitle>
       <PaymentAddress />
-      <SectionTitle>Platform</SectionTitle>
-      <Partner />
+      {orgs.isError && <ErrorBox error={orgs.error} onRetry={() => void orgs.refetch()} />}
+      {orgs.isSuccess && admin.length === 0 && <Card><p className="text-sm text-suwappu-text-secondary">API keys and platform settings are available to owners and admins of a business. Create or join one under Business.</p></Card>}
+      {orgId && (
+        <>
+          {admin.length > 1 && <Select aria-label="Organization" value={orgId} onChange={(e) => setSel(e.target.value)}>{admin.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}</Select>}
+          <SectionTitle>API keys</SectionTitle>
+          <ApiKeys orgId={orgId} />
+          <SectionTitle>Platform</SectionTitle>
+          <Partner orgId={orgId} />
+        </>
+      )}
     </BankPage>
   )
 }

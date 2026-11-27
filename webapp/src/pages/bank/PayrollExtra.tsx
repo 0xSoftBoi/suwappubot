@@ -80,10 +80,11 @@ export function MyPayouts() {
   const qc = useQueryClient()
   const assets = useBankAssets()
   const q = useQuery({ queryKey: ['bank', 'my-payouts'], queryFn: async () => (await bank.myPayouts()).payouts, retry: 1 })
-  const [sid, setSid] = useState(''); const [pid, setPid] = useState('')
+  const [pairKey, setPairKey] = useState('')
   const [asset, setAsset] = useState('')
   const [amt, setAmt] = useState('')
-  const [check, setCheck] = useState<{ sid: string; pid: string } | null>(null)
+  const pairs = Array.from(new Map((q.data ?? []).filter((r) => r.scheduleId && r.payeeId).map((r) => [`${r.scheduleId}|${r.payeeId}`, { sid: r.scheduleId as string, pid: r.payeeId as string, name: r.payee }] as const)).values())
+  const check = pairs.find((p) => `${p.sid}|${p.pid}` === pairKey) ?? pairs[0] ?? null
   const [review, setReview] = useState(false)
   const avail = useQuery({ queryKey: ['bank', 'ewa', check?.sid, check?.pid], queryFn: () => bank.scheduleAdvanceAvailable(check!.sid, check!.pid), enabled: !!check, retry: 0 })
   const [pair, chainSel] = asset.split('|')
@@ -99,11 +100,11 @@ export function MyPayouts() {
       </QueryState>
       <SectionTitle>Earned wage access</SectionTitle>
       <Card className="space-y-2">
-        <p className="text-xs text-suwappu-text-secondary">Check how much of your accrued pay you can take early. You need the schedule id and your payee id from your employer.</p>
-        <Field label="Schedule id"><Input value={sid} onChange={(e) => setSid(e.target.value.trim())} /></Field>
-        <Field label="Your payee id"><Input value={pid} onChange={(e) => setPid(e.target.value.trim())} /></Field>
-        <Btn variant="ghost" className="w-full" disabled={!sid || !pid} onClick={() => setCheck({ sid, pid })}>Check what I can take</Btn>
+        {q.isSuccess && !check && <p className="text-xs text-suwappu-text-secondary">Earned wage access appears here once your employer pays you through a payroll schedule.</p>}
+        {check && <p className="text-xs text-suwappu-text-secondary">Check how much of your accrued pay you can take early.</p>}
+        {pairs.length > 1 && <Select aria-label="Payroll schedule" value={`${check?.sid}|${check?.pid}`} onChange={(e) => setPairKey(e.target.value)}>{pairs.map((p) => <option key={`${p.sid}|${p.pid}`} value={`${p.sid}|${p.pid}`}>{p.name}</option>)}</Select>}
         {avail.isError && <ErrorBox error={avail.error} />}
+        {check && avail.isLoading && <p className="text-sm animate-pulse">Checking what you can take…</p>}
         {avail.data && (
           <>
             <Select aria-label="Asset" value={asset} onChange={(e) => setAsset(e.target.value)}><option value="">Pay-out asset and network</option>{(assets.data ?? []).map((x) => <option key={`${x.symbol}|${x.chain}`} value={`${x.symbol}|${x.chain}`}>{x.symbol} on {x.chain}</option>)}</Select>

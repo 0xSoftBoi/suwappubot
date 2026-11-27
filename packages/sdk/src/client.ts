@@ -7,6 +7,7 @@
  */
 
 import type {
+  BankErrorCode,
   AgentProfile,
   AgentTopupArgs,
   AgentWallet,
@@ -125,6 +126,30 @@ export class SuwappuError extends Error {
     this.body = body;
     this.code = code;
     this.retryAfter = retryAfter;
+  }
+}
+
+/**
+ * Typed error for `client.bank.*` calls. `code` is the Bank API error code
+ * (see `BankErrorCode`, e.g. `INSUFFICIENT_FUNDS`, `POLICY_BLOCKED`, `LOCK_BUSY`).
+ * `missing` names the exact external input when `code === "NOT_CONFIGURED"`.
+ */
+export class SuwappuBankError extends SuwappuError {
+  declare readonly code: BankErrorCode | (string & {}) | undefined;
+  /** Human-readable `message` field from the API body (falls back to the raw body). */
+  readonly detail: string;
+  readonly missing?: string;
+
+  constructor(base: SuwappuError, detail: string, missing?: string) {
+    super(base.status, base.body, base.code, base.retryAfter);
+    this.name = "SuwappuBankError";
+    this.detail = detail;
+    this.missing = missing;
+  }
+
+  /** True for failures that are safe to retry with the SAME idempotency key (429, or 503 LOCK_BUSY). */
+  get retryable(): boolean {
+    return this.status === 429 || (this.status === 503 && this.code === "LOCK_BUSY");
   }
 }
 

@@ -233,6 +233,7 @@ export function createApp(config: AppConfig) {
 	// Suwappu Bank (webapp-authed). Must precede the general /webapp router.
 	app.route('/webapp/bank', bankWebappRoutes)
 	// Bank provider webhooks (raw-body signature verified, no user auth).
+	app.use('/bank/webhooks/*', ipRateLimit(600)) // signature-authenticated ramp provider callbacks
 	app.route('/bank/webhooks', bankWebhookRoutes)
 	// Bank public surfaces (no user auth). Each exposes ONLY the named handlers.
 	app.use('/webhooks/bank/*', ipRateLimit(600)) // signature-authenticated issuer callbacks

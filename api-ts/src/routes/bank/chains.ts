@@ -11,7 +11,7 @@ import type { BankRouteApp, BankRouteDeps } from './index'
 const hex32 = z.string().regex(/^0x[0-9a-fA-F]{64}$/)
 const Fee = z.object({ asset: z.string().min(2).max(16), amountMinor: z.string().regex(/^[1-9][0-9]{0,77}$/).optional(), amount: z.string().regex(/^\d+(\.\d+)?$/).optional(), chains: z.array(z.string().min(2).max(32)).min(1).max(12) })
 const Payout = z.object({ payeeMetaAddress: z.string().min(60).max(160), payoutRef: z.string().min(1).max(128), token: z.object({ address: z.string().regex(/^0x[0-9a-fA-F]{40}$/), amountMinor: z.string().regex(/^[1-9][0-9]{0,77}$/) }).optional() })
-const Scan = z.object({ chain: z.string().min(2).max(32), fromBlock: z.string().regex(/^0x[0-9a-fA-F]+$|^earliest$/), toBlock: z.string().optional(), viewPrivateKey: hex32, spendPublicKey: z.string().regex(/^0x[0-9a-fA-F]{66}$/) })
+const Scan = z.object({ chain: z.string().min(2).max(32), fromBlock: z.string().regex(/^0x[0-9a-fA-F]+$/), toBlock: z.string().optional(), viewPrivateKey: hex32, spendPublicKey: z.string().regex(/^0x[0-9a-fA-F]{66}$/) })
 const Announced = z.object({ payoutRef: z.string().max(128), txHash: z.string().max(128), chain: z.string().max(32) })
 
 export function register(app: BankRouteApp, deps: BankRouteDeps): void {
@@ -57,7 +57,7 @@ export function register(app: BankRouteApp, deps: BankRouteDeps): void {
 		if (!p.success) return bad(c, p.error)
 		return run(c, Effect.gen(function* () { return yield* (yield* BankPrivacyService).scan(p.data as never) }))
 	})
-	// Client-side scanning: raw announcements, no key material leaves the device. `fromBlock` is a hex block number or 'earliest'.
+	// Client-side scanning: raw announcements, no key material leaves the device. `fromBlock` is a hex block number; range is capped at 10,000 blocks (wider => VALIDATION).
 	app.get('/privacy/announcements', async (c) => {
 		await resolveOwner(c)
 		const q = z.object({ chain: z.string().min(2).max(32), fromBlock: z.string().regex(/^0x[0-9a-fA-F]+$|^earliest$/), toBlock: z.string().regex(/^0x[0-9a-fA-F]+$|^latest$/).optional(), cursor: z.coerce.number().int().min(0).optional(), limit: z.coerce.number().int().min(1).max(500).optional() }).safeParse(c.req.query())

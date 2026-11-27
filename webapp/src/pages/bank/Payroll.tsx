@@ -52,6 +52,7 @@ function RunDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const payees = usePayees()
   const accounts = useBankAccounts()
   const [step, setStep] = useState<'approve' | 'execute' | 'retry' | null>(null)
+  const [tok, setTok] = useState('')
   const raw = (q.data ?? {}) as Record<string, any>
   const run = raw.run as { status: string; fundingAccountId: string; asset: string; chain: string; label?: string } | undefined
   const items: Array<Record<string, any>> = raw.items ?? []
@@ -75,8 +76,9 @@ function RunDetail({ id, onClose }: { id: string; onClose: () => void }) {
               </div>
             ))}
           </div>
+          {run.status === 'draft' && raw.approvalRequired === true && <Field label="Approval token" hint="This run needs sign-off. Request approval under Business > Approvals, then paste the token you receive."><Input value={tok} onChange={(e) => setTok(e.target.value.trim())} autoComplete="off" /></Field>}
           <div className="grid grid-cols-2 gap-2 pt-1">
-            {run.status === 'draft' && <Btn onClick={() => setStep('approve')}>Approve</Btn>}
+            {run.status === 'draft' && <Btn disabled={raw.approvalRequired === true && !tok} onClick={() => setStep('approve')}>Approve</Btn>}
             {run.status === 'approved' && <Btn onClick={() => setStep('execute')}>Execute payroll</Btn>}
             {['partial', 'failed'].includes(run.status) && <Btn onClick={() => setStep('retry')}>Retry failed</Btn>}
           </div>
@@ -87,7 +89,7 @@ function RunDetail({ id, onClose }: { id: string; onClose: () => void }) {
           title={step === 'approve' ? 'Approve payroll' : step === 'execute' ? 'Execute payroll' : 'Retry failed payouts'}
           rows={rows} confirmLabel={step === 'approve' ? 'Approve' : step === 'execute' ? 'Pay everyone' : 'Retry'}
           note={step === 'execute' ? 'This sends real money to every payee in the run.' : undefined}
-          run={() => (step === 'approve' ? bank.approveRun(id) : step === 'execute' ? bank.executeRun(id) : bank.retryRun(id))}
+          run={() => (step === 'approve' ? bank.approveRun(id, tok || undefined) : step === 'execute' ? bank.executeRun(id) : bank.retryRun(id))}
           trackId={undefined}
           renderResult={(r) => (r && Array.isArray(r.items) ? <p className="text-xs text-suwappu-text-secondary">{r.items.filter((i: { status: string }) => i.status === 'paid').length} paid, {r.items.filter((i: { status: string }) => i.status === 'failed').length} failed of {r.items.length}</p> : null)}
           onClose={() => { setStep(null); void q.refetch() }}

@@ -158,6 +158,8 @@ export interface RampProvider {
 	registerExternalAccount(i: ExternalAccountInput): Promise<ExternalAccountResult>
 	createOfframp(i: OfframpInput): Promise<ProviderTransfer>
 	getTransfer(providerId: string): Promise<ProviderTransfer>
+	/** Optional: cancel a transfer still awaiting funds. Only implemented where the provider documents it (Bridge: DELETE /transfers/{id}, awaiting_funds only). */
+	cancelTransfer?(providerId: string): Promise<void>
 	/** Throws RampError('SIGNATURE') when invalid. */
 	verifyWebhook(headers: Record<string, string | undefined>, rawBody: string): void
 	parseWebhook(rawBody: string): ParsedWebhook

@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { bank, fiatDecimals, formatMinor, parseToMinor, type ApprovalPolicy, type ApprovalRequest, type Bill, type CardBudget } from '../../lib/bankApi'
+import { bank, transferIdOf, fiatDecimals, formatMinor, parseToMinor, type ApprovalPolicy, type ApprovalRequest, type Bill, type CardBudget } from '../../lib/bankApi'
 import { useBankAssets } from '../../hooks/bank/useBankCore'
 import { useOrgData, usePayrollRuns } from '../../hooks/bank/useBankDomains'
 import { Btn, Card, Chip, Empty, ErrorBox, Field, Input, QueryState, Row, SectionTitle, Select } from '../../components/bank/BankUI'
+import { AmountInput } from '../../components/bank/Amount'
 import { AccountSelect } from '../../components/bank/AccountSelect'
 import { MoneyAction } from '../../components/bank/MoneyAction'
 import { a11yToast } from '@/lib/a11yToast'
@@ -36,7 +37,7 @@ export function PoliciesEditor({ orgId, currency }: { orgId: string; currency: s
         {(d) => <>{d.policies.map((p) => (
           <Card key={p.id} className="!p-3">
             <div className="flex justify-between gap-2"><p className="text-sm font-semibold capitalize">{label(p.ruleType)}</p><Btn variant="danger" disabled={del.isPending} onClick={() => del.mutate(p.id)}>Remove</Btn></div>
-            {p.thresholdMinor && <Row label="Over" value={`${formatMinor(p.thresholdMinor, dec)} ${currency}`} />}
+            {p.thresholdMinor && <Row label="Over" value={`${formatMinor(p.thresholdMinor, p.thresholdDecimals ?? dec)} ${p.thresholdCurrency ?? currency}`} />}
             <Row label="Approvals needed" value={p.requiredApprovals} /><Row label="Approver roles" value={p.approverRoles.join(', ')} /><Row label="Expires after" value={`${p.expiryHours} h`} />
           </Card>
         ))}</>}
@@ -237,6 +238,60 @@ export function CardBudgets({ orgId, currency }: { orgId: string; currency: stri
         {save.isError && <ErrorBox error={save.error} />}
         <Btn className="w-full" disabled={!ok || save.isPending} onClick={() => save.mutate()}>Save budget</Btn>
       </Card>
+    </div>
+  )
+}
+
+/** Org transfer. When a policy requires approval the API returns a request instead of moving money; once approved the requester gets a token (Approvals tab) and resubmits with it. */
+export function OrgTransfer({ orgId, currency }: { orgId: string; currency: string }) {
+  const accts = useQuery({ queryKey: ['bank', 'org', orgId, 'accounts'], queryFn: async () => (await bank.orgAccounts(orgId)).accounts ?? [], retry: 1 })
+  const [from, setFrom] = useState('')
+  const [mode, setMode] = useState<'account' | 'external'>('account')
+  const [toAcct, setToAcct] = useState('')
+  const [addr, setAddr] = useState('')
+  const [amt, setAmt] = useState('')
+  const [memo, setMemo] = useState('')
+  const [tok, setTok] = useState('')
+  const [review, setReview] = useState(false)
+  const list = accts.data ?? []
+  const a = list.find((x) => x.id === from)
+  const minor = a && a.decimals !== null ? parseToMinor(amt, a.decimals) : null
+  const destOk = mode === 'account' ? !!toAcct && toAcct !== from : addr.trim().length >= 20
+  const toAccount = list.find((x) => x.id === toAcct)
+  return (
+    <div className="space-y-3">
+      <Card className="space-y-3">
+        <p className="text-sm font-semibold">Send from a business account</p>
+        <p className="text-xs text-suwappu-text-secondary">Transfers over your approval policy threshold (set in {currency}) are held for approval. Request it, get it approved, then paste the approval token below and send again.</p>
+        {accts.isError && <ErrorBox error={accts.error} onRetry={() => void accts.refetch()} />}
+        <Field label="From"><AccountSelect accounts={list} value={from} onChange={setFrom} /></Field>
+        <Select aria-label="Destination type" value={mode} onChange={(e) => setMode(e.target.value as typeof mode)}><option value="account">Another business account</option><option value="external">External address</option></Select>
+        {mode === 'account' ? <AccountSelect accounts={list.filter((x) => !a || (x.asset === a.asset && x.chain === a.chain))} value={toAcct} onChange={setToAcct} exclude={from} /> : <Field label="Address"><Input value={addr} maxLength={128} onChange={(e) => setAddr(e.target.value.trim())} /></Field>}
+        <Field label="Amount">{a ? <AmountInput value={amt} onChange={setAmt} symbol={a.asset} decimals={a.decimals} /> : <p className="text-xs text-suwappu-text-secondary">Pick an account first.</p>}</Field>
+        <Field label="Memo (optional)"><Input value={memo} maxLength={140} onChange={(e) => setMemo(e.target.value)} /></Field>
+        <Field label="Approval token (only if this transfer was approved)"><Input value={tok} autoComplete="off" onChange={(e) => setTok(e.target.value.trim())} /></Field>
+        <Btn className="w-full" disabled={!a || !minor || minor === '0' || !destOk} onClick={() => setReview(true)}>Review</Btn>
+      </Card>
+      {review && a && minor && (
+        <MoneyAction
+          key={tok}
+          title="Confirm business transfer"
+          rows={[
+            { label: 'Send', value: `${formatMinor(minor, a.decimals)} ${a.asset}` },
+            { label: 'Network', value: a.chain },
+            { label: 'From', value: a.label || a.kind },
+            { label: 'To', value: mode === 'account' ? (toAccount ? `${toAccount.label || toAccount.kind} (${toAcct})` : toAcct) : addr, mono: mode === 'external' },
+            ...(memo.trim() ? [{ label: 'Memo', value: memo.trim() }] : []),
+            { label: 'Approval', value: tok ? 'Token attached' : 'Held for approval if your policy requires it' },
+            { label: 'Fee', value: 'None shown by the API' },
+          ]}
+          confirmLabel="Send"
+          trackId={transferIdOf.orgTransfer}
+          run={(k) => bank.orgTransfer(orgId, { fromAccountId: a.id, ...(mode === 'account' ? { toAccountId: toAcct } : { toExternal: { address: addr } }), amountMinor: minor, ...(memo.trim() ? { memo: memo.trim() } : {}), ...(tok ? { approvalToken: tok } : {}) }, k)}
+          renderResult={(r) => (r?.approvalRequired ? <div className="space-y-1"><p className="text-sm font-semibold">Approval needed, nothing was sent</p><p className="text-xs break-words">{String(r.reason)}</p><p className="text-xs text-suwappu-text-secondary">Request {r.request?.id}. After an approver signs off, open Approvals, tap Get token, then paste it here and send again.</p></div> : null)}
+          onClose={() => { setReview(false); void accts.refetch() }}
+        />
+      )}
     </div>
   )
 }

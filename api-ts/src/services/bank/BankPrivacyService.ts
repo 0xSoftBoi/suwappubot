@@ -36,7 +36,7 @@ export interface BankPrivacyServiceInterface {
 	readonly privatePayoutAddress: (owner: BankOwner, payeeMetaAddress: string, payoutRef: string, token?: { address: string; amountMinor: string }) => FxEnv<PrivatePayout>
 	readonly recordAnnouncement: (owner: BankOwner, payoutRef: string, txHash: string, chain: string) => Fx<{ ok: true }>
 	readonly scan: (i: { chain: string; fromBlock: string; toBlock?: string; viewPrivateKey: `0x${string}`; spendPublicKey: `0x${string}` }) => Effect.Effect<{ scanned: number; matches: ScanMatch[]; keyHandling: 'server' }, BankError>
-	/** Raw ERC-5564 announcements (scheme 1) so a client can view-tag filter and derive locally without sending its view key. Paginated by `cursor` (offset into the ordered range). */
+	/** Raw ERC-5564 announcements (scheme 1) so a client can view-tag filter and derive locally without sending its view key. Paginated BY BLOCK RANGE: each call covers <= MAX_ANNOUNCE_SPAN blocks; `cursor` is the next fromBlock (number) to pass back, null when done. */
 	readonly announcements: (i: { chain: string; fromBlock: string; toBlock?: string; cursor?: number; limit?: number }) => Effect.Effect<{ announcements: Array<{ stealthAddress: string; ephemeralPublicKey: string; viewTag: string; metadata: string; txHash: string; blockNumber: string; logIndex: number }>; nextCursor: number | null; total: number }, BankError>
 	readonly complianceExport: (owner: BankOwner) => FxEnv<{ viewSecret: string; payouts: Array<{ payoutRef: string; payeeMetaAddress: string; stealthAddress: string; chain: string | null; announceTx: string | null }> }>
 }
@@ -91,6 +91,8 @@ const viewSecretFor = (owner: BankOwner): FxEnv<`0x${string}`> =>
 		})
 	})
 
+/** Max blocks per /privacy/announcements request (eth_getLogs provider caps are typically 10k). */
+const MAX_ANNOUNCE_SPAN = 10_000n
 export const BankPrivacyServiceLive = Layer.succeed(BankPrivacyService, {
 	generateMetaAddress: () => Effect.sync(() => { const k = generateStealthKeys(); return { ...k, registryCalldata: { to: '0x6538E6bf4B0eBd30A8Ea093027Ac2422ce5d6538', data: registerKeysCalldata(k.metaAddress) }, schemeId: SCHEME_ID.toString() } }),
 
@@ -143,8 +145,18 @@ export const BankPrivacyServiceLive = Layer.succeed(BankPrivacyService, {
 	announcements: (i) =>
 		Effect.gen(function* () {
 			if (!RPC_ENDPOINTS[i.chain] && i.chain !== 'tempo') return yield* Effect.fail(bankErr('ASSET_UNSUPPORTED', `No RPC for chain ${i.chain}`))
+			if (i.fromBlock === 'earliest') return yield* Effect.fail(bankErr('VALIDATION', `fromBlock must be a hex block number (earliest is not allowed); page forward in spans of at most ${MAX_ANNOUNCE_SPAN} blocks`))
+			const url = rpcUrlFor(i.chain)
+			const head = yield* Effect.tryPromise({ try: async () => BigInt(await jsonRpc<string>(url, 'eth_blockNumber', [])), catch: (e) => (e as BankError) })
+			const reqFrom = BigInt(i.fromBlock)
+			const from = i.cursor !== undefined && BigInt(Math.floor(i.cursor)) > reqFrom ? BigInt(Math.floor(i.cursor)) : reqFrom
+			const reqTo = i.toBlock === undefined || i.toBlock === 'latest' ? head : BigInt(i.toBlock)
+			const finalTo = reqTo < head ? reqTo : head
+			// MONEY-PATH-adjacent DoS bound: the requested range itself may not exceed the cap (reject, do not silently clamp).
+			if (finalTo >= reqFrom && finalTo - reqFrom + 1n > MAX_ANNOUNCE_SPAN) return yield* Effect.fail(bankErr('VALIDATION', `Block range too wide: at most ${MAX_ANNOUNCE_SPAN} blocks per request (fromBlock..toBlock). Page with a narrower toBlock.`))
+			if (from > finalTo) return { announcements: [], nextCursor: null, total: 0 }
 			const logs = yield* Effect.tryPromise({
-				try: () => jsonRpc<Array<{ topics: string[]; data: string; transactionHash: string; blockNumber: string; logIndex: string }>>(rpcUrlFor(i.chain), 'eth_getLogs', [{ address: ANNOUNCER, fromBlock: i.fromBlock, toBlock: i.toBlock ?? 'latest', topics: [ANNOUNCEMENT_TOPIC, `0x${SCHEME_ID.toString(16).padStart(64, '0')}`] }]),
+				try: () => jsonRpc<Array<{ topics: string[]; data: string; transactionHash: string; blockNumber: string; logIndex: string }>>(url, 'eth_getLogs', [{ address: ANNOUNCER, fromBlock: `0x${from.toString(16)}`, toBlock: `0x${finalTo.toString(16)}`, topics: [ANNOUNCEMENT_TOPIC, `0x${SCHEME_ID.toString(16).padStart(64, '0')}`] }]),
 				catch: (e) => (e as BankError),
 			})
 			const all: Array<{ stealthAddress: string; ephemeralPublicKey: string; viewTag: string; metadata: string; txHash: string; blockNumber: string; logIndex: number }> = []
@@ -154,10 +166,7 @@ export const BankPrivacyServiceLive = Layer.succeed(BankPrivacyService, {
 					all.push({ stealthAddress: a.stealthAddress, ephemeralPublicKey: a.ephemeralPublicKey, viewTag: `0x${a.metadata.slice(2, 4)}`, metadata: a.metadata, txHash: l.transactionHash, blockNumber: String(BigInt(l.blockNumber)), logIndex: Number(BigInt(l.logIndex)) })
 				} catch { /* skip malformed */ }
 			}
-			const start = Math.max(0, Math.floor(i.cursor ?? 0))
-			const limit = Math.min(Math.max(Math.floor(i.limit ?? 200), 1), 500)
-			const page = all.slice(start, start + limit)
-			return { announcements: page, nextCursor: start + limit < all.length ? start + limit : null, total: all.length }
+			return { announcements: all, nextCursor: finalTo < head ? Number(finalTo + 1n) : null, total: all.length }
 		}),
 
 	complianceExport: (owner) =>

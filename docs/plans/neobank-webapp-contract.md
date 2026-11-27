@@ -106,8 +106,10 @@ Verification: 390x844 screenshots with intercepted responses (script in scratchp
 5. Ramps decimals/stage/per-rail external-account form: NOT STARTED
 6. Payroll my-pay ids + approve-with-token: NOT STARTED
 7. Business org transfer + approval flow, thresholdCurrency, invite by email/Telegram: NOT STARTED
-8. Developers: platform config/usage/customers?orgId + API keys: NOT STARTED
+8. Developers: BUILT (org picker for owner/admin; platform config/usage/customers with ?orgId=; API keys list/create with scopes/revoke via /enterprise/orgs/:orgId/api-keys, secret shown once with copy)
 9. Privacy local scanning: NOT STARTED
 10. Cards: BUILT (capCurrency/capDecimals via GET /cards/:id; refund state; shortfall note inferred from frozen + failed settlement since no explicit field; merchantAllow editor with exact-match/id: copy)
 11. BankHome ops alerts banner: NOT STARTED
 12. Cosmetic fixes (vault name ellipsis, account dropdown clip): NOT STARTED
+
+Build after items 1,2,4,8,10: passes. Remaining: 3,5,6,7,9,11,12 NOT STARTED; deep-link cold-open of /bank/claim/:token and /pay/:slug NOT CHECKED.

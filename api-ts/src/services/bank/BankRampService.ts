@@ -343,16 +343,19 @@ export const BankRampServiceLive = Layer.succeed(BankRampService, {
 								const [ex] = await db.select({ id: bankTransfers.id }).from(bankTransfers).where(and(eq(bankTransfers.ownerType, i.owner.ownerType), eq(bankTransfers.ownerId, i.owner.ownerId), eq(bankTransfers.idempotencyKey, `ramp:${cref}`))).limit(1)
 								if (ex) await db.update(bankRampTransfers).set({ bankTransferId: ex.id, updatedAt: new Date() }).where(eq(bankRampTransfers.id, row.id))
 								else await db.update(bankRampTransfers).set({ status: 'failed', metadata: mergeMeta(bankRampTransfers.metadata, { fundingError: e.message }) as never, updatedAt: new Date() }).where(eq(bankRampTransfers.id, row.id))
-							}),
+								return !ex
+							}).pipe(Effect.flatMap((failedNow) => (failedNow ? cancelStaleProviderTransfer(p, row) : Effect.void))),
 						),
 				Effect.flatMap((bt) =>
 					bankDb(async (db) => {
 						// A definitively failed/reversed send must not leave the ramp transfer looking live.
 						const dead = bt.status === 'failed' || bt.status === 'reversed'
 						const [r] = await db.update(bankRampTransfers).set({ bankTransferId: bt.id, ...(dead ? { status: 'failed' as RampStatus } : {}), updatedAt: new Date() }).where(eq(bankRampTransfers.id, row.id)).returning()
-						return r as NonNullable<typeof r>
+						return { r: r as NonNullable<typeof r>, dead }
 					}),
 				),
+				Effect.tap((x) => (x.dead ? cancelStaleProviderTransfer(p, x.r) : Effect.void)),
+				Effect.map((x) => x.r),
 			)
 
 			// Idempotent replay: same key returns the existing ramp transfer, but only for the SAME terms; a crash between provider create and send is resumed (same bank-transfer key => no double send).
@@ -458,6 +461,19 @@ export const BankRampServiceLive = Layer.succeed(BankRampService, {
 		}),
 } satisfies BankRampServiceInterface)
 
+/**
+ * MONEY-PATH: our stablecoin send definitively failed, so the provider transfer (still awaiting_funds) is stale. Cancel it where the provider documents a cancel;
+ * if that is unavailable or fails, record metadata.cancelOwed so it surfaces in GET /bank/ops/alerts. Never throws.
+ */
+const cancelStaleProviderTransfer = (p: { cancelTransfer?: (id: string) => Promise<void> }, row: { id: string; providerId: string | null }): Fx<void> =>
+	Effect.gen(function* () {
+		const note = (patch: Record<string, unknown>) => bankDb((db) => db.update(bankRampTransfers).set({ metadata: mergeMeta(bankRampTransfers.metadata, patch) as never, updatedAt: new Date() }).where(eq(bankRampTransfers.id, row.id)))
+		if (!row.providerId || !p.cancelTransfer) return yield* Effect.ignore(note({ cancelOwed: 'provider has no documented cancel', cancelOwedAt: new Date().toISOString() }))
+		const res = yield* Effect.either(Effect.tryPromise({ try: () => p.cancelTransfer!(row.providerId as string), catch: (e) => String(e) }))
+		if (res._tag === 'Right') yield* Effect.ignore(note({ providerCancelled: new Date().toISOString() }))
+		else yield* Effect.ignore(note({ cancelOwed: `cancel failed: ${res.left}`.slice(0, 300), cancelOwedAt: new Date().toISOString() }))
+	})
+
 /** Credit from on-chain truth (see header). Returns 1 when credited. */
 const trySettle = (r: BankRampTransfer): Fx<number> =>
 	Effect.gen(function* () {
@@ -484,10 +500,17 @@ const processEvent = (provider: ProviderId, category: string, obj: Record<string
 			const state = String(obj.state ?? '')
 			if (!id || !state) return 'ignored'
 			const row = yield* bankDb(async (db) => {
+				// MONEY-PATH: a ramp row we already failed (send failed/reversed) is never revived or paid out by a late provider event: record the provider state and flag for ops only.
+				const [cur] = await db.select().from(bankRampTransfers).where(and(eq(bankRampTransfers.provider, provider), eq(bankRampTransfers.providerId, id))).limit(1)
+				if (cur && cur.status === 'failed' && cur.direction !== 'deposit') {
+					const [f] = await db.update(bankRampTransfers).set({ providerState: state, metadata: mergeMeta(bankRampTransfers.metadata, { staleProviderTransfer: { state, at: new Date().toISOString() } }) as never, updatedAt: new Date() }).where(eq(bankRampTransfers.id, cur.id)).returning()
+					return f
+				}
 				const [r] = await db.update(bankRampTransfers).set({ providerState: state, status: mapBridgeState(state), updatedAt: new Date() }).where(and(eq(bankRampTransfers.provider, provider), eq(bankRampTransfers.providerId, id))).returning()
 				return r
 			})
 			if (!row) return 'unknown_transfer'
+			if (row.status === 'failed' && (row.metadata as Record<string, unknown> | null)?.staleProviderTransfer) return `stale_${state}_flagged`
 			if (row.status === 'returned' || row.status === 'refunded') yield* trySettle(row)
 			return `transfer_${row.status}`
 		}

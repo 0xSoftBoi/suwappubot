@@ -13,7 +13,7 @@ import { registerBankJob } from './jobs'
 const STUCK_MINUTES = 60
 
 export interface OpsAlert {
-	kind: 'transfer' | 'earn_op' | 'credit_op'
+	kind: 'transfer' | 'earn_op' | 'credit_op' | 'ramp_transfer'
 	id: string
 	status: string
 	reason: string
@@ -57,6 +57,11 @@ export const listOpsAlerts = (owner: BankOwner) =>
 			from bank_transfers
 			where owner_type = ${owner.ownerType} and owner_id = ${owner.ownerId} and status in ('pending','submitted')
 			  and ((coalesce(metadata, '{}'::jsonb) ? 'reviewRequired') or updated_at < now() - ${th})
+			union all
+			select 'ramp_transfer', id, status, case when coalesce(metadata, '{}'::jsonb) ? 'staleProviderTransfer' then 'provider transfer active after our send failed: ops must refund/cancel' else 'provider cancel owed: ' || coalesce(metadata->>'cancelOwed', '') end,
+				amount_minor::text, created_at, updated_at
+			from bank_ramp_transfers
+			where owner_type = ${owner.ownerType} and owner_id = ${owner.ownerId} and status = 'failed' and (coalesce(metadata, '{}'::jsonb) ? 'cancelOwed' or coalesce(metadata, '{}'::jsonb) ? 'staleProviderTransfer')
 			union all
 			select 'earn_op', id, status, 'pending too long', assets_minor::text, created_at, updated_at
 			from bank_earn_ops

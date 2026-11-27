@@ -132,6 +132,10 @@ const ensureAccount = (owner: BankOwner, asset: string, chain: string, autoEarn:
 	})
 
 const claimBase = (env: EnvService['Type']) => (env.BANK_CLAIM_BASE_URL ? env.BANK_CLAIM_BASE_URL.replace(/\/$/, '') : null)
+// BANK_CLAIM_BASE_URL may be a template containing `{token}` (e.g. a Telegram deep link
+// `https://t.me/<bot>?start=claim_{token}`); otherwise the link is `<base>/claim/<token>`
+// (set the base to `<webapp>/bank` so it lands on the Mini App route /bank/claim/:token).
+const claimLinkFor = (base: string, token: string) => (base.includes('{token}') ? base.replace('{token}', encodeURIComponent(token)) : `${base}/claim/${token}`)
 
 export const BankRemittanceServiceLive = Layer.sync(BankRemittanceService, () => impl)
 
@@ -212,7 +216,7 @@ const impl: BankRemittanceServiceInterface = {
 				if (bt.status === 'failed') return yield* Effect.fail(bankErr('UPSTREAM', 'Escrow funding failed')).pipe(Effect.tapError(fail('escrow funding')))
 				const r = yield* setRem(id, { escrowAccountId: escrow.id, bankTransferId: bt.id, status: 'awaiting_claim' })
 				const base0 = claimBase(env)
-				return { remittance: r, claimToken: token as string, claimPath: `/claim/${token}`, ...(base0 ? { claimLink: `${base0}/claim/${token}` } : {}) }
+				return { remittance: r, claimToken: token as string, claimPath: `/claim/${token}`, ...(base0 ? { claimLink: claimLinkFor(base0, token as string) } : {}) }
 			}
 
 			// payout: sender cashes out to an external account they own, with the upfront all-in quote.

@@ -70,7 +70,7 @@ export type PaymentRequirements = {
 
 export type SettleResult =
 	| { ok: true; txHash?: string; network?: string; payer?: string }
-	| { ok: false; error: string }
+	| { ok: false; error: string; definite?: boolean }
 
 type FacilitatorEnv = {
 	X402_FACILITATOR_ENABLED?: string
@@ -263,7 +263,7 @@ export async function facilitatorVerifyAndSettle(
 	// SECURITY cross-check: the client-signed requirements must match what we
 	// advertised, or settling would send money somewhere we didn't intend.
 	const check = crossCheckSignedRequirements(accepted, requirements)  // includes network + scheme equality
-	if (!check.ok) return check
+	if (!check.ok) return { ...check, definite: true }
 
 	try {
 		const client = new HTTPFacilitatorClient(resolveFacilitatorConfig(env))
@@ -273,7 +273,7 @@ export async function facilitatorVerifyAndSettle(
 		const serverReq = { ...accepted, scheme: requirements.scheme, network: requirements.network, payTo: requirements.payTo, asset: requirements.asset, extra: requirements.extra ?? accepted.extra } as typeof accepted
 
 		const v = await client.verify(payload, serverReq)
-		if (!v.isValid) return { ok: false, error: v.invalidReason || 'payment_invalid' }
+		if (!v.isValid) return { ok: false, error: v.invalidReason || 'payment_invalid', definite: true } // verify refused: nothing was submitted
 
 		const s = await client.settle(payload, serverReq)
 		if (!s.success) return { ok: false, error: s.errorReason || 'settle_failed' }

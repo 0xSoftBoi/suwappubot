@@ -10,7 +10,7 @@ import { assertAvailable, registerHoldProvider, sumRow } from './holds'
 import { createHash, randomBytes } from 'node:crypto'
 import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm'
 import { Context, Effect, Layer, Option } from 'effect'
-import { decodeAbiParameters } from 'viem'
+import { decodeAbiParameters, keccak256, toHex } from 'viem'
 import {
 	type BankAccount,
 	type BankAgentMandate,
@@ -38,7 +38,7 @@ import { type BankError, bankErr } from './errors'
 import { assertSpendable } from './systemDebit'
 import { guardedFetch } from './ssrfFetch'
 import { signDigestForAccount } from './typedSigning'
-import { type X402Requirement, authorizationDigest, buildChallenge, decodePayment, decodeSettlement, encodePayment, encodeSettlement, parsePaymentRequired } from './x402Codec'
+import { type X402Requirement, authorizationDigest, buildChallenge, decodePayment, decodeSettlement, encodePayment, encodeSettlement, parsePaymentRequired, validatePaymentForResource } from './x402Codec'
 
 type Deps = DrizzleService | BankLedgerService | TurnkeyService | PolicyService | EnvService | BankTransferService
 type Fx<A> = Effect.Effect<A, BankError, Deps>
@@ -382,11 +382,17 @@ export const BankAgentPayServiceLive = Layer.succeed(BankAgentPayService, {
 
 			// MONEY-PATH: one payment (chain + EIP-3009 authorization nonce) unlocks exactly one response. Claim the nonce
 			// under a unique index BEFORE settling; a replayed/concurrent header loses the insert and gets a fresh 402.
-			const authNonce = yield* Effect.try({ try: () => String(decodePayment(payment).authorization.nonce).toLowerCase(), catch: () => null as unknown as BankError }).pipe(Effect.orElseSucceed(() => null as string | null))
-			if (!authNonce || !/^0x[0-9a-f]{64}$/.test(authNonce)) return { status: 402, headers: { ...ch.headers, 'content-type': 'application/json' }, body: JSON.stringify({ ...ch.body, error: 'invalid_payment_header' }) }
+			// MONEY-PATH: validate against SERVER requirements BEFORE any claim row exists (signer == from, to == payTo, exact price,
+			// validity window, chain/asset). EOA signatures only (no ERC-1271 verifier in this repo). Failure => 402, NO row.
+			const v = yield* Effect.promise(() => validatePaymentForResource(payment, { chainId: asset.chainId!, asset: asset.address, payTo: account.address!, amountMinor: String(res.priceMinor), domain, nowSec: Math.floor(Date.now() / 1000) }))
+			if (!v.ok) return { status: 402, headers: { ...ch.headers, 'content-type': 'application/json' }, body: JSON.stringify({ ...ch.body, error: 'invalid_payment', reason: v.error, note: 'only EOA (ECDSA) signed EIP-3009 authorizations are accepted' }) }
+			const authNonce = v.nonce
+			const payerFrom = v.from
+			// The payment-header hash is stored with the payer (`<addr>#<sha256>`); re-serve requires the identical header.
+			const headerHash = createHash('sha256').update(payment).digest('hex')
+			const payerKey = `${payerFrom}#${headerHash}`
 			const claimId = newId('le').replace('le_', 'sale_')
-			const payerFrom = yield* Effect.try({ try: () => String(decodePayment(payment).authorization.from), catch: () => 'unknown' as unknown as BankError }).pipe(Effect.orElseSucceed(() => 'unknown'))
-			const claimed = yield* bankDb((db) => db.insert(bankAgentResourceSales).values({ id: claimId, resourceId: res.id, payer: payerFrom, txHash: `pending:${authNonce}`, amountMinor: String(res.priceMinor), asset: res.asset, chain: res.chain, authNonce }).onConflictDoNothing().returning({ id: bankAgentResourceSales.id }))
+			const claimed = yield* bankDb((db) => db.insert(bankAgentResourceSales).values({ id: claimId, resourceId: res.id, payer: payerKey, txHash: `pending:${authNonce}`, amountMinor: String(res.priceMinor), asset: res.asset, chain: res.chain, authNonce }).onConflictDoNothing().returning({ id: bankAgentResourceSales.id }))
 			// MONEY-PATH: sale states live in tx_hash: 'pending:<nonce>' (claimed, settlement unknown) -> 'unserved:<tx|nonce:<nonce>>'
 			// (settled onchain, resource not yet delivered) -> '<tx>' (served). Exactly one successful serve per settled sale.
 			const serveSettled = (saleId: string, ref: string, payerAddr: string, network: string) =>
@@ -403,10 +409,10 @@ export const BankAgentPayServiceLive = Layer.succeed(BankAgentPayService, {
 					return { status: upr.status, headers: { ...encodeSettlement({ success: true, transaction: ref.startsWith('nonce:') ? undefined : ref, network, payer: payerAddr }), 'content-type': upr.headers['content-type'] ?? 'application/octet-stream' }, body: upr.body }
 				})
 			if (!claimed.length) {
-				// Re-serve path: the SAME payer presenting the same authorization for a settled-but-unserved sale.
+				// Re-serve path (payer + sha256 of the EXACT header must match; the signature is known only to the payer) for a settled-but-unserved sale.
 				const prior = (yield* bankDb((db) => db.select().from(bankAgentResourceSales).where(and(eq(bankAgentResourceSales.chain, res.chain), eq(bankAgentResourceSales.authNonce, authNonce))).limit(1)))[0]
-				if (prior && prior.resourceId === res.id && prior.txHash.startsWith('unserved:') && prior.payer.toLowerCase() === payerFrom.toLowerCase())
-					return yield* serveSettled(prior.id, prior.txHash.slice('unserved:'.length), prior.payer, `eip155:${asset.chainId}`)
+				if (prior && prior.resourceId === res.id && prior.txHash.startsWith('unserved:') && prior.payer.toLowerCase() === payerKey.toLowerCase())
+					return yield* serveSettled(prior.id, prior.txHash.slice('unserved:'.length), payerFrom, `eip155:${asset.chainId}`)
 				return { status: 402, headers: { ...ch.headers, 'content-type': 'application/json' }, body: JSON.stringify({ ...ch.body, error: 'payment_already_used' }) }
 			}
 			const env = yield* EnvService.pipe(Effect.mapError((e) => bankErr('NOT_CONFIGURED', `Environment unavailable: ${String(e)}`)))
@@ -417,17 +423,20 @@ export const BankAgentPayServiceLive = Layer.succeed(BankAgentPayService, {
 			)
 			// Facilitator failure/timeout is AMBIGUOUS (the tx may be onchain): the claim stays 'pending:<nonce>' and the
 			// agent-pay-sales job reconciles it via authorizationState (used -> settled_unserved, unused+expired -> release).
+			// MONEY-PATH: a DEFINITE rejection (facilitator answered and refused; not a timeout/transport error) deletes the pending claim so it is never reconcilable.
+			if (!settle.ok && settle.definite === true)
+				yield* bankDb((db) => db.delete(bankAgentResourceSales).where(and(eq(bankAgentResourceSales.id, claimId), eq(bankAgentResourceSales.txHash, `pending:${authNonce}`)))).pipe(Effect.ignore)
 			if (!settle.ok || !settle.txHash) return { status: 402, headers: { ...ch.headers, 'content-type': 'application/json' }, body: JSON.stringify({ ...ch.body, error: settle.ok ? 'settlement_missing_tx' : settle.error }) }
-			const payer = settle.payer ?? payerFrom
+			const payer = payerFrom // verified signer; never the facilitator-claimed payer
 			// Persist settled_unserved with the settlement tx BEFORE delivering; the unique tx_hash index also rejects a second claim for the same tx.
-			const finalised = yield* bankDb((db) => db.update(bankAgentResourceSales).set({ payer: String(payer), txHash: `unserved:${settle.txHash!}` }).where(eq(bankAgentResourceSales.id, claimId)).returning({ id: bankAgentResourceSales.id }))
+			const finalised = yield* bankDb((db) => db.update(bankAgentResourceSales).set({ txHash: `unserved:${settle.txHash!}` }).where(eq(bankAgentResourceSales.id, claimId)).returning({ id: bankAgentResourceSales.id }))
 			if (!finalised.length) return { status: 402, headers: { ...ch.headers, 'content-type': 'application/json' }, body: JSON.stringify({ ...ch.body, error: 'payment_already_used' }) }
 			// Credit the seller's ledger from the on-chain deposit (only sales actually settled reach here; creditSales retries).
 			const owner: BankOwner = { ownerType: 'agent', ownerId: res.sellerAgentId }
 			const credited = yield* Effect.either(BankTransferService.pipe(Effect.flatMap((t) => t.syncDeposit(owner, res.accountId))))
 			if (credited._tag === 'Right' && BigInt(credited.right.creditedMinor) > 0n)
 				yield* bankDb((db) => db.update(bankAgentResourceSales).set({ credited: 'true' }).where(eq(bankAgentResourceSales.id, claimId)))
-			return yield* serveSettled(claimId, settle.txHash!, String(payer), settle.network ?? `eip155:${asset.chainId}`)
+			return yield* serveSettled(claimId, settle.txHash!, payerFrom, settle.network ?? `eip155:${asset.chainId}`)
 		}),
 
 	creditSales: (owner) =>
@@ -535,23 +544,66 @@ export const resolveUnsettledAuthorizations = async (): Promise<number> => {
 }
 registerBankJob('agent-pay-auth', 60, resolveUnsettledAuthorizations)
 
-/** MONEY-PATH: reconcile paywall claims left 'pending:<nonce>' (facilitator threw/timed out): used onchain -> settled_unserved
- * (re-servable by the same payer); unused once the safe block is well past the claim -> release so the nonce can be retried. */
+const AUTH_USED_TOPIC = keccak256(toHex('AuthorizationUsed(address,bytes32)'))
+const TRANSFER_TOPIC = keccak256(toHex('Transfer(address,address,uint256)'))
+const pad32 = (a: string) => `0x${a.toLowerCase().replace(/^0x/, '').padStart(64, '0')}`
+type RpcLog = { address: string; topics: string[]; data: string; transactionHash: string }
+
+/** MONEY-PATH: finds the tx where the token emitted AuthorizationUsed(authorizer=from, nonce) AND Transfer(from, payTo, value >= min)
+ * in the SAME successful transaction. authorizationState alone is never proof (the pair may have paid anyone). Scans backwards in bounded chunks. */
+const findSettlementTx = async (chain: string, token: string, from: string, nonce: string, payTo: string, minValue: bigint, createdSec: number): Promise<string | null> => {
+	const url = rpcUrlFor(chain)
+	const depth = SAFE_DEPTH[chain] ?? 10n
+	const head = BigInt(await jsonRpc<string>(url, 'eth_blockNumber', []))
+	const safe = head > depth ? head - depth : 0n
+	const CHUNK = 5000n
+	for (let i = 0n; i < 12n; i++) {
+		const to = safe - i * CHUNK
+		if (to < 0n) break
+		const fromB = to >= CHUNK - 1n ? to - (CHUNK - 1n) : 0n
+		const logs = await jsonRpc<RpcLog[]>(url, 'eth_getLogs', [{ address: token, fromBlock: `0x${fromB.toString(16)}`, toBlock: `0x${to.toString(16)}`, topics: [AUTH_USED_TOPIC, pad32(from), nonce] }])
+		for (const l of logs ?? []) {
+			if (l.address.toLowerCase() !== token.toLowerCase()) continue
+			const rc = await jsonRpc<{ status: string; logs: RpcLog[] } | null>(url, 'eth_getTransactionReceipt', [l.transactionHash])
+			if (!rc || BigInt(rc.status) !== 1n) continue
+			const ok = rc.logs.some((x) => x.address.toLowerCase() === token.toLowerCase() && x.topics[0] === TRANSFER_TOPIC && x.topics[1]?.toLowerCase() === pad32(from) && x.topics[2]?.toLowerCase() === pad32(payTo) && BigInt(x.data) >= minValue)
+			if (ok) return l.transactionHash
+		}
+		if (fromB === 0n) break
+		const blk = await jsonRpc<{ timestamp: string } | null>(url, 'eth_getBlockByNumber', [`0x${fromB.toString(16)}`, false])
+		if (blk && Number(BigInt(blk.timestamp)) < createdSec - 600) break
+	}
+	return null
+}
+
+/** MONEY-PATH: reconcile paywall claims left 'pending:<nonce>' (facilitator threw/timed out). Only validated claims exist (signature checked
+ * before insert). Settled requires the AuthorizationUsed + Transfer(from->payTo, >= price) logs in one tx (stored as unserved:<tx>). Nothing
+ * found -> unused: delete after the grace window; used-but-unmatched or unprocessable rows go terminal 'rejected:<id>' (never silently deleted). */
 export const reconcilePendingSales = async (): Promise<number> => {
 	const { runEffect } = await import('../../runtime')
-	const rows = (await runEffect(bankDb((db) => db.select().from(bankAgentResourceSales).where(and(sql`${bankAgentResourceSales.txHash} like 'pending:%'`, sql`${bankAgentResourceSales.createdAt} < now() - interval '2 minutes'`)).limit(50)) as never)) as (typeof bankAgentResourceSales.$inferSelect)[]
+	const rows = (await runEffect(bankDb((db) => db.select().from(bankAgentResourceSales).where(and(sql`${bankAgentResourceSales.txHash} like 'pending:%'`, sql`${bankAgentResourceSales.createdAt} < now() - interval '2 minutes'`)).orderBy(bankAgentResourceSales.createdAt).limit(50)) as never)) as (typeof bankAgentResourceSales.$inferSelect)[]
 	let n = 0
+	const reject = (sale: (typeof rows)[number]) => runEffect(bankDb((db) => db.update(bankAgentResourceSales).set({ txHash: `rejected:${sale.id}` }).where(and(eq(bankAgentResourceSales.id, sale.id), sql`${bankAgentResourceSales.txHash} like 'pending:%'`))) as never)
 	for (const sale of rows) {
 		try {
+			const ageSec = (Date.now() - sale.createdAt.getTime()) / 1000
+			const payerAddr = sale.payer.split('#')[0] ?? ''
 			const [resource] = (await runEffect(bankDb((db) => db.select().from(bankAgentResources).where(eq(bankAgentResources.id, sale.resourceId)).limit(1)) as never)) as (typeof bankAgentResources.$inferSelect)[]
 			const asset = findAsset(sale.asset, sale.chain)
-			if (!resource || !asset || !sale.authNonce || !/^0x/i.test(sale.payer)) continue
-			const st = await readAuthUsed(sale.chain, asset.address, sale.payer, sale.authNonce)
-			if (st.used) {
-				await runEffect(bankDb((db) => db.update(bankAgentResourceSales).set({ txHash: `unserved:nonce:${sale.authNonce}` }).where(and(eq(bankAgentResourceSales.id, sale.id), eq(bankAgentResourceSales.txHash, `pending:${sale.authNonce}`)))) as never)
+			const account = resource ? await runEffect(Effect.gen(function* () { return yield* (yield* BankLedgerService).getAccountById(resource.accountId) }) as never).catch(() => null) as { address: string | null } | null : null
+			if (!resource || !asset || !account?.address || !sale.authNonce || !/^0x[0-9a-fA-F]{40}$/.test(payerAddr)) {
+				if (ageSec > 3600) { await reject(sale); n++ } // can never be processed: terminal state
+				continue
+			}
+			const tx = await findSettlementTx(sale.chain, asset.address, payerAddr, sale.authNonce, account.address, BigInt(sale.amountMinor), Math.floor(sale.createdAt.getTime() / 1000))
+			if (tx) {
+				await runEffect(bankDb((db) => db.update(bankAgentResourceSales).set({ txHash: `unserved:${tx}` }).where(and(eq(bankAgentResourceSales.id, sale.id), eq(bankAgentResourceSales.txHash, `pending:${sale.authNonce}`)))) as never)
 				n++
-			} else if (st.chainTime > Math.floor(sale.createdAt.getTime() / 1000) + 900) {
-				await runEffect(bankDb((db) => db.delete(bankAgentResourceSales).where(and(eq(bankAgentResourceSales.id, sale.id), eq(bankAgentResourceSales.txHash, `pending:${sale.authNonce}`)))) as never)
+			} else {
+				const st = await readAuthUsed(sale.chain, asset.address, payerAddr, sale.authNonce)
+				if (st.chainTime <= Math.floor(sale.createdAt.getTime() / 1000) + 900) continue
+				if (st.used) await reject(sale) // used, but not for this payee/price: terminal, never served
+				else await runEffect(bankDb((db) => db.delete(bankAgentResourceSales).where(and(eq(bankAgentResourceSales.id, sale.id), eq(bankAgentResourceSales.txHash, `pending:${sale.authNonce}`)))) as never)
 				n++
 			}
 		} catch {

@@ -70,7 +70,7 @@ export class BridgeProvider implements RampProvider {
 	}
 
 	// ------------------------------------------------------------ http
-	private async call(method: 'GET' | 'POST', path: string, body?: unknown, idemKey?: string): Promise<Record<string, any>> {
+	private async call(method: 'GET' | 'POST' | 'DELETE', path: string, body?: unknown, idemKey?: string): Promise<Record<string, any>> {
 		const missing = this.missingConfig()
 		if (missing) throw new RampError('PROVIDER_NOT_CONFIGURED', missing, { missing })
 		const key = method === 'POST' ? (idemKey ?? randomUUID()) : undefined
@@ -247,6 +247,11 @@ export class BridgeProvider implements RampProvider {
 
 	async getTransfer(providerId: string): Promise<ProviderTransfer> {
 		return toTransfer(await this.call('GET', `/transfers/${encodeURIComponent(providerId)}`))
+	}
+
+	/** Documented: DELETE /transfers/{transferID}, only valid in awaiting_funds (https://apidocs.bridge.xyz/api-reference/transfers/delete-a-transfer). */
+	async cancelTransfer(providerId: string): Promise<void> {
+		await this.call('DELETE', `/transfers/${encodeURIComponent(providerId)}`)
 	}
 
 	// ------------------------------------------------------------ webhooks
