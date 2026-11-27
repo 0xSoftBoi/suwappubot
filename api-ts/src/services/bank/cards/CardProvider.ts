@@ -82,6 +82,8 @@ export type WebhookEvent =
 			approved: boolean
 			/** Provider status normalized: pending | closed | reversed | expired. */
 			status: string
+			/** Currently authorized amount (provider currency minor units) when the provider reports it; used for incremental authorizations. */
+			amountMinor?: bigint | undefined
 	  }
 	| { kind: 'transaction'; transaction: ProviderTransaction }
 	| { kind: 'ignored'; type: string }

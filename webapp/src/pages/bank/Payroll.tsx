@@ -7,6 +7,7 @@ import { BankPage, Btn, Card, Chip, Empty, ErrorBox, Field, Input, QueryState, R
 import { AccountSelect } from '../../components/bank/AccountSelect'
 import { AmountInput } from '../../components/bank/Amount'
 import { MoneyAction } from '../../components/bank/MoneyAction'
+import { CreateSchedule, MyPayouts } from './PayrollExtra'
 import { a11yToast } from '@/lib/a11yToast'
 
 function Payees() {
@@ -143,11 +144,14 @@ function Runs() {
 }
 
 function Schedules() {
+  const [creating, setCreating] = useState(false)
   const q = usePayrollSchedules()
   const qc = useQueryClient()
   const set = useMutation({ mutationFn: ({ id, s }: { id: string; s: string }) => bank.setScheduleStatus(id, s), onSuccess: () => void qc.invalidateQueries({ queryKey: ['bank', 'payroll-schedules'] }) })
   return (
     <div className="space-y-3">
+      <Btn className="w-full" onClick={() => setCreating(true)}>New schedule</Btn>
+      {creating && <CreateSchedule onClose={() => setCreating(false)} />}
       {set.isError && <ErrorBox error={set.error} />}
       <QueryState query={q} isEmpty={(d) => d.length === 0} empty={<Empty title="No schedules" />}>
         {(l) => <div className="space-y-2">{l.map((s) => (
@@ -164,11 +168,11 @@ function Schedules() {
 }
 
 export function Payroll() {
-  const [tab, setTab] = useState<'runs' | 'payees' | 'sched'>('runs')
+  const [tab, setTab] = useState<'runs' | 'payees' | 'sched' | 'mine'>('runs')
   return (
     <BankPage title="Payroll">
-      <Tabs value={tab} onChange={setTab} tabs={[{ id: 'runs', label: 'Runs' }, { id: 'payees', label: 'Payees' }, { id: 'sched', label: 'Schedules' }]} />
-      {tab === 'runs' && <Runs />}{tab === 'payees' && <Payees />}{tab === 'sched' && <Schedules />}
+      <Tabs value={tab} onChange={setTab} tabs={[{ id: 'runs', label: 'Runs' }, { id: 'payees', label: 'Payees' }, { id: 'sched', label: 'Schedules' }, { id: 'mine', label: 'My pay' }]} />
+      {tab === 'runs' && <Runs />}{tab === 'payees' && <Payees />}{tab === 'sched' && <Schedules />}{tab === 'mine' && <MyPayouts />}
     </BankPage>
   )
 }

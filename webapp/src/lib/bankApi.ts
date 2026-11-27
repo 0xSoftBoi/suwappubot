@@ -425,6 +425,8 @@ export interface PayrollPreview {
   items: Array<{ item: PayrollItem; payee: { id: string; name: string; method: string; currency: string }; conversion: { needed: boolean; to?: string }; routable: boolean; issue?: string }>
   totalMinor: string; fundingBalanceMinor: string; sufficientFunds: boolean; usesPool: boolean; approvalRequired: boolean
 }
+/** BankPayrollService Receipt (my-payouts). No scheduleId/payeeId is included. */
+export interface PayoutReceipt { itemId: string; runId: string; payee: string; status: string; amountMinor: string; asset: string; paidAmountMinor: string | null; paidAsset: string | null; transferId: string | null; fxTransferId: string | null }
 export interface FxExecuteResult { transfer: BankTransfer; quote: FxQuote }
 export interface OfframpResult { rampTransfer: RampTransfer; quote: RampQuote | null }
 export type OrgTransferResult = { approvalRequired: false; transfer: BankTransfer } | { approvalRequired: true; reason: string; request: ApprovalRequest }
@@ -564,8 +566,8 @@ export const bank = {
   schedules: () => get<Ok<{ schedules: PayrollSchedule[] }>>('/payroll/schedules'),
   createSchedule: (b: Json) => post<Ok<Json>>('/payroll/schedules', b),
   setScheduleStatus: (id: string, status: string) => post<Ok<Json>>(`/payroll/schedules/${id}/status`, { status }),
-  myPayouts: () => get<Ok<{ payouts: Json[] }>>('/payroll/my-payouts'),
-  scheduleAdvanceAvailable: (id: string, payeeId: string) => get<Ok<Json>>(`/payroll/ewa/schedules/${id}/${payeeId}`),
+  myPayouts: () => get<Ok<{ payouts: PayoutReceipt[] }>>('/payroll/my-payouts'),
+  scheduleAdvanceAvailable: (id: string, payeeId: string) => get<Ok<{ accruedMinor: string; advancedMinor: string; availableMinor: string; ewaBps: number }>>(`/payroll/ewa/schedules/${id}/${payeeId}`),
   scheduleAdvance: (id: string, payeeId: string, amountMinor: string, key: string) => post<Ok<{ transferId: string | null } & Json>>(`/payroll/ewa/schedules/${id}/${payeeId}/advance`, { amountMinor }, key),
 
   // business

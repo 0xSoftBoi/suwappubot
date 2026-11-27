@@ -24,11 +24,13 @@ import {
 	bankCardAuthorizations,
 	bankCardHolds,
 	bankCardholders,
+	bankCardShortfalls,
 	bankCards,
 	bankCardTransactions,
 	bankTransfers,
 	type DrizzleService,
 } from '../../db'
+import { logger } from '../../lib/logger'
 import { findAsset } from './assets'
 import { BankLedgerService } from './BankLedgerService'
 import { type BankDeps, BankTransferService } from './BankTransferService'
@@ -60,7 +62,8 @@ import { BankError, bankErr } from './errors'
 export type CardDeps = BankDeps | BankTransferService | EnvService
 type Fx<A> = Effect.Effect<A, BankError, CardDeps>
 
-const HOLD_TTL_MS = 7 * 24 * 3600 * 1000
+// MONEY-PATH: holds are released ONLY by provider reversed/expired/closed events (handleAuthUpdate). This TTL is just a long safety floor (> any issuer max auth lifetime); hitting it is logged.
+const HOLD_TTL_MS = 35 * 24 * 3600 * 1000
 const HISTORY_MS = 40 * 24 * 3600 * 1000
 const MAX_CARDS_PER_OWNER = 50
 const ZERO_DECIMAL = new Set(['JPY', 'KRW', 'VND', 'CLP', 'ISK', 'UGX', 'XAF', 'XOF', 'PYG', 'RWF'])
@@ -254,7 +257,16 @@ const loadHistory = (card: BankCard, rules: NormalizedRules, now: number): Fx<Ct
 registerHoldProvider('card', async (accountId, tx, excludeId) =>
 	sumRow(
 		await tx.execute(
-			sql`select coalesce(sum(amount_minor),0)::text as s from bank_card_holds where account_id = ${accountId} and status = 'active' and expires_at > now() and (${excludeId ?? null}::text is null or id <> ${excludeId ?? null}::text)`,
+			sql`select coalesce(sum(greatest(amount_minor - captured_minor, 0)),0)::text as s from bank_card_holds where account_id = ${accountId} and status = 'active' and expires_at > now() and (${excludeId ?? null}::text is null or id <> ${excludeId ?? null}::text)`,
+		),
+	),
+)
+
+// MONEY-PATH: open card shortfalls (captures the issuer paid beyond available funds) hold the outstanding amount, so every other debit path is blocked until repaid.
+registerHoldProvider('card_shortfall', async (accountId, tx, excludeId) =>
+	sumRow(
+		await tx.execute(
+			sql`select coalesce(sum(amount_minor - repaid_minor),0)::text as s from bank_card_shortfalls where account_id = ${accountId} and status = 'open' and (${excludeId ?? null}::text is null or id <> ${excludeId ?? null}::text)`,
 		),
 	),
 )
@@ -264,7 +276,7 @@ const availableOf = (account: BankAccount): Fx<bigint> =>
 	Effect.gen(function* () {
 		const held = yield* bankDb(async (db) => {
 			const r = await db.execute(
-				sql`select coalesce(sum(amount_minor),0)::text as s from bank_card_holds where account_id = ${account.id} and status = 'active' and expires_at > now()`,
+				sql`select coalesce(sum(greatest(amount_minor - captured_minor, 0)),0)::text as s from bank_card_holds where account_id = ${account.id} and status = 'active' and expires_at > now()`,
 			)
 			return big((r as unknown as Array<{ s: string }>)[0]?.s ?? '0')
 		})
@@ -284,6 +296,9 @@ interface Decided {
 	decidedBy: string
 	reason: string
 }
+
+const hasOpenShortfall = (accountId: string): Fx<boolean> =>
+	bankDb(async (db) => (await db.select({ id: bankCardShortfalls.id }).from(bankCardShortfalls).where(and(eq(bankCardShortfalls.accountId, accountId), eq(bankCardShortfalls.status, 'open'))).limit(1)).length > 0)
 
 const decideAuthorization = (provider: CardProvider, req: AuthorizationRequest): Fx<AuthorizationDecision> =>
 	Effect.gen(function* () {
@@ -317,6 +332,7 @@ const decideAuthorization = (provider: CardProvider, req: AuthorizationRequest):
 		let assetAmount = 0n
 		if (card.status !== 'active') declineWith('card_status', `Card is ${card.status}`)
 		else if (account.status !== 'active') declineWith('account_status', `Funding account is ${account.status}`)
+		else if (yield* hasOpenShortfall(account.id)) declineWith('shortfall', 'Account has an unpaid card shortfall')
 		else if (!asset) declineWith('asset', 'Funding asset unsupported')
 		else if (req.currency !== card.currency.toUpperCase()) declineWith('currency', `Authorization currency ${req.currency} != card currency ${card.currency}`)
 		else if (!rules) declineWith('rules_invalid', 'Stored card rules are invalid; failing closed')
@@ -424,7 +440,22 @@ const decideAuthorization = (provider: CardProvider, req: AuthorizationRequest):
 const handleAuthUpdate = (e: Extract<WebhookEvent, { kind: 'authorization_update' }>): Fx<void> =>
 	bankDb(async (db) => {
 		const terminal = ['closed', 'reversed', 'expired'].includes(e.status)
-		const releasing = e.status === 'reversed' || e.status === 'expired' || (terminal && !e.approved)
+		// MONEY-PATH: any terminal provider status (closed/reversed/expired) releases whatever remains of the hold (the uncaptured remainder).
+		const releasing = terminal
+		const [a0] = await db.select().from(bankCardAuthorizations).where(eq(bankCardAuthorizations.providerAuthorizationId, e.providerAuthorizationId)).limit(1)
+		// MONEY-PATH: incremental authorization: the provider raised the authorized amount; grow the hold to match (never shrink here).
+		if (!terminal && e.approved && e.amountMinor != null && a0 && a0.holdId && e.amountMinor > BigInt(a0.providerAmountMinor)) {
+			const [card] = await db.select().from(bankCards).where(eq(bankCards.id, a0.cardId)).limit(1)
+			const [acct] = card ? await db.select().from(bankAccounts).where(eq(bankAccounts.id, card.accountId)).limit(1) : []
+			const asset = acct ? findAsset(acct.asset, acct.chain) : null
+			if (asset) {
+				const newAsset = providerToAssetMinor(e.amountMinor, a0.currency, asset.decimals)
+				await db.transaction(async (tx) => {
+					await tx.update(bankCardHolds).set({ amountMinor: newAsset.toString(), updatedAt: new Date() }).where(and(eq(bankCardHolds.id, a0.holdId!), eq(bankCardHolds.status, 'active'), sql`${bankCardHolds.amountMinor} < ${newAsset.toString()}::numeric`))
+					await tx.update(bankCardAuthorizations).set({ providerAmountMinor: e.amountMinor!.toString(), amountMinor: newAsset.toString(), updatedAt: new Date() }).where(eq(bankCardAuthorizations.id, a0.id))
+				})
+			}
+		}
 		if (!releasing) return
 		await db.transaction(async (tx) => {
 			const [a] = await tx.select().from(bankCardAuthorizations).where(eq(bankCardAuthorizations.providerAuthorizationId, e.providerAuthorizationId)).limit(1)
@@ -436,7 +467,7 @@ const handleAuthUpdate = (e: Extract<WebhookEvent, { kind: 'authorization_update
 					.set({ status: 'released', releaseReason: reason, updatedAt: new Date() })
 					.where(and(eq(bankCardHolds.id, a.holdId), eq(bankCardHolds.status, 'active')))
 			}
-			if (a.status === 'pending')
+			if (a.status === 'pending' && !(e.status === 'closed' && a.decision === 'approved'))
 				await tx
 					.update(bankCardAuthorizations)
 					.set({
@@ -465,7 +496,10 @@ const settleCapture = (card: BankCard, txn: BankCardTransaction): Fx<void> =>
 			}
 			const addr = yield* settlementAddress(account.chain)
 			const transfers = yield* BankTransferService
+			// MONEY-PATH: a retry of a capture that previously created a shortfall consumes that shortfall's hold (it would otherwise block itself).
+			const sf = yield* bankDb(async (db) => (await db.select().from(bankCardShortfalls).where(and(eq(bankCardShortfalls.cardTransactionId, txn.id), eq(bankCardShortfalls.status, 'open'))).limit(1))[0] ?? null)
 			const t = yield* transfers.transfer({
+				...(sf ? { consumesHold: { provider: 'card_shortfall', id: sf.id } } : {}),
 				owner,
 				idempotencyKey: `card_cap_${txn.providerTransactionId}`.slice(0, 128),
 				type: 'card',
@@ -478,6 +512,7 @@ const settleCapture = (card: BankCard, txn: BankCardTransaction): Fx<void> =>
 			yield* bankDb((db) =>
 				db.update(bankCardTransactions).set({ transferId: t.id, settlementStatus: 'queued', settlementError: null }).where(eq(bankCardTransactions.id, txn.id)),
 			)
+			if (sf) yield* bankDb((db) => db.update(bankCardShortfalls).set({ status: 'repaid', repaidMinor: sf.amountMinor, repaidAt: new Date() }).where(eq(bankCardShortfalls.id, sf.id)))
 			return
 		}
 
@@ -532,12 +567,21 @@ const settleSafely = (card: BankCard, txn: BankCardTransaction): Fx<boolean> =>
 	Effect.matchEffect(settleCapture(card, txn), {
 		onSuccess: () => Effect.succeed(true),
 		onFailure: (e) =>
-			Effect.as(
-				bankDb((db) =>
+			Effect.gen(function* () {
+				yield* bankDb((db) =>
 					db.update(bankCardTransactions).set({ settlementStatus: 'failed', settlementError: `${e.code}: ${e.message}`.slice(0, 500) }).where(eq(bankCardTransactions.id, txn.id)),
-				),
-				false,
-			),
+				)
+				// MONEY-PATH: the issuer already paid the merchant. Record the unfunded capture as a receivable, freeze the card; the open shortfall blocks other debits until a retry settles it.
+				if (txn.type === 'capture' && (e.code === 'INSUFFICIENT_FUNDS' || e.code === 'INSUFFICIENT_AVAILABLE')) {
+					yield* bankDb(async (db) => {
+						await db.insert(bankCardShortfalls).values({ id: mkId('sfall'), accountId: card.accountId, cardId: card.id, cardTransactionId: txn.id, amountMinor: txn.amountMinor }).onConflictDoNothing()
+						await db.update(bankCards).set({ status: 'frozen', updatedAt: new Date() }).where(and(eq(bankCards.id, card.id), eq(bankCards.status, 'active')))
+					})
+					yield* providerFor(card.provider).pipe(Effect.flatMap((p) => p.setStatus(card.providerCardId, 'frozen')), Effect.ignore)
+					logger.warn({ cardId: card.id, txnId: txn.id, amount: txn.amountMinor }, 'bank: card capture exceeded available funds; shortfall recorded, card frozen')
+				}
+				return false
+			}),
 	})
 
 const handleTransaction = (provider: CardProvider, t: ProviderTransaction): Fx<void> =>
@@ -583,9 +627,21 @@ const handleTransaction = (provider: CardProvider, t: ProviderTransaction): Fx<v
 					return ex && (ex.settlementStatus === 'pending' || ex.settlementStatus === 'failed') ? ex : null
 				}
 				if (t.type === 'capture' && auth) {
-					if (auth.holdId)
-						await tx.update(bankCardHolds).set({ status: 'captured', updatedAt: new Date() }).where(and(eq(bankCardHolds.id, auth.holdId), eq(bankCardHolds.status, 'active')))
-					await tx.update(bankCardAuthorizations).set({ status: 'captured', updatedAt: new Date() }).where(eq(bankCardAuthorizations.id, auth.id))
+					// MONEY-PATH: per-hold captured amount. A partial capture only consumes part of the hold; the remainder stays held until the provider closes/reverses the authorization (handleAuthUpdate). Multi-capture accumulates.
+					let fully = true
+					if (auth.holdId) {
+						const [h] = await tx
+							.update(bankCardHolds)
+							.set({
+								capturedMinor: sql`${bankCardHolds.capturedMinor} + ${assetAmount.toString()}::numeric`,
+								status: sql`case when ${bankCardHolds.capturedMinor} + ${assetAmount.toString()}::numeric >= ${bankCardHolds.amountMinor} then 'captured' else ${bankCardHolds.status} end`,
+								updatedAt: new Date(),
+							})
+							.where(and(eq(bankCardHolds.id, auth.holdId), eq(bankCardHolds.status, 'active')))
+							.returning({ status: bankCardHolds.status })
+						fully = !h || h.status === 'captured'
+					}
+					if (fully) await tx.update(bankCardAuthorizations).set({ status: 'captured', updatedAt: new Date() }).where(eq(bankCardAuthorizations.id, auth.id))
 				}
 				return row
 			}),
@@ -734,6 +790,7 @@ const impl: BankCardServiceInterface = {
 			const card = yield* loadCard(owner, cardId)
 			if (card.status === 'canceled') return yield* Effect.fail(bankErr('ACCOUNT_STATE', 'Card is canceled (terminal)'))
 			if (card.status === status) return card
+			if (status === 'active' && (yield* hasOpenShortfall(card.accountId))) return yield* Effect.fail(bankErr('ACCOUNT_STATE', 'Card has an unpaid shortfall; repay before unfreezing'))
 			const provider = yield* providerFor(card.provider)
 			yield* provider.setStatus(card.providerCardId, status)
 			return yield* bankDb(async (db) => {

@@ -273,6 +273,7 @@ export function makeStripeIssuingProvider(cfg: StripeIssuingConfig): CardProvide
 						providerCardId: card,
 						approved: obj.approved === true,
 						status: str(obj.status) ?? 'pending',
+						...(typeof obj.amount === 'number' && Number.isInteger(obj.amount) && obj.amount > 0 ? { amountMinor: BigInt(obj.amount) } : {}),
 					} satisfies WebhookEvent
 				}
 				if (type === 'issuing_transaction.created') {
