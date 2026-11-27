@@ -19,13 +19,13 @@ import type { DrizzleService } from '../../db'
 import { logger } from '../../lib/logger'
 import { BankLedgerService } from './BankLedgerService'
 import { BankRampService, type QuoteInput } from './BankRampService'
-import { BankTransferService } from './BankTransferService'
+import { type BankDeps, BankTransferService } from './BankTransferService'
 import { findAsset } from './assets'
 import { type BankOwner, bankDb, newId } from './db'
 import { type BankError, bankErr } from './errors'
 import { RAIL_INFO, type Rail } from './ramps/rails'
 
-type Deps = DrizzleService | BankLedgerService | BankTransferService | BankRampService | EnvService
+type Deps = BankDeps | BankTransferService | BankRampService | EnvService
 type Fx<A> = Effect.Effect<A, BankError, Deps>
 
 export type Recipient =

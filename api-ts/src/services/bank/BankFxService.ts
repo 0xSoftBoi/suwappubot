@@ -244,7 +244,7 @@ export const BankFxServiceLive = Layer.succeed(BankFxService, {
 								direct: p.quote.direct,
 							},
 						},
-					}),
+				},
 				p.from,
 			)
 			if (!inserted) return yield* Effect.fail(bankErr('CONFLICT', 'Concurrent request with the same idempotencyKey; retry'))

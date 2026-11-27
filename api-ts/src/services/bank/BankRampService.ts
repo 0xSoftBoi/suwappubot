@@ -28,7 +28,7 @@ import type { DrizzleService } from '../../db'
 import { logger } from '../../lib/logger'
 import { BANK_ASSETS, findAsset, fromMinor } from './assets'
 import { BankLedgerService } from './BankLedgerService'
-import { BankTransferService } from './BankTransferService'
+import { type BankDeps, BankTransferService } from './BankTransferService'
 import { type BankOwner, bankDb, newId } from './db'
 import { type BankError, bankErr } from './errors'
 import { BridgeProvider } from './ramps/BridgeProvider'
@@ -45,7 +45,7 @@ import {
 } from './ramps/RampProvider'
 import { type RailSupportRow, type RoutedQuotes, bestQuote, railRegistry } from './ramps/router'
 
-type Deps = DrizzleService | BankLedgerService | BankTransferService | EnvService
+type Deps = BankDeps | BankTransferService | EnvService
 type Fx<A> = Effect.Effect<A, BankError, Deps>
 
 export interface QuoteInput {
