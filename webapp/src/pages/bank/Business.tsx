@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { bank, formatMinor, type ApprovalRequest, type Json } from '../../lib/bankApi'
+import { bank, formatMinor, type Json } from '../../lib/bankApi'
 import { useOrgData, useOrgs } from '../../hooks/bank/useBankDomains'
 import { BankPage, Btn, Card, Chip, Empty, ErrorBox, Field, Input, QueryState, Row, SectionTitle, Select, Tabs } from '../../components/bank/BankUI'
 import { ApprovalsInbox, BillsPanel, CardBudgets, PoliciesEditor } from './BusinessExtra'

@@ -131,6 +131,10 @@ export function BillsPanel({ orgId }: { orgId: string }) {
   const cancel = useMutation({ mutationFn: (id: string) => bank.cancelBill(orgId, id), onSuccess: inv })
   const [sched, setSched] = useState<Bill | null>(null); const [from, setFrom] = useState(''); const [when, setWhen] = useState('')
   const fromAcct = accts.data?.find((x) => x.id === from)
+  const csv = useMutation({
+    mutationFn: () => bank.booksCsv(orgId),
+    onSuccess: (text) => { const el = document.createElement('a'); el.href = URL.createObjectURL(new Blob([text], { type: 'text/csv' })); el.download = 'books.csv'; el.click(); URL.revokeObjectURL(el.href) },
+  })
   return (
     <div className="space-y-3">
       <SectionTitle>Bills</SectionTitle>
@@ -187,6 +191,8 @@ export function BillsPanel({ orgId }: { orgId: string }) {
       <QueryState query={vendors} rows={1} isEmpty={(d) => d.vendors.length === 0} empty={<Empty title="No vendors" />}>
         {(d) => <Card className="divide-y divide-suwappu-sakura-mid/20 !py-1">{d.vendors.map((v) => <div key={v.id} className="py-2 min-w-0"><p className="text-sm">{v.name}</p>{v.payAddress && <p className="font-mono text-[11px] break-all text-suwappu-text-secondary">{v.payAddress}{v.payChain ? ` · ${v.payChain}` : ''}</p>}</div>)}</Card>}
       </QueryState>
+      <SectionTitle>Books</SectionTitle>
+      <Card className="space-y-2"><p className="text-xs text-suwappu-text-secondary">Download every booked entry as CSV.</p>{csv.isError && <ErrorBox error={csv.error} />}<Btn className="w-full" disabled={csv.isPending} onClick={() => csv.mutate()}>{csv.isPending ? 'Preparing…' : 'Download CSV'}</Btn></Card>
       <Card className="space-y-2">
         <Field label="Vendor name"><Input value={vn} maxLength={200} onChange={(e) => setVn(e.target.value)} /></Field>
         <Field label="Email (optional)"><Input type="email" value={ve} onChange={(e) => setVe(e.target.value)} /></Field>

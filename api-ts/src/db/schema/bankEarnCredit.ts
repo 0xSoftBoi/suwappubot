@@ -150,3 +150,28 @@ export type BankEarnSetting = typeof bankEarnSettings.$inferSelect
 export type BankCreditLine = typeof bankCreditLines.$inferSelect
 export type BankCreditEvent = typeof bankCreditEvents.$inferSelect
 export type BankCreditScore = typeof bankCreditScores.$inferSelect
+
+/** MONEY-PATH (review1b): pool draw/repay operations. One row per (line, op key); `pending` rows reserve credit/owed, `applied` is applied-once. */
+export const bankCreditOps = pgTable('bank_credit_ops', {
+	id: text('id').primaryKey(),
+	lineId: text('line_id').notNull(),
+	opKey: varchar('op_key', { length: 200 }).notNull(),
+	kind: varchar('kind', { length: 8 }).notNull(), // draw | repay
+	transferId: text('transfer_id'),
+	status: varchar('status', { length: 10 }).notNull().default('pending'), // pending | applied | failed
+	principalMinor: num('principal_minor').notNull().default('0'),
+	interestMinor: num('interest_minor').notNull().default('0'),
+	createdAt: timestamp('created_at').defaultNow().notNull(),
+	updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (t) => ({
+	lineKeyUniq: uniqueIndex('ux_bank_credit_ops_line_key').on(t.lineId, t.opKey),
+	statusIdx: index('ix_bank_credit_ops_status').on(t.status, t.kind),
+}))
+
+/** Payer's explicit acceptance of an invoice (required before the payee can finance it). */
+export const bankInvoiceAcceptances = pgTable('bank_invoice_acceptances', {
+	invoiceId: text('invoice_id').primaryKey(),
+	payerOwnerType: varchar('payer_owner_type', { length: 24 }).notNull(),
+	payerOwnerId: varchar('payer_owner_id', { length: 64 }).notNull(),
+	acceptedAt: timestamp('accepted_at').defaultNow().notNull(),
+})

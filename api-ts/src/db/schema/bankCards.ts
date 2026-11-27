@@ -93,6 +93,8 @@ export const bankCardHolds = pgTable(
 		amountMinor: numeric('amount_minor', { precision: 78, scale: 0 }).notNull(),
 		status: varchar('status', { length: 12 }).$type<'active' | 'captured' | 'released'>().notNull().default('active'),
 		releaseReason: varchar('release_reason', { length: 40 }),
+		/** MONEY-PATH: asset minor units already captured against this hold; the remainder stays held until the provider closes the authorization. */
+		capturedMinor: numeric('captured_minor', { precision: 78, scale: 0 }).notNull().default('0'),
 		expiresAt: timestamp('expires_at').notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -100,6 +102,26 @@ export const bankCardHolds = pgTable(
 	(t) => ({
 		accountIdx: index('ix_bank_card_holds_account').on(t.accountId, t.status),
 		authIdx: uniqueIndex('ux_bank_card_holds_auth').on(t.authorizationId),
+	}),
+)
+
+/** MONEY-PATH: a capture the issuer already paid that exceeded available funds. Open shortfalls block further debits (hold provider 'card_shortfall') and freeze the card until repaid. */
+export const bankCardShortfalls = pgTable(
+	'bank_card_shortfalls',
+	{
+		id: text('id').primaryKey(),
+		accountId: text('account_id').notNull(),
+		cardId: text('card_id').notNull(),
+		cardTransactionId: text('card_transaction_id').notNull(),
+		amountMinor: numeric('amount_minor', { precision: 78, scale: 0 }).notNull(),
+		repaidMinor: numeric('repaid_minor', { precision: 78, scale: 0 }).notNull().default('0'),
+		status: varchar('status', { length: 8 }).$type<'open' | 'repaid'>().notNull().default('open'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		repaidAt: timestamp('repaid_at'),
+	},
+	(t) => ({
+		txnUniq: uniqueIndex('ux_bank_card_shortfalls_txn').on(t.cardTransactionId),
+		accountIdx: index('ix_bank_card_shortfalls_account').on(t.accountId, t.status),
 	}),
 )
 

@@ -84,7 +84,7 @@ const partnerWallet = (partnerId: string) => ensureOrgCustodyWallet(partnerId, '
 const customerWallet = (customerId: string) => ensureOrgCustodyWallet(`pcust_${customerId}`, 'evm')
 
 /** Is `accountId` owned by a customer of this partner, or by the partner org itself? */
-const accountInPartner = (partnerId: string, accountId: string) =>
+export const accountInPartner = (partnerId: string, accountId: string) =>
 	bankDb(async (db) => {
 		const [a] = await db.select().from(bankAccounts).where(eq(bankAccounts.id, accountId)).limit(1)
 		if (!a) return false
@@ -103,6 +103,24 @@ const enqueue = (partnerId: string, event: string, payload: Record<string, unkno
 
 export const signWebhook = (secret: string, timestamp: number, body: string): string =>
 	`t=${timestamp},v1=${createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex')}`
+
+/**
+ * MONEY-PATH: fee is charged FIRST (so no error can surface after principal moved); if the principal then fails, the fee
+ * is refunded from the partner revenue account (compensation, idempotent per key). Returns the principal's result.
+ */
+const withFeeFirst = <A>(partnerId: string, customerId: string, from: BankAccount, amount: bigint, bps: number, key: string, kind: 'transfer' | 'fx', principal: Effect.Effect<A, BankError, any>) =>
+	Effect.gen(function* () {
+		const { fee, feeMinor } = yield* chargeFee(partnerId, customerId, from, amount, bps, key, kind)
+		const res = yield* Effect.either(principal)
+		if (res._tag === 'Left') {
+			if (fee && fee.toAccount) {
+				const t = yield* BankTransferService
+				yield* Effect.either(t.transfer({ owner: { ownerType: 'org', ownerId: partnerId }, idempotencyKey: `${key}:feerefund`, type: 'internal', fromAccountId: fee.toAccount, toAccountId: from.id, amountMinor: feeMinor, memo: `partner ${kind} fee refund`, metadata: { partnerFeeRefund: true, partnerId, kind } }))
+			}
+			return yield* Effect.fail(res.left)
+		}
+		return { result: res.right, fee, feeMinor }
+	})
 
 /** MONEY-PATH: fee = floor(amount * bps / 10000), charged as a separate internal transfer to the partner revenue account. */
 const chargeFee = (partnerId: string, customerId: string, fromAccount: BankAccount, amount: bigint, bps: number, key: string, kind: 'transfer' | 'fx') =>
@@ -200,8 +218,7 @@ export const BankPartnerServiceLive: Layer.Layer<BankPartnerService> = Layer.suc
 			const feeMinor = (amount * BigInt(bps)) / 10_000n
 			if ((yield* ledger.balance(from.id)) < amount + feeMinor) return yield* Effect.fail(bankErr('INSUFFICIENT_FUNDS', `Balance cannot cover amount plus partner fee (${feeMinor})`))
 			const t = yield* BankTransferService
-			const transfer = yield* t.transfer({ owner: owner(i.customerId), idempotencyKey: i.idempotencyKey, type: 'internal', fromAccountId: i.fromAccountId, toAccountId: i.toAccountId, toExternal: i.toExternal, amountMinor: i.amountMinor, memo: i.memo, metadata: { partnerId, partnerCustomerId: i.customerId } })
-			const { fee } = yield* chargeFee(partnerId, i.customerId, from, amount, bps, i.idempotencyKey, 'transfer')
+			const { result: transfer, fee } = yield* withFeeFirst(partnerId, i.customerId, from, amount, bps, i.idempotencyKey, 'transfer', t.transfer({ owner: owner(i.customerId), idempotencyKey: i.idempotencyKey, type: 'internal', fromAccountId: i.fromAccountId, toAccountId: i.toAccountId, toExternal: i.toExternal, amountMinor: i.amountMinor, memo: i.memo, metadata: { partnerId, partnerCustomerId: i.customerId } }))
 			yield* enqueue(partnerId, 'transfer.created', { transferId: transfer.id, customerId: i.customerId, status: transfer.status, amountMinor: i.amountMinor })
 			return { transfer, fee, feeMinor: feeMinor.toString() }
 		}),
@@ -220,8 +237,7 @@ export const BankPartnerServiceLive: Layer.Layer<BankPartnerService> = Layer.suc
 			const amount = BigInt(i.amountMinor)
 			const feeMinor = (amount * BigInt(bps)) / 10_000n
 			if ((yield* ledger.balance(from.id)) < amount + feeMinor) return yield* Effect.fail(bankErr('INSUFFICIENT_FUNDS', `Balance cannot cover amount plus partner fx fee (${feeMinor})`))
-			const r = yield* (yield* BankFxService).execute({ owner: owner(i.customerId), fromAccountId: i.fromAccountId, toAccountId: i.toAccountId, amountMinor: i.amountMinor, slippage: i.slippage, idempotencyKey: i.idempotencyKey } as never)
-			const { fee } = yield* chargeFee(partnerId, i.customerId, from, amount, bps, i.idempotencyKey, 'fx')
+			const { result: r, fee } = yield* withFeeFirst(partnerId, i.customerId, from, amount, bps, i.idempotencyKey, 'fx', (yield* BankFxService).execute({ owner: owner(i.customerId), fromAccountId: i.fromAccountId, toAccountId: i.toAccountId, amountMinor: i.amountMinor, slippage: i.slippage, idempotencyKey: i.idempotencyKey } as never))
 			yield* enqueue(partnerId, 'fx.executed', { transferId: r.transfer.id, customerId: i.customerId })
 			return { transfer: r.transfer, fee, feeMinor: feeMinor.toString() }
 		}),

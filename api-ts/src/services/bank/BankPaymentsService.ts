@@ -205,13 +205,21 @@ const settlePayment = (paymentId: string): PayFx<{ invoiceId: string; amount: bi
 		return r
 	})
 
-const creditOnchain = (invoiceId: string, refKey: string, amount: bigint, txHash: string): PayFx<boolean> =>
+/**
+ * MONEY-PATH: credit one onchain payment to ONE invoice. The receipt key (payee account + chain + tx ref, with log index for EVM)
+ * is globally unique, so a tx/log that carries several invoices' references (or matches several invoices) settles only the first
+ * invoice that claims it. Partial payments: the full received amount is credited once (invoice becomes partially_paid until
+ * paid_minor >= amount); the same receipt can never be counted twice.
+ */
+const creditOnchain = (inv: BankInvoice, refKey: string, amount: bigint, txHash: string): PayFx<boolean> =>
 	Effect.gen(function* () {
+		const invoiceId = inv.id
+		const receiptKey = `${inv.payeeAccountId}:${inv.chain}:${refKey}`
 		const done = yield* bankDb((db) =>
 			db.transaction(async (tx) => {
 				const ins = await tx
 					.insert(bankInvoicePayments)
-					.values({ id: uid('ipay'), invoiceId, source: 'onchain', refKey, amountMinor: amount.toString(), txHash, status: 'confirmed', confirmedAt: new Date() })
+					.values({ id: uid('ipay'), invoiceId, source: 'onchain', refKey, receiptKey, amountMinor: amount.toString(), txHash, status: 'confirmed', confirmedAt: new Date() })
 					.onConflictDoNothing()
 					.returning({ id: bankInvoicePayments.id })
 				if (ins.length === 0) return false
@@ -223,10 +231,16 @@ const creditOnchain = (invoiceId: string, refKey: string, amount: bigint, txHash
 		return done
 	})
 
-const scanEvmGroup = (invs: BankInvoice[], token: string, payTo: string, chain: string): PayFx<number> =>
+const scanEvmGroup = (invs0: BankInvoice[], token: string, payTo: string, chain: string): PayFx<number> =>
 	Effect.gen(function* () {
+		let invs = invs0
 		const head = yield* Effect.tryPromise({ try: () => evmHead(chain), catch: (e) => bankErr('UPSTREAM', `rpc: ${String(e)}`) })
 		const safeTo = head - confirmationsFor(chain) + 1n
+		// MONEY-PATH: legacy invoices without a start block are never auto-credited (they could match earlier same-value transfers).
+		const unscannable = invs.filter((i) => i.scanCursor == null)
+		if (unscannable.length) logger.warn({ invoices: unscannable.map((i) => i.id) }, 'bank: invoices without scan start block skipped')
+		invs = invs.filter((i) => i.scanCursor != null)
+		if (invs.length === 0) return 0
 		const starts = invs.map((i) => (i.scanCursor != null ? BigInt(i.scanCursor) : (safeTo > MAX_LOG_RANGE ? safeTo - MAX_LOG_RANGE : 0n)))
 		let from = starts.reduce((a, b) => (a < b ? a : b))
 		let credited = 0
@@ -236,16 +250,17 @@ const scanEvmGroup = (invs: BankInvoice[], token: string, payTo: string, chain: 
 			const to = from + MAX_LOG_RANGE - 1n < safeTo ? from + MAX_LOG_RANGE - 1n : safeTo
 			const logs = yield* Effect.tryPromise({ try: () => evmTransferLogs({ chain, token, to: payTo, fromBlock: from, toBlock: to }), catch: (e) => bankErr('UPSTREAM', `getLogs: ${String(e)}`) })
 			for (const inv of invs) {
-				const invFrom = inv.scanCursor != null ? BigInt(inv.scanCursor) : 0n
+				const invFrom = BigInt(inv.scanCursor!) // never below the invoice's creation block (cursor is monotonic, see update below)
 				const want = BigInt(inv.amountMinor) + BigInt(inv.tagMinor)
 				for (const l of logs) {
 					if (l.blockNumber < invFrom || l.value !== want) continue
-					if (yield* creditOnchain(inv.id, `${l.txHash}:${l.logIndex}`, l.value, l.txHash)) credited++
+					if (yield* creditOnchain(inv, `${l.txHash}:${l.logIndex}`, l.value, l.txHash)) credited++
 				}
 			}
 			from = to + 1n
 			yield* bankDb((db) =>
-				db.update(bankInvoices).set({ scanCursor: from.toString() }).where(inArray(bankInvoices.id, invs.map((i) => i.id))),
+				// MONEY-PATH: monotonic per invoice; a group scan that starts below a newer invoice's creation block must not drag its cursor back.
+				db.update(bankInvoices).set({ scanCursor: sql`greatest(${bankInvoices.scanCursor}, ${from.toString()}::numeric)` }).where(inArray(bankInvoices.id, invs.map((i) => i.id))),
 			)
 		}
 		return credited
@@ -258,7 +273,7 @@ const scanSolana = (inv: BankInvoice, owner: string, mint: string): PayFx<number
 		let credited = 0
 		for (const sig of sigs) {
 			const got = yield* Effect.tryPromise({ try: () => solReceivedBy(sig, owner, mint), catch: (e) => bankErr('UPSTREAM', `solana rpc: ${String(e)}`) })
-			if (got > 0n && (yield* creditOnchain(inv.id, sig, got, sig))) credited++
+			if (got > 0n && (yield* creditOnchain(inv, sig, got, sig))) credited++
 		}
 		return credited
 	})
@@ -287,6 +302,8 @@ export const BankPaymentsServiceLive = Layer.succeed(BankPaymentsService, {
 				asset.family === 'evm'
 					? yield* Effect.tryPromise({ try: () => evmHead(acct.chain), catch: () => null }).pipe(Effect.catchAll(() => Effect.succeed(null)))
 					: null
+			// MONEY-PATH: an onchain-payable EVM invoice needs a start block, else the scan could credit older same-value transfers.
+			if (asset.family === 'evm' && head == null) return yield* Effect.fail(bankErr('UPSTREAM', 'RETRYABLE: could not read the chain head to anchor the invoice scan; retry shortly'))
 			const slug = newSlug()
 			const inv = yield* bankDb((db) =>
 				db.transaction(async (tx) => {
@@ -305,18 +322,21 @@ export const BankPaymentsServiceLive = Layer.succeed(BankPaymentsService, {
 					let tag = 0n
 					let reference: string | null = null
 					if (asset.family === 'evm') {
-						const used = new Set(
+						const used = (
 							(
 								await tx
-									.select({ t: bankInvoices.tagMinor })
+									.select({ t: bankInvoices.tagMinor, a: bankInvoices.amountMinor })
 									.from(bankInvoices)
 									.where(and(eq(bankInvoices.payeeAccountId, acct.id), inArray(bankInvoices.status, ['draft', ...LIVE])))
-							).map((r) => r.t),
+							)
 						)
+						// MONEY-PATH: the tagged total (amount + tag) must be unique among the account's live invoices (same chain+asset), not just the tag.
+						const usedTags = new Set(used.map((u) => u.t))
+						const usedTotals = new Set(used.map((u) => (BigInt(u.a) + BigInt(u.t)).toString()))
 						const start = (randomBytes(2).readUInt16BE() % TAG_MAX) + 1
 						for (let i = 0; i < TAG_MAX; i++) {
 							const cand = ((start + i - 1) % TAG_MAX) + 1
-							if (!used.has(String(cand))) {
+							if (!usedTags.has(String(cand)) && !usedTotals.has((total + BigInt(cand)).toString())) {
 								tag = BigInt(cand)
 								break
 							}

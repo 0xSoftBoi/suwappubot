@@ -150,6 +150,8 @@ export const EnvSchema = Schema.Struct({
 	DUE_ENABLED_RAILS: Schema.optional(Schema.String),
 	// Bank M4 remittance. Base URL used to build claim links; expiry in hours; expiry-refund job seconds (0 disables).
 	BANK_CLAIM_BASE_URL: Schema.optional(Schema.String),
+	// Fixed institution domain advertised in published payment-address documents.
+	BANK_PAY_DOMAIN: Schema.optional(Schema.String),
 	BANK_REMIT_CLAIM_TTL_HOURS: Schema.optionalWith(Schema.NumberFromString, { default: () => 168 }),
 	BANK_REMIT_JOB_SECONDS: Schema.optionalWith(Schema.NumberFromString, { default: () => 300 }),
 	/**

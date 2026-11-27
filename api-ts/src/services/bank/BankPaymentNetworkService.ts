@@ -4,10 +4,11 @@
  * institution's document over HTTPS (SSRF-guarded), verifies its EIP-191 signature and picks the
  * best common rail using the M12 fee model.
  */
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { Context, Effect, Layer } from 'effect'
 import { hashMessage, recoverAddress } from 'viem'
 import { type DrizzleService, bankPaymentAddresses } from '../../db'
+import { EnvService } from '../../config/EnvService'
 import type { TurnkeyService } from '../TurnkeyService'
 import { BankLedgerService } from './BankLedgerService'
 import { feeModel } from './BankPaymentsChainService'
@@ -50,13 +51,15 @@ export async function verifyDocument(doc: PaymentAddressDocument, now = Date.now
 		reasons.push('signature unrecoverable')
 	}
 	const bound = !!signer && doc.rails.some((r) => r.address.toLowerCase() === signer!.toLowerCase())
+	// MONEY-PATH: a self-declared signer unrelated to any advertised rail address proves nothing; require binding.
+	if (!bound) reasons.push('signer is not bound to any advertised rail address')
 	return { valid: reasons.length === 0, signer, reasons, signerBoundToRail: bound }
 }
 
 const HANDLE = /^[a-z0-9][a-z0-9._-]{1,62}$/
 
 export interface BankPaymentNetworkServiceInterface {
-	readonly publish: (owner: BankOwner, i: { handle: string; institutionName: string; domain: string; compliance: ComplianceFlags; ttlDays?: number; signature?: string }) => Effect.Effect<{ document: PaymentAddressDocument }, BankError, DrizzleService | BankLedgerService | TurnkeyService>
+	readonly publish: (owner: BankOwner, i: { handle: string; institutionName: string; domain?: string; accountIds?: string[]; compliance: ComplianceFlags; ttlDays?: number; signature?: string }) => Effect.Effect<{ document: PaymentAddressDocument }, BankError, DrizzleService | BankLedgerService | TurnkeyService | EnvService>
 	readonly getLocal: (handle: string) => Effect.Effect<{ document: PaymentAddressDocument; verification: Awaited<ReturnType<typeof verifyDocument>> }, BankError, DrizzleService>
 	readonly resolve: (i: { address: string; chains?: string[]; asset: string; amountMinor: string }) => Effect.Effect<Record<string, unknown>, BankError>
 }
@@ -68,7 +71,12 @@ export const BankPaymentNetworkServiceLive = Layer.succeed(BankPaymentNetworkSer
 			const handle = i.handle.toLowerCase()
 			if (!HANDLE.test(handle)) return yield* Effect.fail(bankErr('VALIDATION', 'handle must be 2-63 chars of a-z0-9._-'))
 			const ledger = yield* BankLedgerService
-			const accts = (yield* ledger.getAccounts(owner)).filter((a) => a.status === 'active' && a.address && a.walletId != null)
+			// MONEY-PATH: only accounts the owner explicitly chose are advertised (default none); institution domain is the service's configured one.
+			if (!i.accountIds?.length) return yield* Effect.fail(bankErr('VALIDATION', 'accountIds is required: choose which accounts to advertise'))
+			const chosen = new Set(i.accountIds)
+			const accts = (yield* ledger.getAccounts(owner)).filter((a) => chosen.has(a.id) && a.status === 'active' && a.address && a.walletId != null)
+			const env = yield* EnvService.pipe(Effect.mapError((e) => bankErr('NOT_CONFIGURED', `Environment unavailable: ${String(e)}`)))
+			if (!env.BANK_PAY_DOMAIN) return yield* Effect.fail(bankErr('NOT_CONFIGURED', 'BANK_PAY_DOMAIN is not configured', { missing: 'BANK_PAY_DOMAIN' }))
 			const rails: PaymentRail[] = []
 			for (const a of accts) {
 				const asset = findAsset(a.asset, a.chain)
@@ -76,7 +84,7 @@ export const BankPaymentNetworkServiceLive = Layer.succeed(BankPaymentNetworkSer
 			}
 			if (!rails.length) return yield* Effect.fail(bankErr('VALIDATION', 'Owner has no active EVM accounts to advertise'))
 			const issued = new Date()
-			const doc: PaymentAddressDocument = { version: SPEC_VERSION, handle, institution: { name: i.institutionName, domain: i.domain.toLowerCase() }, rails, compliance: i.compliance, issuedAt: issued.toISOString(), expiresAt: new Date(issued.getTime() + (i.ttlDays ?? 30) * 86_400_000).toISOString() }
+			const doc: PaymentAddressDocument = { version: SPEC_VERSION, handle, institution: { name: i.institutionName, domain: env.BANK_PAY_DOMAIN.toLowerCase() }, rails, compliance: i.compliance, issuedAt: issued.toISOString(), expiresAt: new Date(issued.getTime() + (i.ttlDays ?? 30) * 86_400_000).toISOString() }
 			const first = accts.find((a) => findAsset(a.asset, a.chain)?.family === 'evm')!
 			let value: string
 			let signer: string
@@ -89,11 +97,12 @@ export const BankPaymentNetworkServiceLive = Layer.succeed(BankPaymentNetworkSer
 				signer = first.address!
 			}
 			doc.signature = { scheme: 'eip191', signer, value }
-			yield* bankDb(async (db) => {
+			const saved = yield* bankDb(async (db) => {
 				const [ex] = await db.select().from(bankPaymentAddresses).where(eq(bankPaymentAddresses.handle, handle)).limit(1)
 				if (ex && (ex.ownerType !== owner.ownerType || ex.ownerId !== owner.ownerId)) throw bankErr('CONFLICT', 'Handle already taken')
-				await db.insert(bankPaymentAddresses).values({ handle, ownerType: owner.ownerType, ownerId: owner.ownerId, document: doc as never, signature: value, signer, signatureScheme: 'eip191' }).onConflictDoUpdate({ target: bankPaymentAddresses.handle, set: { document: doc as never, signature: value, signer, updatedAt: new Date() } })
+				return await db.insert(bankPaymentAddresses).values({ handle, ownerType: owner.ownerType, ownerId: owner.ownerId, document: doc as never, signature: value, signer, signatureScheme: 'eip191' }).onConflictDoUpdate({ target: bankPaymentAddresses.handle, set: { document: doc as never, signature: value, signer, updatedAt: new Date() }, setWhere: and(eq(bankPaymentAddresses.ownerType, owner.ownerType), eq(bankPaymentAddresses.ownerId, owner.ownerId)) }).returning({ handle: bankPaymentAddresses.handle })
 			})
+			if (!saved.length) return yield* Effect.fail(bankErr('CONFLICT', 'Handle already taken'))
 			return { document: doc }
 		}),
 
@@ -118,12 +127,12 @@ export const BankPaymentNetworkServiceLive = Layer.succeed(BankPaymentNetworkSer
 			const doc = yield* Effect.try({ try: () => JSON.parse(res.body) as PaymentAddressDocument, catch: () => bankErr('UPSTREAM', 'Payment address document is not valid JSON') })
 			if (doc.handle?.toLowerCase() !== m[1]!.toLowerCase() || doc.institution?.domain?.toLowerCase() !== m[2]!.toLowerCase()) return yield* Effect.fail(bankErr('VALIDATION', 'Document handle/domain does not match the requested address'))
 			const v = yield* Effect.promise(() => verifyDocument(doc))
-			if (!v.valid) return yield* Effect.fail(bankErr('VALIDATION', `Document failed verification: ${v.reasons.join('; ')}`))
+			if (!v.valid) return { verified: false, reason: `Document failed verification: ${v.reasons.join('; ')}`, handle: doc.handle, institution: doc.institution, verification: v }
 			const sym = i.asset.toUpperCase()
-			const common = doc.rails.filter((r) => r.asset.toUpperCase() === sym && (!i.chains || i.chains.map((c) => c.toLowerCase()).includes(r.chain)) && (findAsset(sym, r.chain)?.address.toLowerCase() === r.tokenAddress.toLowerCase() || r.chain === 'tempo'))
+			const common = doc.rails.filter((r) => r.asset.toUpperCase() === sym && (!i.chains || i.chains.map((c) => c.toLowerCase()).includes(r.chain)) && (findAsset(sym, r.chain)?.address.toLowerCase() === r.tokenAddress.toLowerCase()))
 			if (!common.length) return yield* Effect.fail(bankErr('ASSET_UNSUPPORTED', `No common rail for ${sym}${i.chains ? ` on ${i.chains.join(',')}` : ''}`))
 			const model = yield* feeModel({ asset: sym, amountMinor: i.amountMinor, chains: [...new Set(common.map((r) => r.chain))] })
 			const best = common.find((r) => r.chain === model.recommended?.chain) ?? common[0]!
-			return { handle: doc.handle, institution: doc.institution, compliance: doc.compliance, verification: v, selected: best, commonRails: common, recommendation: model.recommended, feeModel: model.chains }
+			return { verified: true, handle: doc.handle, institution: doc.institution, compliance: doc.compliance, verification: v, selected: best, commonRails: common, recommendation: model.recommended, feeModel: model.chains }
 		}),
 })

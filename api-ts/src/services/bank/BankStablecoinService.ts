@@ -10,6 +10,7 @@
 import { and, asc, eq, gte, inArray, lt, ne, sql } from 'drizzle-orm'
 import { Context, Effect, Layer } from 'effect'
 import { type DrizzleService, bankAccounts, bankLedgerEntries } from '../../db'
+import { accountInPartner } from './BankPartnerService'
 import { bankDb } from './db'
 import { type BankError, bankErr } from './errors'
 
@@ -63,21 +64,27 @@ export function allocateByWeight(weights: Array<{ accountId: string; area: bigin
 	return { allocations: rows.map((r) => ({ accountId: r.w.accountId, areaWeight: r.w.area.toString(), shareMinor: r.floor.toString() })), undistributedMinor: left.toString() }
 }
 
+// MONEY-PATH: when a partner id is supplied the account must belong to that partner's customers/org before any adapter call.
+const guardPartner = <A>(partnerId: string | undefined, accountId: string, eff: Effect.Effect<A, BankError>): Effect.Effect<A, BankError, DrizzleService> =>
+	partnerId === undefined
+		? eff
+		: Effect.flatMap(accountInPartner(partnerId, accountId), (ok) => (ok ? eff : Effect.fail(bankErr('NOT_FOUND', 'Account not found'))))
+
 export interface BankStablecoinServiceInterface {
-	readonly mint: (i: { asset: string; amountMinor: string; destinationAccountId: string; idempotencyKey: string }) => Effect.Effect<{ reference: string; status: string }, BankError>
-	readonly redeem: (i: { asset: string; amountMinor: string; sourceAccountId: string; idempotencyKey: string }) => Effect.Effect<{ reference: string; status: string }, BankError>
+	readonly mint: (i: { asset: string; amountMinor: string; destinationAccountId: string; idempotencyKey: string }, partnerId?: string) => Effect.Effect<{ reference: string; status: string }, BankError, DrizzleService>
+	readonly redeem: (i: { asset: string; amountMinor: string; sourceAccountId: string; idempotencyKey: string }, partnerId?: string) => Effect.Effect<{ reference: string; status: string }, BankError, DrizzleService>
 	readonly reserveReport: (asset: string) => Effect.Effect<Record<string, unknown>, BankError>
-	readonly yieldShare: (i: { asset: string; chain?: string; from: Date; to: Date; totalYieldMinor?: string; holderShareBps: number }) => Effect.Effect<Record<string, unknown>, BankError, DrizzleService>
+	readonly yieldShare: (i: { asset: string; chain?: string; from: Date; to: Date; totalYieldMinor?: string; holderShareBps: number }, partnerId?: string) => Effect.Effect<Record<string, unknown>, BankError, DrizzleService>
 }
 export class BankStablecoinService extends Context.Tag('BankStablecoinService')<BankStablecoinService, BankStablecoinServiceInterface>() {}
 
 export const BankStablecoinServiceLive = Layer.succeed(BankStablecoinService, {
-	mint: (i) => (adapter ? Effect.tryPromise({ try: () => adapter!.mint(i), catch: (e) => bankErr('UPSTREAM', `issuer mint failed: ${String(e)}`) }) : Effect.fail(notConfigured('mint'))),
-	redeem: (i) => (adapter ? Effect.tryPromise({ try: () => adapter!.redeem(i), catch: (e) => bankErr('UPSTREAM', `issuer redeem failed: ${String(e)}`) }) : Effect.fail(notConfigured('redeem'))),
+	mint: (i, partnerId) => guardPartner(partnerId, i.destinationAccountId, adapter ? Effect.tryPromise({ try: () => adapter!.mint(i), catch: (e) => bankErr('UPSTREAM', `issuer mint failed: ${String(e)}`) }) : Effect.fail(notConfigured('mint'))),
+	redeem: (i, partnerId) => guardPartner(partnerId, i.sourceAccountId, adapter ? Effect.tryPromise({ try: () => adapter!.redeem(i), catch: (e) => bankErr('UPSTREAM', `issuer redeem failed: ${String(e)}`) }) : Effect.fail(notConfigured('redeem'))),
 	reserveReport: (asset) => (adapter ? Effect.tryPromise({ try: () => adapter!.reserveReport(asset), catch: (e) => bankErr('UPSTREAM', `issuer reserve report failed: ${String(e)}`) }) : Effect.fail(notConfigured('reserve report'))),
 
 	// MONEY-PATH
-	yieldShare: (i) =>
+	yieldShare: (i, partnerId) =>
 		Effect.gen(function* () {
 			if (!(i.from < i.to)) return yield* Effect.fail(bankErr('VALIDATION', 'from must be before to'))
 			if (!Number.isInteger(i.holderShareBps) || i.holderShareBps < 0 || i.holderShareBps > 10_000) return yield* Effect.fail(bankErr('VALIDATION', 'holderShareBps must be an integer 0..10000'))
@@ -93,7 +100,7 @@ export const BankStablecoinServiceLive = Layer.succeed(BankStablecoinService, {
 			const fromMs = i.from.getTime()
 			const toMs = i.to.getTime()
 			const data = yield* bankDb(async (db) => {
-				const accts = await db.select({ id: bankAccounts.id }).from(bankAccounts).where(and(eq(bankAccounts.asset, i.asset.toUpperCase()), ne(bankAccounts.ownerType, 'system'), ne(bankAccounts.status, 'closed'), ...(i.chain ? [eq(bankAccounts.chain, i.chain.toLowerCase())] : [])))
+				const accts = await db.select({ id: bankAccounts.id }).from(bankAccounts).where(and(eq(bankAccounts.asset, i.asset.toUpperCase()), ne(bankAccounts.ownerType, 'system'), ne(bankAccounts.status, 'closed'), ...(partnerId ? [eq(bankAccounts.ownerType, 'partner_customer'), sql`${bankAccounts.ownerId} in (select id from bank_partner_customers where partner_id = ${partnerId})`] : []), ...(i.chain ? [eq(bankAccounts.chain, i.chain.toLowerCase())] : [])))
 				const ids = accts.map((a) => a.id)
 				if (!ids.length) return { inputs: [] as TwabInput[] }
 				const opening = await db.execute(sql`select distinct on (account_id) account_id, balance_after from bank_ledger_entries where account_id in (${sql.join(ids.map((x) => sql`${x}`), sql`, `)}) and created_at < ${i.from} order by account_id, created_at desc, id desc`)

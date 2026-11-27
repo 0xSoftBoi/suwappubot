@@ -18,6 +18,7 @@ import {
 	type BankCreditScore,
 	bankAccounts,
 	bankCreditEvents,
+	bankCreditOps,
 	bankCreditLines,
 	bankCreditScores,
 	bankEarnPositions,
@@ -50,6 +51,7 @@ import {
 	waitReceipt,
 } from './earnCreditChain'
 import { BankError, bankErr } from './errors'
+import { type BankTx } from './holds'
 import { featureEnabled } from './segments'
 
 type Fx<A> = Effect.Effect<A, BankError, BankDeps | BankTransferService>
@@ -267,21 +269,6 @@ const view = (line: BankCreditLine): Fx<LineView> =>
 		return { line, health: null, owed: { principalMinor: line.principalMinor, accruedInterestMinor: accrued.toString(), totalMinor: (BigInt(line.principalMinor) + accrued).toString() } }
 	})
 
-/** Atomically applies a delta once per key (line.metadata.applied). Returns false if already applied. */
-const applyOnce = (lineId: string, key: string, set: Record<string, unknown>) =>
-	bankDb(async (db) => {
-		const rows = await db
-			.update(bankCreditLines)
-			.set({
-				...set,
-				metadata: sql`jsonb_set(${bankCreditLines.metadata}, '{applied}', coalesce(${bankCreditLines.metadata}->'applied','[]'::jsonb) || to_jsonb(${key}::text))`,
-				updatedAt: new Date(),
-			} as never)
-			.where(and(eq(bankCreditLines.id, lineId), sql`not (coalesce(${bankCreditLines.metadata}->'applied','[]'::jsonb) @> to_jsonb(${key}::text))`))
-			.returning({ id: bankCreditLines.id })
-		return rows.length > 0
-	})
-
 // ---- external-leg op (collateralized draw/repay): pending transfer row -> chain -> ledger settle
 
 const beginExternalOp = (input: { owner: BankOwner; key: string; account: BankAccount; direction: 'in' | 'out'; amountMinor: bigint; metadata: Record<string, unknown> }) =>
@@ -487,77 +474,167 @@ const accrue = (line: BankCreditLine, now: Date) => {
 	return { accrued: BigInt(line.accruedInterestMinor) + add, now }
 }
 
+// ---- MONEY-PATH (review1b): pool ops live in bank_credit_ops (unique per line+key); every read-modify-write holds the line row lock.
+
+const lockLine = async (tx: BankTx, id: string): Promise<BankCreditLine> => {
+	const [r] = await tx.select().from(bankCreditLines).where(eq(bankCreditLines.id, id)).for('update')
+	if (!r) throw bankErr('NOT_FOUND', 'Credit line not found')
+	return r
+}
+
+/** Pending (reserved, not yet applied) ops of `kind`: principal total, interest total. */
+const pendingTotals = async (tx: BankTx, lineId: string, kind: 'draw' | 'repay'): Promise<{ principal: bigint; interest: bigint }> => {
+	const r = (await tx.execute(
+		sql`select coalesce(sum(principal_minor),0)::text as p, coalesce(sum(interest_minor),0)::text as i from bank_credit_ops where line_id = ${lineId} and kind = ${kind} and status = 'pending'`,
+	)) as unknown as Array<{ p: string; i: string }>
+	return { principal: BigInt(r[0]?.p ?? '0'), interest: BigInt(r[0]?.i ?? '0') }
+}
+
+const opTransferKey = (lineId: string, kind: 'draw' | 'repay', opKey: string) => `credit:${kind}:${lineId}:${opKey.slice(kind.length + 1)}`
+
+const failOp = (lineId: string, opKey: string) =>
+	bankDb((db) => db.update(bankCreditOps).set({ status: 'failed', updatedAt: new Date() }).where(and(eq(bankCreditOps.lineId, lineId), eq(bankCreditOps.opKey, opKey), eq(bankCreditOps.status, 'pending'))))
+
+/** Releases the reservation only if no transfer row was ever created for it (otherwise the reconciler decides). */
+const failOpIfNoTransfer = (lineId: string, kind: 'draw' | 'repay', opKey: string) =>
+	Effect.gen(function* () {
+		const t = yield* bankDb(async (db) => (await db.select({ id: bankTransfers.id }).from(bankTransfers).where(and(eq(bankTransfers.type, 'credit'), eq(bankTransfers.idempotencyKey, opTransferKey(lineId, kind, opKey)))).limit(1))[0])
+		if (!t) yield* failOp(lineId, opKey)
+	})
+
+/** MONEY-PATH: under the line row lock, checks limit against principal + accrued + ALL pending draws and reserves this draw. */
+const reserveDraw = (lineId: string, amount: bigint, key: string): Fx<void> =>
+	bankDb((db) =>
+		db.transaction(async (tx) => {
+			const l = await lockLine(tx, lineId)
+			if (l.status !== 'active') throw bankErr('ACCOUNT_STATE', 'Credit line is closed')
+			const opKey = `draw:${key}`
+			const [ex] = await tx.select().from(bankCreditOps).where(and(eq(bankCreditOps.lineId, lineId), eq(bankCreditOps.opKey, opKey))).limit(1)
+			if (ex && ex.status !== 'failed') return
+			const markup = markupOf(amount, lineMarkupBps(l))
+			const { accrued } = accrue(l, new Date())
+			const pend = await pendingTotals(tx, lineId, 'draw')
+			const used = BigInt(l.principalMinor) + accrued + pend.principal + pend.interest
+			if (used + amount + markup > BigInt(l.limitMinor)) throw bankErr('LIMIT_EXCEEDED', `Draw ${amount} exceeds available credit ${BigInt(l.limitMinor) - used > 0n ? BigInt(l.limitMinor) - used : 0n}`)
+			await tx
+				.insert(bankCreditOps)
+				.values({ id: newId('cop'), lineId, opKey, kind: 'draw', status: 'pending', principalMinor: amount.toString(), interestMinor: markup.toString() })
+				.onConflictDoUpdate({ target: [bankCreditOps.lineId, bankCreditOps.opKey], set: { status: 'pending', principalMinor: amount.toString(), interestMinor: markup.toString(), updatedAt: new Date() } })
+		}),
+	)
+
+/** MONEY-PATH: under the line row lock, caps the repay at owed - pending repays and reserves it. Replays return the reserved split. */
+const reserveRepay = (lineId: string, amount: bigint, key: string): Fx<{ pay: bigint; split: { principal: bigint; interest: bigint } }> =>
+	bankDb((db) =>
+		db.transaction(async (tx) => {
+			const l = await lockLine(tx, lineId)
+			const opKey = `repay:${key}`
+			const [ex] = await tx.select().from(bankCreditOps).where(and(eq(bankCreditOps.lineId, lineId), eq(bankCreditOps.opKey, opKey))).limit(1)
+			if (ex && ex.status !== 'failed') {
+				const p = BigInt(ex.principalMinor)
+				const i = BigInt(ex.interestMinor)
+				return { pay: p + i, split: { principal: p, interest: i } }
+			}
+			const { accrued } = accrue(l, new Date())
+			const pend = await pendingTotals(tx, lineId, 'repay')
+			const owed = BigInt(l.principalMinor) + accrued - pend.principal - pend.interest
+			if (owed <= 0n) throw bankErr('VALIDATION', 'Nothing owed on this line (or pending repayments already cover it)')
+			const pay = amount > owed ? owed : amount
+			const accruedLeft = accrued - pend.interest > 0n ? accrued - pend.interest : 0n
+			const interest = pay < accruedLeft ? pay : accruedLeft
+			const split = { interest, principal: pay - interest }
+			await tx
+				.insert(bankCreditOps)
+				.values({ id: newId('cop'), lineId, opKey, kind: 'repay', status: 'pending', principalMinor: split.principal.toString(), interestMinor: split.interest.toString() })
+				.onConflictDoUpdate({ target: [bankCreditOps.lineId, bankCreditOps.opKey], set: { status: 'pending', principalMinor: split.principal.toString(), interestMinor: split.interest.toString(), updatedAt: new Date() } })
+			return { pay, split }
+		}),
+	)
+
 /** MONEY-PATH: draw from the lender pool into the borrower's account. */
 const poolDraw = (owner: BankOwner, line: BankCreditLine, amount: bigint, key: string): Fx<{ transferId: string; status: string }> =>
 	Effect.gen(function* () {
 		const xfer = yield* BankTransferService
 		const acct = yield* loadBorrowAccount(owner, line.accountId)
 		const pool = yield* findPool(line.loanAsset, line.chain, amount)
-		const limit = BigInt(line.limitMinor)
-		const { accrued } = accrue(line, new Date())
-		const used = BigInt(line.principalMinor) + accrued + BigInt(((line.metadata.pendingDrawTotal as string) ?? '0'))
-		const markup = markupOf(amount, lineMarkupBps(line))
-		if (used + amount + markup > limit) return yield* Effect.fail(bankErr('LIMIT_EXCEEDED', `Draw ${amount} exceeds available credit ${limit - used > 0n ? limit - used : 0n}`))
-		const t = yield* xfer.transfer({
-			owner: poolOwner(pool), idempotencyKey: `credit:draw:${line.id}:${key}`, type: 'credit', fromAccountId: pool.id, toAccountId: acct.id,
-			amountMinor: amount.toString(), memo: `credit draw ${line.kind}`, metadata: { creditLineId: line.id, op: 'draw' },
-		})
-		if (t.status === 'failed') return yield* Effect.fail(bankErr('UPSTREAM', `pool transfer failed: ${t.failureReason ?? ''}`))
+		yield* reserveDraw(line.id, amount, key)
+		const t = yield* xfer
+			.transfer({
+				owner: poolOwner(pool), idempotencyKey: `credit:draw:${line.id}:${key}`, type: 'credit', fromAccountId: pool.id, toAccountId: acct.id,
+				amountMinor: amount.toString(), memo: `credit draw ${line.kind}`, metadata: { creditLineId: line.id, op: 'draw' },
+			})
+			.pipe(Effect.tapError(() => failOpIfNoTransfer(line.id, 'draw', `draw:${key}`).pipe(Effect.ignore)))
+		if (t.status === 'failed') {
+			yield* failOp(line.id, `draw:${key}`)
+			return yield* Effect.fail(bankErr('UPSTREAM', `pool transfer failed: ${t.failureReason ?? ''}`))
+		}
 		return { transferId: t.id, status: t.status }
 	})
 
-/** Records the debt on the line once the pool transfer is confirmed (or queues it for settlePendingPoolOps). */
+/** Records the transfer on the op row, then applies the debt once the pool transfer is confirmed (else settlePendingPoolOps does). */
 const recordPoolOp = (line: BankCreditLine, kind: 'draw' | 'repay', key: string, transferId: string, status: string, split: { principal: bigint; interest: bigint }) =>
 	Effect.gen(function* () {
-		const pending = { ...(line.metadata.pending as Record<string, unknown> | undefined) }
-		if (status !== 'confirmed') {
-			pending[key] = { transferId, kind, principal: split.principal.toString(), interest: split.interest.toString() }
-			yield* bankDb((db) => db.update(bankCreditLines).set({ metadata: { ...line.metadata, pending }, updatedAt: new Date() }).where(eq(bankCreditLines.id, line.id)))
-			return false
-		}
+		yield* bankDb((db) =>
+			db
+				.insert(bankCreditOps)
+				.values({ id: newId('cop'), lineId: line.id, opKey: key, kind, transferId, status: 'pending', principalMinor: split.principal.toString(), interestMinor: split.interest.toString() })
+				.onConflictDoUpdate({ target: [bankCreditOps.lineId, bankCreditOps.opKey], set: { transferId, updatedAt: new Date() }, where: sql`${bankCreditOps.status} = 'pending'` }),
+		)
+		if (status !== 'confirmed') return false
 		return yield* applyPoolDelta(line.id, kind, key, split)
 	})
 
+/** MONEY-PATH: applies a draw/repay ONCE (unique op row flips to 'applied') under the line row lock, in one transaction. */
 const applyPoolDelta = (lineId: string, kind: 'draw' | 'repay', key: string, split: { principal: bigint; interest: bigint }) =>
-	Effect.gen(function* () {
-		const now = new Date()
-		const line = yield* loadLineById(lineId)
-		const { accrued } = accrue(line, now)
-		const principal = kind === 'draw' ? BigInt(line.principalMinor) + split.principal : BigInt(line.principalMinor) - split.principal
-		// draw: split.interest is the fixed markup agreed up front (0 for interest-bearing lines)
-		const interest = kind === 'repay' ? accrued - split.interest : accrued + split.interest
-		if (principal < 0n || interest < 0n) return yield* Effect.fail(bankErr('CONFLICT', 'repayment exceeds amount owed'))
-		const pendingNext = { ...(line.metadata.pending as Record<string, unknown> | undefined) }
-		delete pendingNext[key]
-		const applied = yield* applyOnce(lineId, key, {
-			principalMinor: principal.toString(), accruedInterestMinor: interest.toString(), lastAccrualAt: now,
-			status: principal === 0n && interest === 0n && kind === 'repay' && line.kind === 'receivable' ? 'closed' : line.status,
-		})
-		if (applied) {
-			yield* bankDb((db) => db.update(bankCreditLines).set({ metadata: sql`jsonb_set(${bankCreditLines.metadata}, '{pending}', ${JSON.stringify(pendingNext)}::jsonb)` as never }).where(eq(bankCreditLines.id, lineId)))
-			yield* addEvent(line, { type: kind, data: { key, principalMinor: split.principal.toString(), interestMinor: split.interest.toString() } })
-		}
-		return applied
-	})
+	bankDb((db) =>
+		db.transaction(async (tx) => {
+			const line = await lockLine(tx, lineId)
+			if (((line.metadata.applied ?? []) as string[]).includes(key)) return false // legacy applied-key list
+			const marked = await tx
+				.insert(bankCreditOps)
+				.values({ id: newId('cop'), lineId, opKey: key, kind, status: 'applied', principalMinor: split.principal.toString(), interestMinor: split.interest.toString() })
+				.onConflictDoUpdate({ target: [bankCreditOps.lineId, bankCreditOps.opKey], set: { status: 'applied', updatedAt: new Date() }, where: sql`${bankCreditOps.status} <> 'applied'` })
+				.returning({ id: bankCreditOps.id })
+			if (marked.length === 0) return false
+			const now = new Date()
+			const { accrued } = accrue(line, now)
+			const principal = kind === 'draw' ? BigInt(line.principalMinor) + split.principal : BigInt(line.principalMinor) - split.principal
+			// draw: split.interest is the fixed markup agreed up front (0 for interest-bearing lines)
+			const interest = kind === 'repay' ? accrued - split.interest : accrued + split.interest
+			if (principal < 0n || interest < 0n) throw bankErr('CONFLICT', 'repayment exceeds amount owed')
+			await tx
+				.update(bankCreditLines)
+				.set({
+					principalMinor: principal.toString(), accruedInterestMinor: interest.toString(), lastAccrualAt: now, updatedAt: now,
+					status: principal === 0n && interest === 0n && kind === 'repay' && line.kind === 'receivable' ? 'closed' : line.status,
+					metadata: sql`coalesce(${bankCreditLines.metadata}, '{}'::jsonb) #- ARRAY['pending', ${key}]::text[]` as never,
+				})
+				.where(eq(bankCreditLines.id, lineId))
+			await tx.insert(bankCreditEvents).values({
+				id: newId('le').replace('le_', 'ce_'), lineId, ownerType: line.ownerType, ownerId: line.ownerId, type: kind, level: 'info',
+				data: { key, principalMinor: split.principal.toString(), interestMinor: split.interest.toString() },
+			})
+			return true
+		}),
+	)
 
 const poolRepay = (owner: BankOwner, line: BankCreditLine, amount: bigint, key: string): Fx<{ transferId: string; status: string; split: { principal: bigint; interest: bigint } }> =>
 	Effect.gen(function* () {
 		const xfer = yield* BankTransferService
 		const acct = yield* loadBorrowAccount(owner, line.accountId)
-		const { accrued } = accrue(line, new Date())
-		const principal = BigInt(line.principalMinor)
-		const owed = principal + accrued
-		if (owed === 0n) return yield* Effect.fail(bankErr('VALIDATION', 'Nothing owed on this line'))
-		const pay = amount > owed ? owed : amount
-		const interest = pay < accrued ? pay : accrued
-		const split = { interest, principal: pay - interest }
 		const poolId = line.poolAccountId
 		if (!poolId) return yield* Effect.fail(bankErr('LENDER_POOL_UNFUNDED', 'line has no pool account', { missing: 'bank_credit_lines.pool_account_id (set when the first draw is made)' }))
-		const t = yield* xfer.transfer({
-			owner, idempotencyKey: `credit:repay:${line.id}:${key}`, type: 'credit', fromAccountId: acct.id, toAccountId: poolId,
-			amountMinor: pay.toString(), memo: `credit repay ${line.kind}`, metadata: { creditLineId: line.id, op: 'repay' },
-		})
-		if (t.status === 'failed') return yield* Effect.fail(bankErr('UPSTREAM', `repay transfer failed: ${t.failureReason ?? ''}`))
+		const { pay, split } = yield* reserveRepay(line.id, amount, key)
+		const t = yield* xfer
+			.transfer({
+				owner, idempotencyKey: `credit:repay:${line.id}:${key}`, type: 'credit', fromAccountId: acct.id, toAccountId: poolId,
+				amountMinor: pay.toString(), memo: `credit repay ${line.kind}`, metadata: { creditLineId: line.id, op: 'repay' },
+			})
+			.pipe(Effect.tapError(() => failOpIfNoTransfer(line.id, 'repay', `repay:${key}`).pipe(Effect.ignore)))
+		if (t.status === 'failed') {
+			yield* failOp(line.id, `repay:${key}`)
+			return yield* Effect.fail(bankErr('UPSTREAM', `repay transfer failed: ${t.failureReason ?? ''}`))
+		}
 		return { transferId: t.id, status: t.status, split }
 	})
 

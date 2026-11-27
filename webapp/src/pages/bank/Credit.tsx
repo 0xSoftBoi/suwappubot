@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { Receivables, UnsecuredLine } from '../../components/bank/CreditExtra'
 import { bank, transferIdOf, formatMinor, parseToMinor, str, type CreditLineView, type CreditMarket } from '../../lib/bankApi'
 import { useBankAccounts } from '../../hooks/bank/useBankCore'
 import { useCreditEvents, useCreditLines, useCreditMarkets, useCreditScore } from '../../hooks/bank/useBankDomains'
@@ -144,7 +145,7 @@ function OpenLine({ markets, onClose }: { markets: CreditMarket[]; onClose: () =
 }
 
 export function Credit() {
-  const [tab, setTab] = useState<'lines' | 'markets' | 'score'>('lines')
+  const [tab, setTab] = useState<'lines' | 'markets' | 'score' | 'recv'>('lines')
   const [chain, setChain] = useState('base')
   const [asset, setAsset] = useState('USDC')
   const lines = useCreditLines()
@@ -155,7 +156,7 @@ export function Credit() {
   const [opening, setOpening] = useState(false)
   return (
     <BankPage title="Borrow">
-      <Tabs value={tab} onChange={setTab} tabs={[{ id: 'lines', label: 'My lines' }, { id: 'markets', label: 'Markets' }, { id: 'score', label: 'Credit score' }]} />
+      <Tabs value={tab} onChange={setTab} tabs={[{ id: 'lines', label: 'My lines' }, { id: 'markets', label: 'Markets' }, { id: 'score', label: 'Credit score' }, { id: 'recv', label: 'Invoices' }]} />
       {tab === 'lines' && (
         <>
           <QueryState query={lines} isEmpty={(d) => d.length === 0} empty={<Empty title="No credit lines" hint="Open a line against collateral to borrow." action={<Btn onClick={() => setOpening(true)}>Open a line</Btn>} />}>
@@ -194,6 +195,8 @@ export function Credit() {
           )}
         </QueryState>
       )}
+      {tab === 'score' && <UnsecuredLine asset={asset} chain={chain} />}
+      {tab === 'recv' && <Receivables />}
       {act && <LineAction v={act.v} mode={act.mode} onClose={() => setAct(null)} />}
       {opening && (markets.data ? <OpenLine markets={markets.data} onClose={() => setOpening(false)} /> : (
         <Sheet title="Open a credit line" onClose={() => setOpening(false)}>{markets.isLoading ? <p className="text-sm animate-pulse">Loading markets…</p> : <ErrorBox error={markets.error} onRetry={() => void markets.refetch()} />}</Sheet>

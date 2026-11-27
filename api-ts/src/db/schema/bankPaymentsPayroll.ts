@@ -72,8 +72,11 @@ export const bankInvoicePayments = pgTable(
 		status: varchar('status', { length: 12 }).$type<'pending' | 'confirmed' | 'failed'>().notNull().default('pending'),
 		createdAt: ts('created_at').defaultNow().notNull(),
 		confirmedAt: ts('confirmed_at'),
+		/** MONEY-PATH: `<payeeAccountId>:<chain>:<tx ref>`; unique so one onchain payment settles at most one invoice. NULL for bank-transfer payments. */
+		receiptKey: varchar('receipt_key', { length: 260 }),
 	},
 	(t) => ({
+		receiptUniq: uniqueIndex('ux_bank_invoice_payments_receipt').on(t.receiptKey),
 		refUniq: uniqueIndex('ux_bank_invoice_payments_ref').on(t.invoiceId, t.refKey),
 		statusIdx: index('ix_bank_invoice_payments_status').on(t.status),
 	}),

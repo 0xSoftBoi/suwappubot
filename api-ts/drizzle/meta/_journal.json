@@ -253,6 +253,13 @@
       "when": 1791600000000,
       "tag": "0036_bank_review3",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1791700000000,
+      "tag": "0037_bank_review1b",
+      "breakpoints": true
     }
   ]
 }

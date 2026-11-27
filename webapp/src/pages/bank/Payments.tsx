@@ -3,10 +3,11 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { QRCodeSVG } from 'qrcode.react'
 import { bank, invoicePayLink, transferIdOf, formatMinor, parseToMinor, type Escrow, type Invoice } from '../../lib/bankApi'
 import { useBankAccounts } from '../../hooks/bank/useBankCore'
-import { useEscrows, useInvoices, useStreams } from '../../hooks/bank/useBankDomains'
+import { useEscrows, useInvoices } from '../../hooks/bank/useBankDomains'
 import { BankPage, Btn, Card, Chip, Empty, ErrorBox, Field, Input, QueryState, Row, SectionTitle, Sheet, Tabs } from '../../components/bank/BankUI'
 import { AccountSelect } from '../../components/bank/AccountSelect'
 import { AmountInput } from '../../components/bank/Amount'
+import { StreamsPanel } from '../../components/bank/StreamsPanel'
 import { EscrowDetail } from '../../components/bank/EscrowDetail'
 import { MoneyAction } from '../../components/bank/MoneyAction'
 import { a11yToast } from '@/lib/a11yToast'
@@ -151,30 +152,6 @@ function Escrows() {
   )
 }
 
-function Streams() {
-  const qc = useQueryClient()
-  const streams = useStreams()
-  const act = useMutation({ mutationFn: ({ id, a }: { id: string; a: 'pause' | 'resume' | 'cancel' | 'settle' }) => bank.streamAction(id, a), onSuccess: () => void qc.invalidateQueries({ queryKey: ['bank', 'streams'] }) })
-  return (
-    <div className="space-y-3">
-      {act.isError && <ErrorBox error={act.error} />}
-      <QueryState query={streams} isEmpty={(d) => d.length === 0} empty={<Empty title="No streams" hint="Streams pay by the second or by usage." />}>
-        {(list) => <div className="space-y-2">{list.map((sv) => { const s = sv.stream; return (
-          <Card key={s.id}>
-            <div className="flex justify-between"><p className="text-sm font-semibold capitalize">{s.kind} stream</p><Chip status={s.status} /></div>
-            {s.lastError && <p className="text-xs text-red-500 break-words">{s.lastError}</p>}
-            <div className="grid grid-cols-3 gap-2 mt-2">
-              {s.status === 'paused' ? <Btn disabled={act.isPending} onClick={() => act.mutate({ id: s.id, a: 'resume' })}>Resume</Btn> : <Btn variant="ghost" disabled={act.isPending || s.status !== 'active'} onClick={() => act.mutate({ id: s.id, a: 'pause' })}>Pause</Btn>}
-              <Btn variant="ghost" disabled={act.isPending} onClick={() => act.mutate({ id: s.id, a: 'settle' })}>Settle</Btn>
-              <Btn variant="danger" disabled={act.isPending || s.status === 'cancelled'} onClick={() => act.mutate({ id: s.id, a: 'cancel' })}>Cancel</Btn>
-            </div>
-          </Card>
-        )})}</div>}
-      </QueryState>
-    </div>
-  )
-}
-
 export function Payments() {
   const [tab, setTab] = useState<'inv' | 'esc' | 'str'>('inv')
   return (
@@ -183,7 +160,7 @@ export function Payments() {
       <SectionTitle>{tab === 'inv' ? 'Invoices and payment links' : tab === 'esc' ? 'Escrows' : 'Streams'}</SectionTitle>
       {tab === 'inv' && <Invoices />}
       {tab === 'esc' && <Escrows />}
-      {tab === 'str' && <Streams />}
+      {tab === 'str' && <StreamsPanel />}
     </BankPage>
   )
 }
