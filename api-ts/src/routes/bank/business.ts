@@ -31,7 +31,8 @@ const S = {
 	createOrg: z.object({ name: z.string().min(1).max(200), reportingCurrency: ccy.default('USD') }),
 	updateOrg: z.object({ name: z.string().min(1).max(200).optional(), reportingCurrency: ccy.optional() }),
 	patchMember: z.object({ role: role.optional(), team: z.string().max(64).nullable().optional() }),
-	invite: z.object({ role, team: z.string().max(64).optional(), email: z.string().email().max(200).optional(), ttlHours: z.number().int().min(1).max(168).default(72) }),
+	invite: z.object({ role, team: z.string().max(64).optional(), email: z.string().email().max(200).optional(), telegramId: z.number().int().positive().optional(), // MONEY-PATH: service binds invites to tg id; schema used to strip it
+		 ttlHours: z.number().int().min(1).max(168).default(72) }),
 	accept: z.object({ token: z.string().min(20).max(2000) }),
 	account: z.object({ kind: z.enum(['checking', 'savings', 'treasury']).default('checking'), asset: z.string().min(2).max(16), chain: z.string().min(2).max(32), label: z.string().max(80).optional() }),
 	policy: z.object({

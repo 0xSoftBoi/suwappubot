@@ -49,3 +49,19 @@ silently dropped.
 Filled in as discovered during the build. Expected: ramp/card provider API keys +
 KYB, issuing BIN sponsor, capital source for undercollateralized credit, licensing
 per corridor.
+
+### Blocker: credit-card refund settlement into the lender pool
+
+A provider refund on a credit-funded card lands at the card program's settlement address
+(`BANK_CARD_SETTLEMENT_ADDRESS_EVM/_SOLANA`), which is program-owned, not a Suwappu custody
+wallet, so the API cannot sign the sweep. Until it is swept, the refund stays a pending op
+(`bank_credit_ops.op_key = cardref:<providerTransactionId>`), visible as event
+`card_refund_pending` ("refund received by card program — awaiting settlement to lender pool")
+and in `GET /credit/refunds/pending` (amount, age, totals). No interest accrues on that amount
+from the refund time. The debt drops only when a confirmed transfer into the line's pool account
+carries `metadata.cardRefundTxn = <providerTransactionId>`.
+
+Closes with ONE of: (a) ops signs a transfer from the settlement address to the pool account and
+records it with that metadata (needs a privileged ops endpoint, not built); (b) the provider
+supports refund-to-address or a webhook with an on-chain settlement tx hash we can verify.
+Ops-wide (all owners) listing is not built; only owner-scoped.

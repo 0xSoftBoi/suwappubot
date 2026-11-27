@@ -24,9 +24,13 @@
 - g4 DONE (incl. org-member relatedness via relatedRoots: issuer/payer sets intersect => refused): issuer/payer resolved to root principal (agent->agents.owner_user_id, org->bank_orgs.owner_user_id, user->id) and rejected if equal; advances per payer capped by the issuer score limit; financing refused while any issuer non-collateral line is delinquent. Org members beyond the owner are not resolved.
 - g5 DONE: one USD cap (UNSECURED_CAP_UNITS=5000) per ROOT principal across unsecured + receivable lines, all assets/chains, covering the user, their agents and orgs they own; priced via BankBooksService.resolveRate (fails closed); serialised by a cross-process root lock (withRootLock). BankCreditService.ts rootRoomMinor/withRootLock, used in openUnsecuredLine and financeReceivable.
 - g6: PARTIAL (see f)
-- g7 NOT STARTED
+- g7 DONE: derived hold provider 'receivable_collection' (BankCreditService.ts, before settleReceivable): while a receivable line on the payee account has an invoice with paid_minor>0, owed+1 is held in the same transaction that credits the invoice (no stored hold; no DDL). Collection transfer consumes that hold. Retry: retryPaidReceivableCollections runs inside settlePendingPoolOps (already scheduled by the 'earn-credit' job) with 15-min-bucketed refs; failures logged. A separate registerBankJob was not needed.
 - g8 DONE: accruedSince rounds seconds and interest UP (BankCreditService.ts ~:273); no DDL/carry column needed.
 
 check after g1-g4: `bun run check` clean.
 
 - f remainder: interest no longer accrues on refunded-but-unapplied portions (refund op created_at -> now; accruedSince `refunds` param, refundReductions; also honoured at apply time). Remaining f items still open (see below).
+- f remainder: PARTIAL. DONE: card_refund_pending event message, owner-scoped GET /credit/refunds/pending (id, amount, age, totals), Blockers section in docs/plans/neobank-execution.md. NOT DONE: ops-wide (admin) list (no admin scope exists in bank routes) and the card transaction view text (BankCardService is being edited by others).
+- DDL: none was required (all derived from existing tables), so no 0039 migration. A SQL sanity query for the hold ran on bank_proof_a.
+- e: NOT STARTED (BankTransferService.ts has other editors).
+- Final: bun run check clean; check:openapi in sync.
