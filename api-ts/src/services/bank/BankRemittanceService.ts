@@ -25,6 +25,7 @@ import { findAsset } from './assets'
 import { type BankOwner, bankDb, newId } from './db'
 import { type BankError, bankErr } from './errors'
 import { assertSpendable, systemDebit } from './systemDebit'
+import { nextAttemptKey } from './paymentsCommon'
 import { RAIL_INFO, type Rail } from './ramps/rails'
 
 type Deps = BankDeps | BankTransferService | BankRampService | EnvService | BankEarnService
@@ -373,9 +374,9 @@ const refundEscrow = (id: string, reason: string, requireExpired: boolean): Fx<B
 		if (!won) return yield* Effect.fail(bankErr('CONFLICT', 'Remittance is not refundable (already claimed, refunded or not an open claim)'))
 		const sender: BankOwner = { ownerType: won.senderType as BankOwner['ownerType'], ownerId: won.senderId }
 		const bt = yield* transfers
-			.transfer({ owner: sender, idempotencyKey: yield* nextAttemptKey(sender, `remit:${won.id}:refund`), type: 'remittance', fromAccountId: won.escrowAccountId as string, systemDebit: systemDebit('remittance-escrow'), toAccountId: won.fromAccountId, amountMinor: won.amountMinor, metadata: { remittanceId: won.id, refund: reason } })
+			.transfer({ owner: sender, idempotencyKey: yield* nextAttemptKey(sender, `remit:${won.id}:refund`).pipe(Effect.tapError(() => setRem(won.id, { status: 'awaiting_claim' }).pipe(Effect.ignore))), type: 'remittance', fromAccountId: won.escrowAccountId as string, systemDebit: systemDebit('remittance-escrow'), toAccountId: won.fromAccountId, amountMinor: won.amountMinor, metadata: { remittanceId: won.id, refund: reason } })
 			.pipe(Effect.tapError(() => setRem(won.id, { status: 'awaiting_claim' }).pipe(Effect.ignore)))
-		if (bt.status === 'failed') {
+		if (bt.status === 'failed' || bt.status === 'reversed') {
 			yield* setRem(won.id, { status: 'awaiting_claim' })
 			return yield* Effect.fail(bankErr('UPSTREAM', 'Refund transfer failed; will retry'))
 		}

@@ -14,14 +14,16 @@ import { BANK_ASSETS, type BankAsset } from './assets'
 
 // ---------------------------------------------------------------- rpc
 
-async function rpc<T>(chain: string, method: string, params: unknown[]): Promise<T> {
+async function rpc<T>(chain: string, method: string, params: unknown[], opts?: { noRetry?: boolean }): Promise<T> {
 	const url = RPC_ENDPOINTS[chain]
 	if (!url) throw new Error(`No RPC endpoint for chain ${chain}`)
-	const res = await fetchWithRetry(url, {
+	const init = {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-	})
+	}
+	// MONEY-PATH: a raw-tx broadcast is never auto-retried (a retry after an ambiguous failure could re-submit / mis-classify).
+	const res = opts?.noRetry ? await fetch(url, { ...init, signal: AbortSignal.timeout(20_000) }) : await fetchWithRetry(url, init)
 	const data = (await res.json()) as { result?: T; error?: { message: string; code: number } }
 	if (data.error) throw new RpcError(data.error.message, data.error.code)
 	return data.result as T
@@ -378,13 +380,13 @@ export function solSignatureOf(signedHex: string): string {
 
 export async function solBroadcast(signedHex: string): Promise<BroadcastOutcome> {
 	try {
-		await solRpc<string>('sendTransaction', [
+		await rpc<string>('solana', 'sendTransaction', [
 			Buffer.from(signedHex.replace(/^0x/, ''), 'hex').toString('base64'),
 			{ encoding: 'base64', skipPreflight: false, preflightCommitment: 'confirmed' },
-		])
+		], { noRetry: true })
 		return { kind: 'accepted' }
 	} catch (e) {
-		if (e instanceof RpcError) return { kind: 'rejected', message: e.message }
+		// MONEY-PATH: ambiguous (see evmBroadcast); the signature is persisted and the reconciler uses lastValidBlockHeight.
 		return { kind: 'ambiguous', message: e instanceof Error ? e.message : String(e) }
 	}
 }

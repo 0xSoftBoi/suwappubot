@@ -250,13 +250,15 @@ type TransferPatch = Partial<typeof bankTransfers.$inferInsert>
  */
 const finalizeTransfer = (
 	id: string,
-	opts: { from: BankTransfer['status'][]; phase?: string; legs?: LedgerLeg[]; onlyIfReserved?: boolean; patch: TransferPatch },
+	opts: { from: BankTransfer['status'][]; phase?: string; legs?: LedgerLeg[]; onlyIfReserved?: boolean; requireNoHash?: boolean; patch: TransferPatch },
 ): Fx<BankTransfer> =>
 	bankDb((db) =>
 		db.transaction(async (tx) => {
 			const [cur] = await tx.select().from(bankTransfers).where(eq(bankTransfers.id, id)).for('update')
 			if (!cur) throw bankErr('NOT_FOUND', 'Transfer not found')
 			if (!opts.from.includes(cur.status)) return cur
+			// MONEY-PATH: no-broadcast reversals re-check under the row lock that no signed tx was ever persisted.
+			if (opts.requireNoHash && cur.txHash) return cur
 			let legs = opts.legs
 			if (legs && opts.onlyIfReserved) {
 				const reserved = await tx
@@ -276,7 +278,7 @@ const finalizeTransfer = (
 		}),
 	)
 
-const failAndReverse = (t: BankTransfer, reason: string): Fx<BankTransfer> =>
+const failAndReverse = (t: BankTransfer, reason: string, noBroadcast = false): Fx<BankTransfer> =>
 	Effect.gen(function* () {
 		const clearing = clearingFor(t)
 		const amount = BigInt(t.amountMinor)
@@ -284,6 +286,7 @@ const failAndReverse = (t: BankTransfer, reason: string): Fx<BankTransfer> =>
 			from: ['pending', 'submitted'],
 			phase: 'reverse',
 			onlyIfReserved: true,
+			requireNoHash: noBroadcast,
 			...(clearing && t.fromAccount
 				? {
 						legs: [
@@ -407,9 +410,9 @@ const advance = (t0: BankTransfer): Fx<BankTransfer> =>
 			if (sent.left.code === 'CONFLICT') return cur
 			// Nothing was broadcast (build / signing / persist failed): release only if still ours and hashless.
 			if (cur.txHash || cur.status !== 'pending' || cur.claimToken !== token) return cur
-			return yield* failAndReverse(cur, sent.left.message)
+			return yield* failAndReverse(cur, sent.left.message, true)
 		}
-		if (sent.right.outcome === 'rejected') return yield* failAndReverse(cur, `Broadcast rejected: ${sent.right.message}`)
+		if (sent.right.outcome === 'rejected') return yield* failAndReverse(cur, `Broadcast rejected: ${sent.right.message}`, true)
 		return cur
 	})
 
@@ -434,7 +437,7 @@ const settle = (t: BankTransfer): Fx<BankTransfer> =>
 		if (!t.txHash) {
 			if (t.type !== 'fx') return t.status === 'pending' ? yield* advance(t) : t
 			// fx never persisted a hash => nothing was broadcast; release after a grace period.
-			return Date.now() - t.updatedAt.getTime() > 10 * 60_000 ? yield* failAndReverse(t, 'fx transfer never reached the network') : t
+			return Date.now() - t.updatedAt.getTime() > 10 * 60_000 ? yield* failAndReverse(t, 'fx transfer never reached the network', true) : t
 		}
 		const asset = requireAsset(t.asset, t.chain)
 		const clearing = clearingFor(t)
@@ -643,7 +646,7 @@ export const BankTransferServiceLive = Layer.succeed(BankTransferService, {
 			if (!t) return yield* Effect.fail(bankErr('NOT_FOUND', 'Transfer not found'))
 			// Never release funds once a signed tx may be on the network.
 			if (t.txHash || t.status === 'confirmed' || t.status === 'failed') return t
-			return yield* failAndReverse(t, reason)
+			return yield* failAndReverse(t, reason, true)
 		}),
 
 	settleTransfer: (id) =>

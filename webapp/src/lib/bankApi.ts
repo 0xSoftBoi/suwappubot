@@ -155,12 +155,27 @@ function toError(res: Response, body: unknown): BankApiError {
   return new BankApiError(message, res.status, code, { missing: typeof b.missing === 'string' ? b.missing : undefined, fields })
 }
 
+function isTransient(res: Response, body: unknown): boolean {
+  if (res.status === 429) return true
+  if (res.status !== 503) return false
+  const b = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>
+  const code = String(b.error_code ?? b.error ?? '')
+  return !NOT_AVAILABLE_CODES.has(code) // permanent "not switched on" codes are never retried
+}
+
 async function req<T>(method: string, path: string, opts: ReqOpts = {}): Promise<T> {
   const headers: Record<string, string> = {}
   if (opts.idempotencyKey) headers['Idempotency-Key'] = opts.idempotencyKey
   const body = opts.body === undefined ? undefined : JSON.stringify(opts.idempotencyKey ? { ...(opts.body as object), idempotencyKey: opts.idempotencyKey } : opts.body)
-  const res = await api.rawRequest(`${BASE}${path}${qs(opts.query)}`, { method, headers, body })
-  const parsed = await parse(res)
+  // Wallet-busy responses come back 429 or a transient 503. With an idempotency key it is safe (and required) to retry the SAME key; never mint a new one.
+  let res = await api.rawRequest(`${BASE}${path}${qs(opts.query)}`, { method, headers, body })
+  let parsed = await parse(res)
+  for (let attempt = 0; opts.idempotencyKey && attempt < 3 && isTransient(res, parsed); attempt++) {
+    const ra = Number(res.headers.get('Retry-After'))
+    await new Promise((r) => setTimeout(r, Number.isFinite(ra) && ra > 0 ? Math.min(ra, 8) * 1000 : 800 * 2 ** attempt))
+    res = await api.rawRequest(`${BASE}${path}${qs(opts.query)}`, { method, headers, body })
+    parsed = await parse(res)
+  }
   if (!res.ok) throw toError(res, parsed)
   if (parsed && typeof parsed === 'object' && (parsed as { success?: boolean }).success === false) throw toError(res, parsed)
   return parsed as T

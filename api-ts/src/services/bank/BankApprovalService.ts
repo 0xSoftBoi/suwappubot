@@ -23,6 +23,7 @@ import {
 	bankApprovalPolicies,
 	bankApprovalRequests,
 	bankOrgCategories,
+	bankOrgMembers,
 	bankOrgPayees,
 } from '../../db'
 import { ingestBooks, valueInReporting } from './BankBooksService'
@@ -123,11 +124,25 @@ export const verifyApprovalToken = (token: string, expect: { orgId: string; acti
 		return { requestId: r.claims.req }
 	})
 
+/** MONEY-PATH: decisions re-evaluated against CURRENT membership/role (removed or demoted approvers no longer count). */
+const currentDecisions = (orgId: string, requestId: string) =>
+	bankDb(async (db) => {
+		const all = await db.select().from(bankApprovalDecisions).where(eq(bankApprovalDecisions.requestId, requestId))
+		const members = await db.select({ userId: bankOrgMembers.userId, role: bankOrgMembers.role }).from(bankOrgMembers).where(eq(bankOrgMembers.orgId, orgId))
+		const roleOf = new Map(members.map((m) => [m.userId, m.role as OrgRole]))
+		return all.filter((d) => roleOf.has(d.userId)).map((d): DecisionLite => ({ userId: d.userId, role: roleOf.get(d.userId)!, decision: d.decision }))
+	})
+
 /** Verify AND consume (single use). Use immediately before executing the approved action. */
 export const consumeApprovalToken = (token: string, expect: { orgId: string; action: string; payload: unknown }): FxE<{ requestId: string }> =>
 	Effect.gen(function* () {
 		const { requestId } = yield* verifyApprovalToken(token, expect)
 		const hash = hashPayload(expect.payload)
+		const reqRow = yield* bankDb(async (db) => (await db.select().from(bankApprovalRequests).where(and(eq(bankApprovalRequests.id, requestId), eq(bankApprovalRequests.orgId, expect.orgId))).limit(1))[0])
+		if (!reqRow) return yield* Effect.fail(bankErr('CONFLICT', 'Approval already used, expired, or not approved'))
+		const live = yield* currentDecisions(expect.orgId, requestId)
+		if (tally({ required: reqRow.requiredApprovals, approverRoles: reqRow.approverRoles, requestedBy: reqRow.requestedBy, decisions: live }) !== 'approved')
+			return yield* Effect.fail(bankErr('FORBIDDEN', 'Approval no longer satisfied: an approver was removed or demoted'))
 		const r = yield* bankDb((db) =>
 			db
 				.update(bankApprovalRequests)
@@ -182,6 +197,64 @@ export const performOrgTransfer = (
 	ctx: OrgCtx,
 	i: OrgTransferInput,
 ): Effect.Effect<OrgTransferResult, BankError, BankDeps | BankTransferService | EnvService> =>
+	withOrgTransferLock(ctx.org.id, performOrgTransferLocked(ctx, i))
+
+// MONEY-PATH: serialise policy evaluation + transfer creation per org (cross-replica pg advisory lock on a reserved
+// connection) so concurrent requests cannot both pass the rolling-24h transfer_over check.
+const withOrgTransferLock = <A, E, R>(orgId: string, eff: Effect.Effect<A, E, R>): Effect.Effect<A, E | BankError, R> =>
+	Effect.acquireUseRelease(
+		Effect.tryPromise({
+			try: async () => {
+				const { requireDb } = await import('../../db')
+				const { runEffect } = await import('../../runtime')
+				const db = (await runEffect(requireDb as never)) as { $client: { reserve: () => Promise<any> } }
+				const conn = await db.$client.reserve()
+				try {
+					await conn`select pg_advisory_lock(hashtextextended(${`org-xfer:${orgId}`}, 0))`
+				} catch (e) {
+					conn.release()
+					throw e
+				}
+				return conn
+			},
+			catch: (e) => bankErr('DB', `Could not take org transfer lock: ${String(e)}`),
+		}),
+		() => eff,
+		(conn) => Effect.promise(async () => {
+			try {
+				await conn`select pg_advisory_unlock(hashtextextended(${`org-xfer:${orgId}`}, 0))`
+			} finally {
+				conn.release()
+			}
+		}).pipe(Effect.ignore),
+	)
+
+/** MONEY-PATH: rolling 24h outflow (non-own-org destinations) in reporting minor units, for the org and for one actor. */
+const rollingOutflow = (org: OrgCtx['org'], actorUserId: number) =>
+	Effect.gen(function* () {
+		const rows = yield* bankDb(async (db) => {
+			const r = await db.execute(sql`select t.asset, t.chain, coalesce(sum(t.amount_minor),0)::text as total,
+				coalesce(sum(t.amount_minor) filter (where t.metadata->>'actorUserId' = ${String(actorUserId)}),0)::text as actor_total
+				from bank_transfers t left join bank_accounts ta on ta.id = t.to_account
+				where t.owner_type = 'org' and t.owner_id = ${org.id} and t.created_at > now() - interval '24 hours'
+				and t.status not in ('failed','cancelled','reversed') and t.type in ('internal','onchain')
+				and (t.to_account is null or ta.owner_type <> 'org' or ta.owner_id <> ${org.id})
+				group by t.asset, t.chain`)
+			return (Array.isArray(r) ? r : ((r as { rows?: unknown[] }).rows ?? [])) as Array<{ asset: string; chain: string; total: string; actor_total: string }>
+		})
+		let orgTotal = 0n
+		let actorTotal = 0n
+		for (const g of rows) {
+			if (BigInt(g.total) > 0n) orgTotal += (yield* valueInReporting(g.asset, g.chain, BigInt(g.total), org.reportingCurrency)).reportingMinor
+			if (BigInt(g.actor_total) > 0n) actorTotal += (yield* valueInReporting(g.asset, g.chain, BigInt(g.actor_total), org.reportingCurrency)).reportingMinor
+		}
+		return { orgTotal, actorTotal }
+	})
+
+const performOrgTransferLocked = (
+	ctx: OrgCtx,
+	i: OrgTransferInput,
+): Effect.Effect<OrgTransferResult, BankError, BankDeps | BankTransferService | EnvService> =>
 	Effect.gen(function* () {
 		const orgOwner: BankOwner = { ownerType: 'org', ownerId: ctx.org.id }
 		if (!/^[1-9]\d*$/.test(i.amountMinor)) return yield* Effect.fail(bankErr('VALIDATION', 'amountMinor must be a positive integer string'))
@@ -200,10 +273,12 @@ export const performOrgTransfer = (
 			if (!cat.length) return yield* Effect.fail(bankErr('NOT_FOUND', 'Category not found in this organisation'))
 		}
 
+		// MONEY-PATH: any destination not owned by this org is a payee; internal-account payee identity = owner + account.
+		const payeeKey = toExternal ? { chain: toExternal.chain, address: toExternal.address } : toAcct && !ownToOwn ? { chain: toAcct.chain, address: `acct:${toAcct.ownerType}:${toAcct.ownerId}:${toAcct.id}`.slice(0, 128) } : null
 		let newPayee = false
-		if (toExternal) {
+		if (payeeKey) {
 			const p = yield* bankDb((db) =>
-				db.select({ id: bankOrgPayees.id }).from(bankOrgPayees).where(and(eq(bankOrgPayees.orgId, ctx.org.id), eq(bankOrgPayees.chain, toExternal.chain), eq(bankOrgPayees.address, toExternal.address))).limit(1),
+				db.select({ id: bankOrgPayees.id }).from(bankOrgPayees).where(and(eq(bankOrgPayees.orgId, ctx.org.id), eq(bankOrgPayees.chain, payeeKey.chain), eq(bankOrgPayees.address, payeeKey.address))).limit(1),
 			)
 			newPayee = p.length === 0
 		}
@@ -213,8 +288,13 @@ export const performOrgTransfer = (
 			const policies = yield* loadPolicies(ctx.org.id)
 			const ctxp: ApprovalContext = { action: 'transfer', newPayee }
 			// Fail closed: a value policy that cannot be priced blocks the transfer with a typed error.
-			if (policies.some((p) => p.enabled && p.ruleType === 'transfer_over'))
-				ctxp.amountReportingMinor = (yield* valueInReporting(from.asset, from.chain, amount, ctx.org.reportingCurrency)).reportingMinor
+			if (policies.some((p) => p.enabled && p.ruleType === 'transfer_over')) {
+				const single = (yield* valueInReporting(from.asset, from.chain, amount, ctx.org.reportingCurrency)).reportingMinor
+				const rolling = yield* rollingOutflow(ctx.org, ctx.actor.userId)
+				const a = rolling.actorTotal + single
+				const o = rolling.orgTotal + single
+				ctxp.amountReportingMinor = [single, a, o].reduce((m, x) => (x > m ? x : m), 0n)
+			}
 			policy = matchPolicy(policies, ctxp)
 		}
 
@@ -247,9 +327,9 @@ export const performOrgTransfer = (
 				Effect.tapError(() => (approvalRequestId ? releaseApproval(approvalRequestId).pipe(Effect.ignore) : Effect.void)),
 			)
 
-		if (toExternal)
+		if (payeeKey)
 			yield* bankDb((db) =>
-				db.insert(bankOrgPayees).values({ id: nid('pay'), orgId: ctx.org.id, address: toExternal.address, chain: toExternal.chain, label: i.memo ?? null, addedBy: ctx.actor.userId }).onConflictDoNothing(),
+				db.insert(bankOrgPayees).values({ id: nid('pay'), orgId: ctx.org.id, address: payeeKey.address, chain: payeeKey.chain, label: i.memo ?? null, addedBy: ctx.actor.userId }).onConflictDoNothing(),
 			)
 		yield* writeAudit({ orgId: ctx.org.id, actor: ctx.actor, action: 'transfer.create', targetType: 'transfer', targetId: transfer.id, detail: { amountMinor: amount.toString(), from: from.id, to: toAcct?.id ?? toExternal, approvalRequestId } })
 		// Book the movement now so the rate is (near) transaction-time.
@@ -366,7 +446,8 @@ const impl = {
 			})
 			// Re-tally from storage so concurrent approvals cannot miss each other.
 			const all = yield* bankDb((db) => db.select().from(bankApprovalDecisions).where(eq(bankApprovalDecisions.requestId, requestId)))
-			const decisions: DecisionLite[] = all.map((d) => ({ userId: d.userId, role: d.role as OrgRole, decision: d.decision }))
+			void all
+			const decisions: DecisionLite[] = yield* currentDecisions(req.orgId, requestId)
 			const verdict = tally({ required: req.requiredApprovals, approverRoles: req.approverRoles, requestedBy: req.requestedBy, decisions })
 			if (verdict !== 'pending')
 				yield* bankDb((db) =>
