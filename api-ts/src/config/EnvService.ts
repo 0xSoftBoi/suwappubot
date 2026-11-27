@@ -252,6 +252,8 @@ export const EnvSchema = Schema.Struct({
 
 	// Stripe billing
 	STRIPE_SECRET_KEY: Schema.optional(Schema.String),
+	/** Public by design (pk_...): used by the card-reveal client SDK. */
+	STRIPE_PUBLISHABLE_KEY: Schema.optional(Schema.String),
 	STRIPE_WEBHOOK_SECRET: Schema.optional(Schema.String),
 	STRIPE_PRO_PRICE_ID: Schema.optional(Schema.String),
 	STRIPE_PREMIUM_PRICE_ID: Schema.optional(Schema.String),

@@ -3,7 +3,9 @@ import { Effect } from 'effect'
 import { Hono, type Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { z } from 'zod'
-import { bankLedgerEntries } from '../../db'
+import { bankLedgerEntries, organizationMembers, requireDb } from '../../db'
+import { runEffectEither } from '../../runtime'
+import { authorize } from '../../services/bank/BankOrgService'
 import { findAsset } from '../../services/bank/assets'
 import { BankLedgerService } from '../../services/bank/BankLedgerService'
 import { BankPartnerService } from '../../services/bank/BankPartnerService'
@@ -60,6 +62,34 @@ export function register(app: BankRouteApp, deps: BankRouteDeps): void {
 		if (!ok) throw new HTTPException(403, { message: `Missing required scope: ${isRead ? 'bank:platform:read' : 'bank:platform:write'}` })
 		return k.orgId
 	}
+	/**
+	 * Read-only self-service for the Mini App: a webapp session that is OWNER/ADMIN of the org named by `?orgId=` may use the
+	 * GET config/usage/customers endpoints. Authorised by bank org membership (`org.manage`: owner/admin only) or, failing that,
+	 * an owner/admin row in the enterprise organization_members table. API keys keep the strict scope gate. All money-moving and
+	 * customer-creating endpoints stay API-key + bank:platform:write only (they call partnerId directly).
+	 */
+	const readPartnerId = async (c: Context): Promise<string> => {
+		if ((c.get('apiKeyAuth') as { orgId?: string } | undefined)?.orgId) return partnerId(c)
+		const orgId = c.req.query('orgId')
+		if (!orgId) throw new HTTPException(400, { message: 'orgId query parameter required' })
+		const o = await resolveOwner(c)
+		const r = await runEffectEither(
+			authorize(o, orgId, 'org.manage').pipe(
+				Effect.asVoid,
+				Effect.catchAll((e) =>
+					o.ownerType !== 'user' || !/^[0-9]{1,18}$/.test(o.ownerId)
+						? Effect.fail(e)
+						: Effect.gen(function* () {
+								const db = yield* requireDb
+								const rows = yield* Effect.tryPromise({ try: () => db.select({ role: organizationMembers.role }).from(organizationMembers).where(and(eq(organizationMembers.organizationId, orgId), eq(organizationMembers.userId, Number(o.ownerId)))).limit(1), catch: () => e })
+								if (!rows[0] || !['owner', 'admin'].includes(rows[0].role)) return yield* Effect.fail(e)
+							}),
+				),
+			),
+		)
+		if (r._tag === 'Left') throw new HTTPException(403, { message: 'Only an owner or admin of this organization can view platform data' })
+		return orgId
+	}
 	const bad = (c: Context, e: z.ZodError) => c.json({ error: 'Validation Error', error_code: 'VALIDATION_ERROR', fields: formatZodErrors(e) }, 400)
 	const P = Effect.gen(function* () { return yield* BankPartnerService })
 
@@ -69,14 +99,14 @@ export function register(app: BankRouteApp, deps: BankRouteDeps): void {
 		if (!p.success) return bad(c, p.error)
 		return run(c, Effect.gen(function* () { return yield* (yield* P).configure(pid, p.data as never) }))
 	})
-	app.get('/platform/config', (c) => { const pid = partnerId(c); return run(c, Effect.gen(function* () { return { partner: yield* (yield* P).getPartner(pid) } })) })
+	app.get('/platform/config', async (c) => { const pid = await readPartnerId(c); return run(c, Effect.gen(function* () { return { partner: yield* (yield* P).getPartner(pid) } })) })
 	app.post('/platform/customers', async (c) => {
 		const pid = partnerId(c)
 		const p = Customer.safeParse(await readJson(c))
 		if (!p.success) return bad(c, p.error)
 		return run(c, Effect.gen(function* () { return { customer: yield* (yield* P).createCustomer(pid, p.data as never) } }))
 	})
-	app.get('/platform/customers', (c) => { const pid = partnerId(c); return run(c, Effect.gen(function* () { return { customers: yield* (yield* P).listCustomers(pid) } })) })
+	app.get('/platform/customers', async (c) => { const pid = await readPartnerId(c); return run(c, Effect.gen(function* () { return { customers: yield* (yield* P).listCustomers(pid) } })) })
 	app.post('/platform/customers/:cid/accounts', async (c) => {
 		const pid = partnerId(c)
 		const p = OpenAcct.safeParse(await readJson(c))
@@ -97,8 +127,8 @@ export function register(app: BankRouteApp, deps: BankRouteDeps): void {
 		if (!p.success) return bad(c, p.error)
 		return run(c, Effect.gen(function* () { return yield* (yield* P).executeFx(pid, p.data as never) }))
 	})
-	app.get('/platform/usage', (c) => {
-		const pid = partnerId(c)
+	app.get('/platform/usage', async (c) => {
+		const pid = await readPartnerId(c)
 		return run(c, Effect.gen(function* () {
 			const to = yield* Effect.try({ try: () => dateParam(c.req.query('to'), new Date()), catch: (e) => e as never })
 			const from = yield* Effect.try({ try: () => dateParam(c.req.query('from'), new Date(to.getTime() - 30 * 86_400_000)), catch: (e) => e as never })

@@ -35,7 +35,9 @@ export interface BankPrivacyServiceInterface {
 	readonly generateMetaAddress: () => Effect.Effect<ReturnType<typeof generateStealthKeys> & { registryCalldata: { to: string; data: string }; schemeId: string }>
 	readonly privatePayoutAddress: (owner: BankOwner, payeeMetaAddress: string, payoutRef: string, token?: { address: string; amountMinor: string }) => FxEnv<PrivatePayout>
 	readonly recordAnnouncement: (owner: BankOwner, payoutRef: string, txHash: string, chain: string) => Fx<{ ok: true }>
-	readonly scan: (i: { chain: string; fromBlock: string; toBlock?: string; viewPrivateKey: `0x${string}`; spendPublicKey: `0x${string}` }) => Effect.Effect<{ scanned: number; matches: ScanMatch[] }, BankError>
+	readonly scan: (i: { chain: string; fromBlock: string; toBlock?: string; viewPrivateKey: `0x${string}`; spendPublicKey: `0x${string}` }) => Effect.Effect<{ scanned: number; matches: ScanMatch[]; keyHandling: 'server' }, BankError>
+	/** Raw ERC-5564 announcements (scheme 1) so a client can view-tag filter and derive locally without sending its view key. Paginated by `cursor` (offset into the ordered range). */
+	readonly announcements: (i: { chain: string; fromBlock: string; toBlock?: string; cursor?: number; limit?: number }) => Effect.Effect<{ announcements: Array<{ stealthAddress: string; ephemeralPublicKey: string; viewTag: string; metadata: string; txHash: string; blockNumber: string; logIndex: number }>; nextCursor: number | null; total: number }, BankError>
 	readonly complianceExport: (owner: BankOwner) => FxEnv<{ viewSecret: string; payouts: Array<{ payoutRef: string; payeeMetaAddress: string; stealthAddress: string; chain: string | null; announceTx: string | null }> }>
 }
 export class BankPrivacyService extends Context.Tag('BankPrivacyService')<BankPrivacyService, BankPrivacyServiceInterface>() {}
@@ -135,7 +137,27 @@ export const BankPrivacyServiceLive = Layer.succeed(BankPrivacyService, {
 				try { anns.push(decodeAnnouncementLog(l)) } catch { /* skip malformed */ }
 			}
 			const matches = yield* Effect.try({ try: () => scanAnnouncements(anns, { viewPrivateKey: i.viewPrivateKey, spendPublicKey: i.spendPublicKey }), catch: () => bankErr('VALIDATION', 'Invalid view/spend key material') })
-			return { scanned: anns.length, matches }
+			return { scanned: anns.length, matches, keyHandling: 'server' as const }
+		}),
+
+	announcements: (i) =>
+		Effect.gen(function* () {
+			if (!RPC_ENDPOINTS[i.chain] && i.chain !== 'tempo') return yield* Effect.fail(bankErr('ASSET_UNSUPPORTED', `No RPC for chain ${i.chain}`))
+			const logs = yield* Effect.tryPromise({
+				try: () => jsonRpc<Array<{ topics: string[]; data: string; transactionHash: string; blockNumber: string; logIndex: string }>>(rpcUrlFor(i.chain), 'eth_getLogs', [{ address: ANNOUNCER, fromBlock: i.fromBlock, toBlock: i.toBlock ?? 'latest', topics: [ANNOUNCEMENT_TOPIC, `0x${SCHEME_ID.toString(16).padStart(64, '0')}`] }]),
+				catch: (e) => (e as BankError),
+			})
+			const all: Array<{ stealthAddress: string; ephemeralPublicKey: string; viewTag: string; metadata: string; txHash: string; blockNumber: string; logIndex: number }> = []
+			for (const l of logs) {
+				try {
+					const a = decodeAnnouncementLog(l)
+					all.push({ stealthAddress: a.stealthAddress, ephemeralPublicKey: a.ephemeralPublicKey, viewTag: `0x${a.metadata.slice(2, 4)}`, metadata: a.metadata, txHash: l.transactionHash, blockNumber: String(BigInt(l.blockNumber)), logIndex: Number(BigInt(l.logIndex)) })
+				} catch { /* skip malformed */ }
+			}
+			const start = Math.max(0, Math.floor(i.cursor ?? 0))
+			const limit = Math.min(Math.max(Math.floor(i.limit ?? 200), 1), 500)
+			const page = all.slice(start, start + limit)
+			return { announcements: page, nextCursor: start + limit < all.length ? start + limit : null, total: all.length }
 		}),
 
 	complianceExport: (owner) =>

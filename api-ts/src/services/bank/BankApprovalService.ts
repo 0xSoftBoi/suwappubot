@@ -37,6 +37,7 @@ import {
 	type PolicyLite,
 	type RuleType,
 	can,
+	currencyDecimals,
 	hashPayload,
 	matchPolicy,
 	mintApprovalToken,
@@ -348,13 +349,16 @@ const impl = {
 				return r!
 			})
 			yield* writeAudit({ orgId, actor: c.actor, action: 'policy.create', targetType: 'policy', targetId: row.id, detail: i as unknown as Record<string, unknown> })
-			return { policy: row }
+			return { policy: { ...row, thresholdCurrency: c.org.reportingCurrency, thresholdDecimals: currencyDecimals(c.org.reportingCurrency) } }
 		}),
 
 	listPolicies: (owner: BankOwner, orgId: string) =>
 		Effect.gen(function* () {
-			yield* authorize(owner, orgId, 'approval.view')
-			return { policies: yield* bankDb((db) => db.select().from(bankApprovalPolicies).where(eq(bankApprovalPolicies.orgId, orgId))) }
+			const c = yield* authorize(owner, orgId, 'approval.view')
+			// thresholdMinor is in the org's reporting currency minor units; expose the currency and its decimals alongside.
+			const cur = c.org.reportingCurrency
+			const rows = yield* bankDb((db) => db.select().from(bankApprovalPolicies).where(eq(bankApprovalPolicies.orgId, orgId)))
+			return { policies: rows.map((r) => ({ ...r, thresholdCurrency: cur, thresholdDecimals: currencyDecimals(cur) })) }
 		}),
 
 	deletePolicy: (owner: BankOwner, orgId: string, policyId: string) =>

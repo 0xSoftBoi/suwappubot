@@ -345,7 +345,6 @@ export const BankRampServiceLive = Layer.succeed(BankRampService, {
 								else await db.update(bankRampTransfers).set({ status: 'failed', metadata: mergeMeta(bankRampTransfers.metadata, { fundingError: e.message }) as never, updatedAt: new Date() }).where(eq(bankRampTransfers.id, row.id))
 							}),
 						),
-					),
 				Effect.flatMap((bt) =>
 					bankDb(async (db) => {
 						// A definitively failed/reversed send must not leave the ramp transfer looking live.

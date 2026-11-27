@@ -57,6 +57,13 @@ export function register(app: BankRouteApp, deps: BankRouteDeps): void {
 		if (!p.success) return bad(c, p.error)
 		return run(c, Effect.gen(function* () { return yield* (yield* BankPrivacyService).scan(p.data as never) }))
 	})
+	// Client-side scanning: raw announcements, no key material leaves the device. `fromBlock` is a hex block number or 'earliest'.
+	app.get('/privacy/announcements', async (c) => {
+		await resolveOwner(c)
+		const q = z.object({ chain: z.string().min(2).max(32), fromBlock: z.string().regex(/^0x[0-9a-fA-F]+$|^earliest$/), toBlock: z.string().regex(/^0x[0-9a-fA-F]+$|^latest$/).optional(), cursor: z.coerce.number().int().min(0).optional(), limit: z.coerce.number().int().min(1).max(500).optional() }).safeParse(c.req.query())
+		if (!q.success) return bad(c, q.error)
+		return run(c, Effect.gen(function* () { return yield* (yield* BankPrivacyService).announcements(q.data as never) }))
+	})
 	app.get('/privacy/compliance-export', async (c) => {
 		const owner = await resolveOwner(c)
 		return run(c, Effect.gen(function* () { return { export: yield* (yield* BankPrivacyService).complianceExport(owner) } }))

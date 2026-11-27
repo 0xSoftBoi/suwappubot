@@ -101,6 +101,13 @@ export function register(app: BankRouteApp, deps: BankRouteDeps): void {
 		)
 	})
 
+	/** Client config for card reveal: provider + PUBLISHABLE key only. Registered before /cards/:id. */
+	app.get('/cards/reveal-config', async (c) => {
+		await resolveOwner(c)
+		const prov = c.req.query('provider') === 'rain' ? 'rain' : 'stripe'
+		return run(c, Effect.gen(function* () { return yield* (yield* BankCardService).revealConfig(prov) }))
+	})
+
 	app.get('/cards/:id', async (c) => {
 		const owner = await resolveOwner(c)
 		return run(

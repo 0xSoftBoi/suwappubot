@@ -27,6 +27,7 @@ import {
 	bankCardShortfalls,
 	bankCards,
 	bankCardTransactions,
+	bankCreditOps,
 	bankTransfers,
 	type DrizzleService,
 } from '../../db'
@@ -179,12 +180,16 @@ export interface CardView extends Omit<BankCard, never> {
 export interface BankCardServiceInterface {
 	readonly issueCard: (owner: BankOwner, input: IssueCardInput) => Fx<{ card: BankCard; created: boolean }>
 	readonly listCards: (owner: BankOwner, f: { accountId?: string | undefined; memberId?: string | undefined; orgId?: string | undefined }) => Fx<BankCard[]>
-	readonly getCard: (owner: BankOwner, cardId: string) => Fx<{ card: BankCard; availableMinor: string | null }>
+	/** capCurrency/capDecimals: rules caps (perTx/daily/weekly/monthly/member/team) are integer minor units of this currency with this many decimals. */
+	readonly getCard: (owner: BankOwner, cardId: string) => Fx<{ card: BankCard; availableMinor: string | null; capCurrency: string; capDecimals: number }>
 	readonly setStatus: (owner: BankOwner, cardId: string, status: 'active' | 'frozen' | 'canceled') => Fx<BankCard>
 	readonly updateRules: (owner: BankOwner, cardId: string, rules: unknown) => Fx<BankCard>
 	readonly simulate: (owner: BankOwner, cardId: string, input: SimulateInput) => Fx<Record<string, unknown>>
 	readonly revealKey: (owner: BankOwner, cardId: string, nonce: string) => Fx<{ ephemeralKeySecret: string; expiresAt: number | null; providerCardId: string; provider: string }>
-	readonly listTransactions: (owner: BankOwner, cardId: string, limit: number) => Fx<BankCardTransaction[]>
+	/** `refundState` is set on refunds to credit-funded cards that the credit service has queued awaiting the provider refund inflow (card_refund_pending / AWAITING_REFUND_INFLOW). */
+	readonly listTransactions: (owner: BankOwner, cardId: string, limit: number) => Fx<Array<BankCardTransaction & { refundState?: 'AWAITING_REFUND_INFLOW' | null; creditEvent?: 'card_refund_pending' | null }>>
+	/** Public (publishable) client config for the card-reveal SDK. Never includes a secret key. */
+	readonly revealConfig: (provider?: CardProviderName) => Fx<{ provider: CardProviderName; publishableKey: string }>
 	readonly listAuthorizations: (owner: BankOwner, cardId: string, limit: number) => Fx<BankCardAuthorization[]>
 	readonly addReceipt: (owner: BankOwner, authorizationId: string, receipt: Record<string, unknown>) => Fx<BankCardAuthorization>
 	readonly setExpense: (owner: BankOwner, authorizationId: string, e: { expenseCategory?: string | undefined; memo?: string | undefined }) => Fx<BankCardAuthorization>
@@ -791,7 +796,7 @@ const impl: BankCardServiceInterface = {
 			const ledger = yield* BankLedgerService
 			const account = yield* ledger.getAccountById(card.accountId)
 			const avail = yield* Effect.either(availableOf(account))
-			return { card, availableMinor: Either.isRight(avail) ? avail.right.toString() : null }
+			return { card, availableMinor: Either.isRight(avail) ? avail.right.toString() : null, capCurrency: card.currency, capDecimals: fiatDecimals(card.currency) }
 		}),
 
 	setStatus: (owner, cardId, status) =>
@@ -849,6 +854,8 @@ const impl: BankCardServiceInterface = {
 			const fundsOk = funds.checked !== true || funds.sufficient === true
 			return {
 				dryRun: true,
+				capCurrency: card.currency,
+				capDecimals: fiatDecimals(card.currency),
 				cardStatus: card.status,
 				approved: d.approved && fundsOk && card.status === 'active',
 				decidedBy: card.status !== 'active' ? 'card_status' : d.approved && !fundsOk ? 'balance' : d.decidedBy,
@@ -872,7 +879,22 @@ const impl: BankCardServiceInterface = {
 	listTransactions: (owner, cardId, limit) =>
 		Effect.gen(function* () {
 			const card = yield* loadCard(owner, cardId)
-			return yield* bankDb((db) => db.select().from(bankCardTransactions).where(eq(bankCardTransactions.cardId, card.id)).orderBy(desc(bankCardTransactions.createdAt)).limit(Math.min(Math.max(limit, 1), 200)))
+			const rows = yield* bankDb((db) => db.select().from(bankCardTransactions).where(eq(bankCardTransactions.cardId, card.id)).orderBy(desc(bankCardTransactions.createdAt)).limit(Math.min(Math.max(limit, 1), 200)))
+			const refunds = rows.filter((r) => r.type === 'refund')
+			if (refunds.length === 0) return rows
+			const keys = refunds.map((r) => `cardref:${r.providerTransactionId}`.slice(0, 120))
+			const pending = yield* bankDb((db) => db.select({ k: bankCreditOps.opKey }).from(bankCreditOps).where(and(inArray(bankCreditOps.opKey, keys), eq(bankCreditOps.status, 'pending'))))
+			const pend = new Set(pending.map((x) => x.k))
+			return rows.map((r) => (r.type === 'refund' && pend.has(`cardref:${r.providerTransactionId}`.slice(0, 120)) ? { ...r, refundState: 'AWAITING_REFUND_INFLOW' as const, creditEvent: 'card_refund_pending' as const } : r))
+		}),
+
+	revealConfig: (provider = 'stripe') =>
+		Effect.gen(function* () {
+			const env = yield* EnvService
+			// Publishable keys are public by design; the secret key is never read here.
+			const key = provider === 'stripe' ? env.STRIPE_PUBLISHABLE_KEY : undefined
+			if (!key || !key.startsWith('pk_')) return yield* Effect.fail(bankErr('PROVIDER_NOT_CONFIGURED', 'STRIPE_PUBLISHABLE_KEY is not configured', { missing: 'STRIPE_PUBLISHABLE_KEY' }))
+			return { provider, publishableKey: key }
 		}),
 
 	listAuthorizations: (owner, cardId, limit) =>

@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { BANK_ASSETS, toMinor } from '../../services/bank/assets'
 import { BankRampService } from '../../services/bank/BankRampService'
 import { bankErr } from '../../services/bank/errors'
-import { RAILS } from '../../services/bank/ramps/rails'
+import { FIAT_DECIMALS, RAIL_INFO, RAILS } from '../../services/bank/ramps/rails'
 import { generatePixBrCode, generateUpiUri, generateVietQr, parseQr } from '../../services/bank/ramps/qr'
 import { formatZodErrors } from '../validators'
 import { readJson } from './core'
@@ -46,7 +46,10 @@ export function register(app: BankRouteApp, deps: BankRouteDeps): void {
 	const bad = (c: Parameters<typeof run>[0], fields: Record<string, string>) => c.json({ error: 'Validation Error', error_code: 'VALIDATION_ERROR', fields }, 400)
 
 	app.get('/ramps/rails', (c) =>
-		run(c, Effect.gen(function* () { return { rails: yield* (yield* BankRampService).rails() } })),
+		run(c, Effect.gen(function* () {
+			const rails = yield* (yield* BankRampService).rails()
+			return { rails: rails.map((r) => ({ ...r, currency: RAIL_INFO[r.rail].currency, decimals: FIAT_DECIMALS[RAIL_INFO[r.rail].currency] ?? 2 })), fiatDecimals: FIAT_DECIMALS }
+		})),
 	)
 
 	app.get('/ramps/providers', (c) =>
@@ -68,7 +71,8 @@ export function register(app: BankRouteApp, deps: BankRouteDeps): void {
 				if (dec === undefined) return yield* Effect.fail(bankErr('ASSET_UNSUPPORTED', `Unsupported asset ${b.asset}`))
 				amountMinor = yield* Effect.try({ try: () => toMinor(b.amount as string, dec).toString(), catch: (e) => bankErr('VALIDATION', (e as Error).message) })
 			}
-			return { routed: yield* (yield* BankRampService).quote({ direction: b.direction, rail: b.rail, asset: b.asset, amountMinor, currency: b.currency }) }
+			const fiat = (b.currency ?? RAIL_INFO[b.rail].currency).toUpperCase()
+				return { routed: yield* (yield* BankRampService).quote({ direction: b.direction, rail: b.rail, asset: b.asset, amountMinor, currency: b.currency }), fiatCurrency: fiat, decimals: FIAT_DECIMALS[fiat] ?? 2 }
 		}))
 	})
 
