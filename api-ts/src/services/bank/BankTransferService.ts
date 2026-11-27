@@ -17,7 +17,7 @@
  * persists 'submitted' only if the claim still holds (else aborts BEFORE broadcast).
  * Status changes that touch money (confirm / reverse) are atomic with their ledger posting.
  */
-import { and, desc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm'
 import { Context, Effect, Layer } from 'effect'
 import { createHash, randomUUID } from 'node:crypto'
 import { agents, bankAccounts, type BankAccount, type BankTransfer, type BankTransferType, bankLedgerEntries, bankTransfers, wallets } from '../../db'
@@ -536,6 +536,86 @@ const settle = (t: BankTransfer): Fx<BankTransfer> =>
 		return t
 	})
 
+// ------------------------------------------------------------------ shared spend controls (also used by BankFxService)
+
+export const assertRecipientSafe = (asset: BankAsset, address: string): Fx<void> =>
+	Effect.tryPromise({
+		try: () => chain.assertSafeRecipient(asset, address),
+		catch: (e) =>
+			e instanceof chain.UnsafeRecipientError
+				? bankErr('VALIDATION', e.message)
+				: bankErr('UPSTREAM', `Could not verify recipient: ${e instanceof Error ? e.message : String(e)}`, { cause: e }),
+	})
+
+/** Per-transfer limit (metadata.limits.perTxMinor) + PolicyService for agent owners. Daily limit: see insertTransferGuarded. */
+export const enforceSpendControls = (args: {
+	owner: BankOwner
+	from: BankAccount
+	asset: BankAsset
+	amount: bigint
+	destination: string
+}): Fx<void> =>
+	Effect.gen(function* () {
+		const { owner, from, asset, amount, destination } = args
+		const limits = (from.metadata?.limits ?? {}) as { perTxMinor?: string; dailyMinor?: string }
+		if (limits.perTxMinor && amount > BigInt(limits.perTxMinor))
+			return yield* Effect.fail(bankErr('LIMIT_EXCEEDED', `Exceeds per-transfer limit of ${limits.perTxMinor}`))
+		if (owner.ownerType !== 'agent') return
+		const agent = yield* bankDb(async (db) => (await db.select().from(agents).where(eq(agents.id, Number(owner.ownerId))).limit(1))[0])
+		if (!agent) return yield* Effect.fail(bankErr('NOT_FOUND', 'Agent not found'))
+		const valueUsd = yield* Effect.tryPromise({
+			try: async () => {
+				const human = Number(amount) / 10 ** asset.decimals
+				if (asset.currency === 'USD') return human
+				const px = (await fetchTokenPrices([asset.symbol]))[asset.symbol]?.usd
+				if (!px) throw new Error(`no USD price for ${asset.symbol}`)
+				return human * px
+			},
+			catch: (e) => bankErr('POLICY_BLOCKED', `Cannot value transfer for policy check: ${String(e)}`),
+		})
+		const policy = yield* PolicyService
+		const verdict = yield* policy
+			.evaluate({
+				organizationId: agent.organizationId,
+				agentId: agent.uuid,
+				chain: asset.chain,
+				fromToken: asset.address.toLowerCase(),
+				destinationAddress: destination.toLowerCase(),
+				valueUsd,
+			})
+			.pipe(Effect.mapError((e) => bankErr('DB', e.message)))
+		if (verdict.decision === 'block') return yield* Effect.fail(bankErr('POLICY_BLOCKED', verdict.reason ?? 'Blocked by policy'))
+		if (verdict.decision === 'require_approval')
+			return yield* Effect.fail(bankErr('POLICY_BLOCKED', `Requires human approval: ${verdict.reason ?? 'policy'}`))
+	})
+
+/**
+ * Inserts a transfer (onConflictDoNothing on the idempotency key) in one transaction that holds
+ * the source account row lock while it checks the rolling-24h daily limit — concurrent transfers
+ * from one account serialise here, so the limit cannot be raced. Returns null when the key already exists.
+ */
+export const insertTransferGuarded = (values: typeof bankTransfers.$inferInsert, from: BankAccount): Fx<BankTransfer | null> =>
+	bankDb((db) =>
+		db.transaction(async (tx) => {
+			const [acct] = await tx
+				.select({ metadata: bankAccounts.metadata })
+				.from(bankAccounts)
+				.where(eq(bankAccounts.id, from.id))
+				.for('update')
+			if (!acct) throw bankErr('NOT_FOUND', 'Source account not found')
+			const daily = ((acct.metadata?.limits ?? {}) as { dailyMinor?: string }).dailyMinor
+			if (daily) {
+				const r = await tx.execute(
+					sql`select coalesce(sum(amount_minor), 0)::text as s from bank_transfers where from_account = ${from.id} and status in ('pending','submitted','confirmed') and created_at > now() - interval '24 hours'`,
+				)
+				const spent = BigInt((r as unknown as Array<{ s: string }>)[0]?.s ?? '0')
+				if (spent + BigInt(values.amountMinor) > BigInt(daily)) throw bankErr('LIMIT_EXCEEDED', `Exceeds daily limit of ${daily}`)
+			}
+			const [row] = await tx.insert(bankTransfers).values(values).onConflictDoNothing().returning()
+			return row ?? null
+		}),
+	)
+
 // ------------------------------------------------------------------ service
 
 export const BankTransferServiceLive = Layer.succeed(BankTransferService, {
@@ -636,79 +716,31 @@ export const BankTransferServiceLive = Layer.succeed(BankTransferService, {
 					return yield* Effect.fail(bankErr('VALIDATION', 'Asset/chain mismatch between accounts; use /fx for conversions'))
 				if (!to.address) return yield* Effect.fail(bankErr('WALLET_UNAVAILABLE', 'Destination account has no wallet address'))
 			} else {
-				const addr = input.toExternal!.address
-				const ok = asset.family === 'evm' ? chain.isEvmAddress(addr) : chain.isSolanaAddress(addr)
-				if (!ok) return yield* Effect.fail(bankErr('VALIDATION', `Invalid ${asset.family} address`))
+				yield* assertRecipientSafe(asset, input.toExternal!.address)
 			}
 
-			// Per-account limits (metadata.limits = { perTxMinor, dailyMinor }).
-			const limits = (from.metadata?.limits ?? {}) as { perTxMinor?: string; dailyMinor?: string }
-			if (limits.perTxMinor && amount > BigInt(limits.perTxMinor))
-				return yield* Effect.fail(bankErr('LIMIT_EXCEEDED', `Exceeds per-transfer limit of ${limits.perTxMinor}`))
-			if (limits.dailyMinor) {
-				const spent = yield* bankDb(async (db) => {
-					const r = await db.execute(
-						sql`select coalesce(sum(amount_minor), 0)::text as s from bank_transfers where from_account = ${from.id} and status in ('pending','submitted','confirmed') and created_at > now() - interval '24 hours'`,
-					)
-					return BigInt((r as unknown as Array<{ s: string }>)[0]?.s ?? '0')
-				})
-				if (spent + amount > BigInt(limits.dailyMinor))
-					return yield* Effect.fail(bankErr('LIMIT_EXCEEDED', `Exceeds daily limit of ${limits.dailyMinor}`))
-			}
+			// Per-tx limit + policy engine (agents). Daily limit is enforced atomically at insert.
+			yield* enforceSpendControls({ owner: input.owner, from, asset, amount, destination: to?.address ?? input.toExternal!.address })
 
-			// Policy engine (org/agent rules, kill switches) for agent-owned accounts.
-			if (input.owner.ownerType === 'agent') {
-				const agent = yield* bankDb(async (db) => (await db.select().from(agents).where(eq(agents.id, Number(input.owner.ownerId))).limit(1))[0])
-				if (!agent) return yield* Effect.fail(bankErr('NOT_FOUND', 'Agent not found'))
-				const valueUsd = yield* Effect.tryPromise({
-					try: async () => {
-						const human = Number(amount) / 10 ** asset.decimals
-						if (asset.currency === 'USD') return human
-						const px = (await fetchTokenPrices([asset.symbol]))[asset.symbol]?.usd
-						if (!px) throw new Error(`no USD price for ${asset.symbol}`)
-						return human * px
-					},
-					catch: (e) => bankErr('POLICY_BLOCKED', `Cannot value transfer for policy check: ${String(e)}`),
-				})
-				const policy = yield* PolicyService
-				const verdict = yield* policy
-					.evaluate({
-						organizationId: agent.organizationId,
-						agentId: agent.uuid,
-						chain: asset.chain,
-						fromToken: asset.address.toLowerCase(),
-						destinationAddress: (to?.address ?? input.toExternal!.address).toLowerCase(),
-						valueUsd,
-					})
-					.pipe(Effect.mapError((e) => bankErr('DB', e.message)))
-				if (verdict.decision === 'block') return yield* Effect.fail(bankErr('POLICY_BLOCKED', verdict.reason ?? 'Blocked by policy'))
-				if (verdict.decision === 'require_approval')
-					return yield* Effect.fail(bankErr('POLICY_BLOCKED', `Requires human approval: ${verdict.reason ?? 'policy'}`))
-			}
-
-			const inserted = yield* bankDb(async (db) => {
-				const [row] = await db
-					.insert(bankTransfers)
-					.values({
-						id: newId('xfer'),
-						ownerType: input.owner.ownerType,
-						ownerId: input.owner.ownerId,
-						idempotencyKey: input.idempotencyKey,
-						requestHash,
-						type: input.type,
-						fromAccount: from.id,
-						toAccount: to?.id ?? null,
-						toExternal: to ? null : { address: input.toExternal!.address, chain: from.chain },
-						amountMinor: input.amountMinor,
-						asset: asset.symbol,
-						chain: asset.chain,
-						memo: input.memo ?? null,
-						metadata: input.metadata ?? {},
-					})
-					.onConflictDoNothing()
-					.returning()
-				return row ?? null
-			})
+			const inserted = yield* insertTransferGuarded(
+				{
+					id: newId('xfer'),
+					ownerType: input.owner.ownerType,
+					ownerId: input.owner.ownerId,
+					idempotencyKey: input.idempotencyKey,
+					requestHash,
+					type: input.type,
+					fromAccount: from.id,
+					toAccount: to?.id ?? null,
+					toExternal: to ? null : { address: input.toExternal!.address, chain: from.chain },
+					amountMinor: input.amountMinor,
+					asset: asset.symbol,
+					chain: asset.chain,
+					memo: input.memo ?? null,
+					metadata: input.metadata ?? {},
+				},
+				from,
+			)
 			if (!inserted) {
 				// Lost a race on the idempotency key: return the winner.
 				return yield* bankDb(async (db) => {
@@ -751,44 +783,76 @@ export const BankTransferServiceLive = Layer.succeed(BankTransferService, {
 	syncDeposit: (owner, accountId) =>
 		Effect.gen(function* () {
 			const ledger = yield* BankLedgerService
-			const rep = yield* ledger.reconcile(owner, accountId)
 			const acct = yield* ledger.getAccount(owner, accountId)
-			const delta = BigInt(rep.deltaMinor)
-			if (delta <= 0n || rep.inFlightTransfers > 0) return { creditedMinor: '0', transfer: null }
-			const key = `deposit:${accountId}:${rep.onchainMinor}`
-			const t = yield* bankDb(async (db) => {
-				const [row] = await db
-					.insert(bankTransfers)
-					.values({
-						id: newId('xfer'),
-						ownerType: owner.ownerType,
-						ownerId: owner.ownerId,
-						idempotencyKey: key,
-						requestHash: createHash('sha256').update(key).digest('hex'),
-						type: 'onchain',
-						toAccount: acct.id,
-						amountMinor: delta.toString(),
-						asset: acct.asset,
-						chain: acct.chain,
-						status: 'confirmed',
-						confirmedAt: new Date(),
-						memo: 'on-chain deposit sync',
-						metadata: { deposit: true, onchainBalanceMinor: rep.onchainMinor },
-					})
-					.onConflictDoNothing()
-					.returning()
-				return row ?? null
+			if (!acct.address) return yield* Effect.fail(bankErr('VALIDATION', 'Account has no on-chain wallet'))
+			const asset = requireAsset(acct.asset, acct.chain)
+			const address = acct.address
+			const onchain = yield* Effect.tryPromise({
+				try: () => (asset.family === 'evm' ? chain.evmTokenBalance(asset, address) : chain.solTokenBalance(asset, address)),
+				catch: (e) => bankErr('UPSTREAM', `Could not read on-chain balance: ${String(e)}`, { cause: e }),
 			})
-			if (!t) return { creditedMinor: '0', transfer: null } // already credited for this balance
 			const external = yield* ledger.ensureSystemAccount('external', acct.asset, acct.chain)
-			yield* ledger.post({
-				transferId: t.id,
-				phase: 'deposit',
-				legs: [
-					{ accountId: external.id, direction: 'debit', amountMinor: delta },
-					{ accountId: acct.id, direction: 'credit', amountMinor: delta },
-				],
-			})
-			return { creditedMinor: delta.toString(), transfer: t }
+			// One deposit key per wallet group + observed balance: two accounts sharing a wallet cannot both credit it.
+			const key = `deposit:${acct.chain}:${address.toLowerCase()}:${acct.asset}:${onchain}`
+			return yield* bankDb((db) =>
+				db.transaction(async (tx) => {
+					const group = await tx
+						.select()
+						.from(bankAccounts)
+						.where(and(eq(bankAccounts.chain, acct.chain), eq(bankAccounts.address, address), eq(bankAccounts.asset, acct.asset), ne(bankAccounts.status, 'closed')))
+						.orderBy(bankAccounts.id)
+						.for('update')
+					const ids = group.map((g) => g.id)
+					const delta = onchain - group.reduce((sum, g) => sum + BigInt(g.balanceMinor), 0n)
+					if (delta <= 0n) return { creditedMinor: '0', transfer: null }
+					const inflight = await tx
+						.select({ id: bankTransfers.id })
+						.from(bankTransfers)
+						.where(
+							and(
+								inArray(bankTransfers.status, ['pending', 'submitted']),
+								or(inArray(bankTransfers.fromAccount, ids), inArray(bankTransfers.toAccount, ids)),
+							),
+						)
+						.limit(1)
+					if (inflight.length > 0) return { creditedMinor: '0', transfer: null }
+					// Entry count makes the key unique per ledger state: a later identical balance (after spends) is a new deposit.
+					const [{ n }] = (await tx
+						.select({ n: sql<string>`count(*)::text` })
+						.from(bankLedgerEntries)
+						.where(inArray(bankLedgerEntries.accountId, ids))) as [{ n: string }]
+					const depositKey = createHash('sha256').update(`${key}:${n}`).digest('hex')
+					const [t] = await tx
+						.insert(bankTransfers)
+						.values({
+							id: newId('xfer'),
+							ownerType: owner.ownerType,
+							ownerId: owner.ownerId,
+							idempotencyKey: depositKey,
+							requestHash: depositKey,
+							type: 'onchain',
+							toAccount: acct.id,
+							amountMinor: delta.toString(),
+							asset: acct.asset,
+							chain: acct.chain,
+							status: 'confirmed',
+							confirmedAt: new Date(),
+							memo: 'on-chain deposit sync',
+							metadata: { deposit: true, onchainBalanceMinor: onchain.toString(), group: ids },
+						})
+						.onConflictDoNothing()
+						.returning()
+					if (!t) return { creditedMinor: '0', transfer: null } // this balance was already credited
+					await postInTx(tx, {
+						transferId: t.id,
+						phase: 'deposit',
+						legs: [
+							{ accountId: external.id, direction: 'debit', amountMinor: delta },
+							{ accountId: acct.id, direction: 'credit', amountMinor: delta },
+						],
+					})
+					return { creditedMinor: delta.toString(), transfer: t }
+				}),
+			)
 		}),
 })

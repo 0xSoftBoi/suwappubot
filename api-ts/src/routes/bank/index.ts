@@ -10,6 +10,8 @@ import type { MainLayerContext } from '../../services/MainLayer'
 import type { BankOwner } from '../../services/bank/db'
 import { register as core } from './core'
 import { register as fx } from './fx'
+import { register as ramps } from './ramps'
+import { register as remittance } from './remittance'
 import { register as cards } from './cards'
 import { register as earn } from './earn'
 import { register as credit } from './credit'
@@ -30,6 +32,8 @@ type Module = (app: BankRouteApp, deps: BankRouteDeps) => void
 export const modules: Module[] = [
 	core,
 	fx,
+	ramps,
+	remittance,
 	cards,
 	earn,
 	credit,

@@ -4,6 +4,8 @@
 import { Layer } from 'effect'
 import { BankCardServiceLive } from './BankCardService'
 import { BankFxServiceLive } from './BankFxService'
+import { BankRampServiceLive } from './BankRampService'
+import { BankRemittanceServiceLive } from './BankRemittanceService'
 import { BankEarnServiceLive } from './BankEarnService'
 import { BankCreditServiceLive } from './BankCreditService'
 import { BankLedgerServiceLive } from './BankLedgerService'
@@ -13,6 +15,8 @@ export const BankLayer = Layer.mergeAll(
 	BankLedgerServiceLive,
 	BankTransferServiceLive,
 	BankFxServiceLive,
+	BankRampServiceLive,
+	BankRemittanceServiceLive,
 	BankCardServiceLive,
 	BankEarnServiceLive,
 	BankCreditServiceLive,

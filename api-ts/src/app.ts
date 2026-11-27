@@ -19,6 +19,7 @@ import { CHAINS } from './services/TokenService'
 import { adminGrowthRoutes } from './routes/adminGrowth'
 import { webEventRoutes } from './routes/webEvents'
 import { bankAgentRoutes, bankWebappRoutes } from './routes/bank'
+import { bankWebhookRoutes } from './routes/bank/webhooks'
 import { bodyLimit } from 'hono/body-limit'
 import {
 	a2aRoutes,
@@ -227,6 +228,8 @@ export function createApp(config: AppConfig) {
 
 	// Suwappu Bank (webapp-authed). Must precede the general /webapp router.
 	app.route('/webapp/bank', bankWebappRoutes)
+	// Bank provider webhooks (raw-body signature verified, no user auth).
+	app.route('/bank/webhooks', bankWebhookRoutes)
 
 	// Native api-ts swap routes are still ahead of the general /webapp routers below.
 	app.route('/webapp/swap', swapRoutes)

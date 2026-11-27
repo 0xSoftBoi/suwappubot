@@ -18,7 +18,7 @@ import type { EnvService } from '../../config/EnvService'
 import { type BankTransfer, bankTransfers } from '../../db'
 import { SwapService, type SwapQuote } from '../SwapService'
 import { BankLedgerService } from './BankLedgerService'
-import { type BankDeps, BankTransferService } from './BankTransferService'
+import { type BankDeps, BankTransferService, enforceSpendControls, insertTransferGuarded } from './BankTransferService'
 import { findAsset, fromMinor } from './assets'
 import { erc20ApproveData, evmAllowance, evmReceipt } from './chain'
 import { type BankOwner, bankDb, newId } from './db'
@@ -74,6 +74,20 @@ export interface BankFxServiceInterface {
 export class BankFxService extends Context.Tag('BankFxService')<BankFxService, BankFxServiceInterface>() {}
 
 const DEFAULT_SLIPPAGE = 0.005
+
+/**
+ * Aggregator contracts we will sign calls to / approve, per EVM chain id. LI.FI Diamond: same address on
+ * every supported chain (bytecode verified on-chain, and returned as both tx.to and approvalAddress by
+ * li.quest/v1/quote on 2026-11-27). Anything else the aggregator returns is rejected.
+ */
+const LIFI_DIAMOND = '0x1231deb6f5749ef6ce6943a275a1d3e7486f4eae'
+const ROUTER_ALLOWLIST: Record<number, ReadonlySet<string>> = {
+	1: new Set([LIFI_DIAMOND]),
+	10: new Set([LIFI_DIAMOND]),
+	137: new Set([LIFI_DIAMOND]),
+	8453: new Set([LIFI_DIAMOND]),
+	42161: new Set([LIFI_DIAMOND]),
+}
 
 const prepare = (req: FxRequest) =>
 	Effect.gen(function* () {
@@ -184,11 +198,26 @@ export const BankFxServiceLive = Layer.succeed(BankFxService, {
 				return yield* Effect.fail(bankErr('LIMIT_EXCEEDED', `Route minimum ${p.quote.minToMinor} is below requested floor ${req.minToMinor}; re-quote`))
 
 			const amount = BigInt(req.amountMinor)
+
+			// Never sign/approve anything the aggregator hands back without checking it.
+			const txr = p.q.transactionRequest
+			const allowed = ROUTER_ALLOWLIST[p.fa.chainId ?? -1]
+			if (!allowed || !allowed.has(txr.to.toLowerCase()))
+				return yield* Effect.fail(bankErr('UPSTREAM', `Aggregator returned an unrecognised router (${txr.to}); refusing to sign`))
+			const spenderAddr = p.q._rawQuote.estimate.approvalAddress
+			if (spenderAddr && spenderAddr.toLowerCase() !== txr.to.toLowerCase())
+				return yield* Effect.fail(bankErr('UPSTREAM', 'Aggregator spender differs from router; refusing to approve'))
+			if (txr.chainId !== p.fa.chainId) return yield* Effect.fail(bankErr('UPSTREAM', 'Aggregator transaction targets a different chain'))
+			if (!/^0x0*$/.test(txr.value || '0x0')) return yield* Effect.fail(bankErr('UPSTREAM', 'Aggregator transaction carries native value for an ERC-20 swap'))
+			if (!/^0x[0-9a-fA-F]+$/.test(txr.data) || txr.data.length < 10) return yield* Effect.fail(bankErr('UPSTREAM', 'Aggregator returned empty calldata'))
+			if (txr.from && txr.from.toLowerCase() !== p.from.address!.toLowerCase()) return yield* Effect.fail(bankErr('UPSTREAM', 'Aggregator transaction built for a different sender'))
+
+			// Same per-tx limit + policy engine as transfer(); daily limit is enforced atomically at insert.
+			yield* enforceSpendControls({ owner: req.owner, from: p.from, asset: p.fa, amount, destination: p.to.address! })
+
 			const fxFrom = yield* ledger.ensureSystemAccount('fx', p.fa.symbol, p.from.chain)
-			const inserted = yield* bankDb(async (db) => {
-				const [row] = await db
-					.insert(bankTransfers)
-					.values({
+			const inserted = yield* insertTransferGuarded(
+				{
 						id: newId('xfer'),
 						ownerType: req.owner.ownerType,
 						ownerId: req.owner.ownerId,
@@ -215,11 +244,9 @@ export const BankFxServiceLive = Layer.succeed(BankFxService, {
 								direct: p.quote.direct,
 							},
 						},
-					})
-					.onConflictDoNothing()
-					.returning()
-				return row ?? null
-			})
+					}),
+				p.from,
+			)
 			if (!inserted) return yield* Effect.fail(bankErr('CONFLICT', 'Concurrent request with the same idempotencyKey; retry'))
 
 			// Reserve funds before any signing.
@@ -272,18 +299,26 @@ export const BankFxServiceLive = Layer.succeed(BankFxService, {
 					valueHex: tx.value,
 					...(hex(tx.gasLimit) !== undefined ? { gas: hex(tx.gasLimit)! } : {}),
 					onSigned: ({ txHash, nonce }) =>
-						bankDb((db) =>
-							db
+						// Only while still pending: never resurrect a transfer that was failed/refunded meanwhile.
+						bankDb(async (db) => {
+							const rows = await db
 								.update(bankTransfers)
 								.set({ status: 'submitted', txHash, metadata: { ...inserted.metadata, nonce }, updatedAt: new Date() })
-								.where(eq(bankTransfers.id, inserted.id)),
-						).pipe(Effect.asVoid),
+								.where(and(eq(bankTransfers.id, inserted.id), eq(bankTransfers.status, 'pending')))
+								.returning({ id: bankTransfers.id })
+							if (rows.length !== 1) throw bankErr('CONFLICT', 'fx transfer is no longer pending; aborting before broadcast')
+						}),
+					guard: () =>
+						bankDb(async (db) => {
+							const [r] = await db.select({ s: bankTransfers.status }).from(bankTransfers).where(eq(bankTransfers.id, inserted.id)).limit(1)
+							if (r?.s !== 'pending') throw bankErr('CONFLICT', 'fx transfer is no longer pending; aborting before signing')
+						}),
 				})
 				.pipe(
 					Effect.catchAll((e) =>
 						// If the hash was persisted the outcome is unknown: leave it to the reconciler.
 						bankDb(async (db) => (await db.select().from(bankTransfers).where(eq(bankTransfers.id, inserted.id)).limit(1))[0]!).pipe(
-							Effect.flatMap((row) => (row.txHash ? Effect.succeed(null) : fail(e.message).pipe(Effect.zipRight(Effect.fail(e))))),
+							Effect.flatMap((row) => (row.txHash || e.code === 'CONFLICT' ? Effect.succeed(null) : fail(e.message).pipe(Effect.zipRight(Effect.fail(e))))),
 						),
 					),
 				)
