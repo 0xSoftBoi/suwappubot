@@ -1,15 +1,18 @@
 /** Shared helpers for M7/M8 (payments, escrow, streams, payroll, pools). */
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { Context, Effect, Option } from 'effect'
+import type { EnvService } from '../../config/EnvService'
 import type { DrizzleService } from '../../db'
+import type { SwapService } from '../SwapService'
 import { BankFxService } from './BankFxService'
 import { BankLedgerService } from './BankLedgerService'
 import { type BankDeps, BankTransferService } from './BankTransferService'
+import type { BankPayoutPoolService } from './BankPayoutPoolService'
 import type { BankOwner } from './db'
 import { BankError, bankErr } from './errors'
 
 /** Everything the M7/M8 services need from the layer at call time. */
-export type PayDeps = BankDeps | BankTransferService | BankFxService
+export type PayDeps = BankDeps | BankTransferService | BankFxService | BankPayoutPoolService | EnvService | SwapService
 export type PayFx<A> = Effect.Effect<A, BankError, PayDeps>
 
 export const uid = (prefix: string): string => `${prefix}_${randomUUID().replace(/-/g, '')}`

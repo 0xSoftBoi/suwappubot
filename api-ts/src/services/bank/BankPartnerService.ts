@@ -24,7 +24,6 @@ import {
 	organizations,
 } from '../../db'
 import { logger } from '../../lib/logger'
-import { runEffect } from '../../runtime'
 import { findAsset } from './assets'
 import { BankFxService } from './BankFxService'
 import { BankLedgerService } from './BankLedgerService'
@@ -127,7 +126,8 @@ let timer: ReturnType<typeof setInterval> | null = null
 export function startPartnerWebhookJob(seconds = 30): void {
 	if (timer) return
 	timer = setInterval(() => {
-		void runEffect(Effect.gen(function* () { return yield* (yield* BankPartnerService).deliverDueWebhooks(50) })).catch((e) => logger.error({ err: String(e) }, 'bank: partner webhook tick failed'))
+		// lazy import: runtime -> MainLayer -> bank index -> this file would otherwise be a cycle
+		void import('../../runtime').then(({ runEffect }) => runEffect(Effect.gen(function* () { return yield* (yield* BankPartnerService).deliverDueWebhooks(50) }))).catch((e) => logger.error({ err: String(e) }, 'bank: partner webhook tick failed'))
 	}, seconds * 1000)
 	;(timer as { unref?: () => void }).unref?.()
 }

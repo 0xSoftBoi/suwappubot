@@ -10,7 +10,7 @@
  *     receivable id, so retries never pay or collect twice.
  */
 import { and, eq, inArray, sql } from 'drizzle-orm'
-import { Context, Effect, Layer, Option } from 'effect'
+import { Context, Effect, Layer } from 'effect'
 import { type BankPayoutPool, type BankPoolReceivable, bankPayoutPools, bankPoolReceivables } from '../../db'
 import { logger } from '../../lib/logger'
 import { BankLedgerService } from './BankLedgerService'
@@ -294,7 +294,6 @@ export const BankPayoutPoolServiceLive = Layer.succeed(BankPayoutPoolService, {
 				})
 				yield* step.pipe(Effect.catchAll((e: BankError) => Effect.sync(() => logger.warn({ receivableId: r.id, err: e.message }, 'bank: pool receivable step failed'))))
 			}
-			void Option
 			return { settled, pending }
 		}),
 })
