@@ -1,6 +1,6 @@
 import { and, asc, eq, gte, lt, sql } from 'drizzle-orm'
 import { Effect } from 'effect'
-import type { Context } from 'hono'
+import { Hono, type Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { z } from 'zod'
 import { bankLedgerEntries } from '../../db'
@@ -35,6 +35,17 @@ const dateParam = (s: string | undefined, d: Date): Date => {
 	if (Number.isNaN(t)) throw bankErr('VALIDATION', `Invalid date ${s}`)
 	return new Date(t)
 }
+
+async function wellKnownPay(c: Context): Promise<Response> {
+	const { runEffectEither } = await import('../../runtime')
+	const r = await runEffectEither(Effect.gen(function* () { return yield* (yield* BankPaymentNetworkService).getLocal(c.req.param('handle') as string) }))
+	if (r._tag === 'Left') return c.json({ error: 'NOT_FOUND' }, 404)
+	return c.json(r.right.document)
+}
+
+/** Public: `app.route('/public/bank/network', bankNetworkPublicRoutes)` -> GET /public/bank/network/.well-known/suwappu-pay/:handle. Only this handler. */
+export const bankNetworkPublicRoutes = new Hono()
+bankNetworkPublicRoutes.get('/.well-known/suwappu-pay/:handle', wellKnownPay)
 
 export function register(app: BankRouteApp, deps: BankRouteDeps): void {
 	const { resolveOwner, run } = deps
@@ -172,13 +183,7 @@ export function register(app: BankRouteApp, deps: BankRouteDeps): void {
 		return run(c, Effect.gen(function* () { return yield* (yield* N).publish(owner, p.data) }))
 	})
 	app.get('/network/address/:handle', (c) => run(c, Effect.gen(function* () { return yield* (yield* N).getLocal(c.req.param('handle')) })))
-	// Mount target for a public `/.well-known/suwappu-pay/:handle` (returns the bare signed document).
-	app.get('/network/.well-known/suwappu-pay/:handle', async (c) => {
-		const { runEffectEither } = await import('../../runtime')
-		const r = await runEffectEither(Effect.gen(function* () { return yield* (yield* N).getLocal(c.req.param('handle')) }))
-		if (r._tag === 'Left') return c.json({ error: 'NOT_FOUND' }, 404)
-		return c.json(r.right.document)
-	})
+	app.get('/network/.well-known/suwappu-pay/:handle', wellKnownPay)
 	app.post('/network/resolve', async (c) => {
 		await resolveOwner(c)
 		const p = Resolve.safeParse(await readJson(c))
