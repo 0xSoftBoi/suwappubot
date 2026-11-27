@@ -59,7 +59,11 @@ export const transferIdOf = {
   /** BankCreditService.draw/repay -> { line, transferId, txHash, status }. */
   credit: (r: { transferId: string | null }): string | null => r.transferId,
   /** BankPaymentsService.payInvoice -> { invoice, payment, transferStatus }; payment.transferId. */
-  invoicePay: (r: InvoicePayResult): string | null => r.payment.transferId ?? null,
+  invoicePay: (r: InvoicePayResult): string | null => r.transferId ?? r.payment.transferId ?? null,
+  /** EscrowView.fundingTransferId (create/fund). */
+  escrowFunding: (r: EscrowView): string | null => r.fundingTransferId ?? null,
+  /** StreamView.transferId (settle/cancel). */
+  stream: (r: StreamView): string | null => r.transferId ?? null,
   /** Payroll executeRun/retryFailed -> { run, items[] }; one transferId per paid item (fxTransferId when converted). */
   payrollItems: (r: PayrollRunResult): string[] => r.items.map((i) => i.transferId).filter((x): x is string => typeof x === 'string'),
   /** advanceWages / advanceScheduleWages -> { ..., transferId } */
@@ -164,17 +168,20 @@ function isTransient(res: Response, body: unknown): boolean {
   return !NOT_AVAILABLE_CODES.has(code) // permanent "not switched on" codes are never retried
 }
 
+/** Enterprise (API-key admin) routes live outside /webapp/bank. */
+const pre = (path: string) => (path.startsWith('/enterprise/') ? '' : BASE)
+
 async function req<T>(method: string, path: string, opts: ReqOpts = {}): Promise<T> {
   const headers: Record<string, string> = {}
   if (opts.idempotencyKey) headers['Idempotency-Key'] = opts.idempotencyKey
   const body = opts.body === undefined ? undefined : JSON.stringify(opts.idempotencyKey ? { ...(opts.body as object), idempotencyKey: opts.idempotencyKey } : opts.body)
   // Wallet-busy responses come back 429 or a transient 503. With an idempotency key it is safe (and required) to retry the SAME key; never mint a new one.
-  let res = await api.rawRequest(`${BASE}${path}${qs(opts.query)}`, { method, headers, body })
+  let res = await api.rawRequest(`${pre(path)}${path}${qs(opts.query)}`, { method, headers, body })
   let parsed = await parse(res)
   for (let attempt = 0; opts.idempotencyKey && attempt < 3 && isTransient(res, parsed); attempt++) {
     const ra = Number(res.headers.get('Retry-After'))
     await new Promise((r) => setTimeout(r, Number.isFinite(ra) && ra > 0 ? Math.min(ra, 8) * 1000 : 800 * 2 ** attempt))
-    res = await api.rawRequest(`${BASE}${path}${qs(opts.query)}`, { method, headers, body })
+    res = await api.rawRequest(`${pre(path)}${path}${qs(opts.query)}`, { method, headers, body })
     parsed = await parse(res)
   }
   if (!res.ok) throw toError(res, parsed)
@@ -367,10 +374,13 @@ export interface CreditEvent { id: string; lineId: string; type: string; level?:
 export interface CreditScore { id?: string; asset: string; chain: string; score: number; tier: string; aprBps?: number | null; factors?: Json | null; computedAt?: string }
 export interface RampQuote {
   provider: string; quoteId: string | null; expiresAt: string | null; sourceCurrency: string; destCurrency: string
-  sendAmountMinor: string; receiveAmountMinor: string; feeMinor: string | null; rate: string; etaSeconds: number | null; indicative: boolean; route: string[]
+  fiatCurrency?: string; decimals?: number; sendAmountMinor: string; receiveAmountMinor: string; feeMinor: string | null; rate: string; etaSeconds: number | null; indicative: boolean; route: string[]
 }
 export interface RoutedQuotes { best: RampQuote; quotes: RampQuote[]; failures: Array<{ provider: string; error: string }> }
-export interface RailRow { rail: string; sourceProviders: string[]; destinationProviders: string[]; unconfigured: Array<{ provider: string; missing: string }> }
+export interface ApiKeyRow { id: string; name: string; keyPrefix: string; scopes: string[]; expiresAt?: string | null; revokedAt?: string | null; lastUsedAt?: string | null; createdAt?: string }
+export interface OpsAlert { kind: 'transfer' | 'earn_op' | 'credit_op' | string; id: string; status: string; reason: string; amountMinor: string; ageMinutes: number; createdAt: string }
+export interface Announcement { stealthAddress: string; ephemeralPublicKey: string; viewTag: string; metadata?: string | null; txHash?: string | null; blockNumber?: string | number | null; logIndex?: number | null }
+export interface RailRow { currency?: string; decimals?: number; rail: string; sourceProviders: string[]; destinationProviders: string[]; unconfigured: Array<{ provider: string; missing: string }> }
 export interface ProviderRow { id: string; configured: boolean; missing: string | null; capabilities: Json }
 export interface RampCustomer { id: string; provider: string; kycStatus: string; kycLink?: string | null; tosLink?: string | null }
 export interface ExternalAccount { id: string; provider: string; rail: string; currency: string; label?: string | null; details?: Json | null }
@@ -383,7 +393,7 @@ export interface Remittance {
   recipientType?: string | null; recipientRef?: string | null; claimExpiresAt?: string | null; memo?: string | null; bankTransferId?: string | null; createdAt: string
 }
 export interface Card {
-  id: string; accountId: string; provider: string; type: string; status: string; currency: string; brand?: string | null
+  capCurrency?: string | null; capDecimals?: number | null; shortfallMinor?: string | null; id: string; accountId: string; provider: string; type: string; status: string; currency: string; brand?: string | null
   expMonth?: number | null; expYear?: number | null; label?: string | null; rules?: CardRules | null; singleUse?: boolean
 }
 export interface CardRules {
@@ -393,8 +403,8 @@ export interface CardRules {
   [k: string]: unknown
 }
 export interface CardAuth { id: string; cardId: string; amountMinor: string; currency: string; merchantName?: string | null; mcc?: string | null; merchantCountry?: string | null; decision: string; reason?: string | null; status: string; createdAt: string }
-export interface CardTx { id: string; cardId: string; type: string; amountMinor: string; currency: string; merchantName?: string | null; settlementStatus?: string | null; createdAt: string }
-export interface Invoice { id: string; slug?: string | null; status: string; asset: string; chain: string; reference?: string | null; memo?: string | null; lineItems?: unknown; amountMinor?: string; paidMinor?: string; payeeAccountId: string; dueAt?: string | null; createdAt?: string }
+export interface CardTx { refundState?: string | null; creditEvent?: string | null; id: string; cardId: string; type: string; amountMinor: string; currency: string; merchantName?: string | null; settlementStatus?: string | null; createdAt: string }
+export interface Invoice { acceptance?: InvoiceAcceptance; id: string; slug?: string | null; status: string; asset: string; chain: string; reference?: string | null; memo?: string | null; lineItems?: unknown; amountMinor?: string; paidMinor?: string; payeeAccountId: string; dueAt?: string | null; createdAt?: string }
 export interface Escrow {
   id: string; status: string; asset: string; chain: string; description?: string | null
   payerOwnerType: string; payerOwnerId: string; payeeOwnerType: string; payeeOwnerId: string; arbiterOwnerType?: string | null; arbiterOwnerId?: string | null
@@ -407,13 +417,14 @@ export interface EscrowMilestone {
 }
 export interface EscrowEvent { id: string; escrowId: string; milestoneId: string | null; actor: string; action: string; fromStatus: string | null; toStatus: string | null; createdAt: string }
 /** GET /escrows/:id and every escrow action: BankEscrowService EscrowView. The funding transfer id is NOT returned. */
-export interface EscrowView { escrow: Escrow; milestones: EscrowMilestone[]; events: EscrowEvent[] }
+export interface EscrowTransfer { milestoneSeq: number; kind: string; transferId: string; amountMinor: string; state: string }
+export interface EscrowView { escrow: Escrow; milestones: EscrowMilestone[]; events: EscrowEvent[]; fundingTransferId?: string | null; transfers?: EscrowTransfer[] }
 export interface Stream {
   id: string; status: string; kind: 'rate' | 'metered' | string; asset: string; chain: string; payerAccountId: string; payeeAccountId: string
   periodSeconds?: number | null; rateMinor?: string | null; unitPriceMinor?: string | null; capMinor: string; dustMinor?: string; units?: string; settledMinor: string; pendingMinor?: string | null; lastError?: string | null
 }
 /** BankStreamService StreamView (get/list/pause/resume/cancel/settle/usage). settle returns no transfer id. */
-export interface StreamView { stream: Stream; accruedMinor: string; unsettledMinor: string; advanceAvailableMinor: string }
+export interface StreamView { transferId?: string | null; stream: Stream; accruedMinor: string; unsettledMinor: string; advanceAvailableMinor: string }
 export interface Payee { id: string; kind: string; name: string; method: string; currency: string; status: string; address?: string | null; chain?: string | null }
 export interface PayrollRun { id: string; status: string; label?: string | null; fundingAccountId: string; asset: string; chain: string; createdAt?: string }
 export interface PayrollItem { id: string; runId?: string; lineNo: number; payeeId: string; status: 'pending' | 'converting' | 'paid' | 'failed' | string; amountMinor: string; transferId?: string | null; fxTransferId?: string | null; paidAmountMinor?: string | null; paidAsset?: string | null; error?: string | null; memo?: string | null }
@@ -427,25 +438,26 @@ export interface PayrollPreview {
   totalMinor: string; fundingBalanceMinor: string; sufficientFunds: boolean; usesPool: boolean; approvalRequired: boolean
 }
 /** BankPayrollService Receipt (my-payouts). No scheduleId/payeeId is included. */
-export interface PayoutReceipt { itemId: string; runId: string; payee: string; status: string; amountMinor: string; asset: string; paidAmountMinor: string | null; paidAsset: string | null; transferId: string | null; fxTransferId: string | null }
+export interface PayoutReceipt { scheduleId?: string | null; payeeId?: string | null; itemId: string; runId: string; payee: string; status: string; amountMinor: string; asset: string; paidAmountMinor: string | null; paidAsset: string | null; transferId: string | null; fxTransferId: string | null }
 /** BankPaymentsChainService FeeModel (POST /chains/fee-model). feeMinor is in the stablecoin's minor units; null when it cannot be expressed in-asset. */
 export interface ChainFee { chain: string; asset: string; feeToken: string | null; gasUnits: number; gasPrice: string; feeMinor: string | null; feeUsdMicros: string | null; confirmations: number; avgBlockTimeMs: number | null; estConfirmSeconds: number | null; feeError?: string; notes: string[] }
 export interface FeeModel { asset: string; amountMinor: string; chains: ChainFee[]; recommended: { chain: string; reason: string } | null; assumptions: string[]; fetchedAt: string }
 export interface FxExecuteResult { transfer: BankTransfer; quote: FxQuote }
-export interface OfframpResult { rampTransfer: RampTransfer; quote: RampQuote | null }
+export interface OfframpResult { rampTransfer: RampTransfer; quote: RampQuote | null; stage?: 'funded' | 'awaiting_funding' | 'failed' | string }
 export type OrgTransferResult = { approvalRequired: false; transfer: BankTransfer } | { approvalRequired: true; reason: string; request: ApprovalRequest }
 export interface InvoicePayment { id: string; invoiceId?: string; amountMinor?: string; transferId?: string | null; status?: string }
-export interface InvoicePayResult { invoice: Invoice; payment: InvoicePayment; transferStatus: string }
+export interface InvoicePayResult { invoice: Invoice; payment: InvoicePayment; transferStatus: string; transferId?: string | null }
 export interface InvoiceLineItem { description: string; quantity: number; unitAmountMinor: string }
 /** payment request the API builds for an invoice (BankPaymentsService PaymentRequest). */
 export interface PaymentRequest { family: 'evm' | 'solana'; uri: string; qrPayload: string; payTo: string; payAmountMinor: string; asset: string; chain: string; reference: string | null }
 /** GET /public/bank/invoices/:slug (PublicInvoiceView), unauthenticated. */
-export interface PublicInvoice { slug: string; status: string; amountMinor: string; paidMinor: string; asset: string; chain: string; lineItems: InvoiceLineItem[]; memo: string | null; dueAt: string | null; paymentRequest: PaymentRequest }
+export interface InvoiceAcceptance { required: boolean; acceptedAt: string | null }
+export interface PublicInvoice { slug: string; status: string; amountMinor: string; paidMinor: string; asset: string; symbol?: string; decimals?: number; chainName?: string; chain: string; acceptance?: InvoiceAcceptance; lineItems: InvoiceLineItem[]; memo: string | null; dueAt: string | null; paymentRequest: PaymentRequest }
 export interface InvoiceView { invoice: Invoice; paymentRequest: PaymentRequest; payments: InvoicePayment[] }
 export interface Vendor { id: string; orgId?: string; name: string; email?: string | null; payAddress?: string | null; payChain?: string | null }
 /** bank_org_bills. Bills carry their own asset/chain, so decimals come from /assets, not the org reporting currency. */
 export interface Bill { id: string; orgId: string; vendorId: string; reference?: string | null; amountMinor: string; asset: string; chain: string; dueDate: string; status: 'unpaid' | 'scheduled' | 'pending_approval' | 'paying' | 'paid' | 'failed' | 'cancelled'; payFromAccountId?: string | null; scheduledFor?: string | null; transferId?: string | null; lastError?: string | null }
-export interface ApprovalPolicy { id: string; orgId: string; ruleType: 'transfer_over' | 'new_payee' | 'payroll_run'; thresholdMinor?: string | null; requiredApprovals: number; approverRoles: string[]; expiryHours: number }
+export interface ApprovalPolicy { thresholdCurrency?: string | null; thresholdDecimals?: number | null; id: string; orgId: string; ruleType: 'transfer_over' | 'new_payee' | 'payroll_run'; thresholdMinor?: string | null; requiredApprovals: number; approverRoles: string[]; expiryHours: number }
 export interface CardBudget { id?: string; orgId?: string; scope: 'member' | 'team'; scopeId: string; monthlyCapMinor?: string | null; perTxCapMinor?: string | null; categoryBudgets?: Record<string, string> | null }
 export interface FeeModelEntry { chain?: string; [k: string]: unknown }
 export interface PayrollSchedule { id: string; name: string; status: string; frequency: string; timezone: string; fundingAccountId: string; localTime?: string | null; dayOfWeek?: number | null; dayOfMonth?: number | null; autoApprove?: boolean }
@@ -506,7 +518,7 @@ export const bank = {
   unsecuredLine: (b: { accountId: string }, key: string) => post<Ok<{ line: CreditLineView }>>('/credit/unsecured', b, key),
 
   // ramps
-  rails: () => get<Ok<{ rails: RailRow[] }>>('/ramps/rails'),
+  rails: () => get<Ok<{ rails: RailRow[]; fiatDecimals?: Record<string, number> }>>('/ramps/rails'),
   providers: () => get<Ok<{ providers: ProviderRow[] }>>('/ramps/providers'),
   rampQuote: (b: { direction: 'offramp' | 'onramp'; rail: string; asset: string; amountMinor: string; currency?: string }) => post<Ok<{ routed: RoutedQuotes }>>('/ramps/quote', b),
   startKyc: (b: { provider: 'bridge' | 'due'; email: string; fullName: string; type: 'individual' | 'business' }) => post<Ok<{ customer: RampCustomer }>>('/ramps/kyc', b),
@@ -581,7 +593,7 @@ export const bank = {
   createOrg: (b: { name: string; reportingCurrency?: string }) => post<Ok<Json>>('/orgs', b),
   org: (id: string) => get<Ok<Json>>(`/orgs/${id}`),
   members: (id: string) => get<Ok<Json>>(`/orgs/${id}/members`),
-  invite: (id: string, b: { role: string; team?: string; email?: string; ttlHours?: number }) => post<Ok<Json>>(`/orgs/${id}/invites`, b),
+  invite: (id: string, b: { role: string; team?: string; email?: string; telegramId?: number; ttlHours?: number }) => post<Ok<Json>>(`/orgs/${id}/invites`, b),
   revokeInvite: (id: string, inviteId: string) => del<Ok<Json>>(`/orgs/${id}/invites/${inviteId}`),
   removeMember: (id: string, userId: number) => del<Ok<Json>>(`/orgs/${id}/members/${userId}`),
   acceptInvite: (token: string) => post<Ok<Json>>('/org-invites/accept', { token }),
@@ -620,11 +632,17 @@ export const bank = {
   complianceExport: () => get<Ok<{ export: Json }>>('/privacy/compliance-export'),
   /** PUT /network/address (routes/bank/platform.ts Publish schema); accountIds = the accounts to advertise (1-20). */
   setNetworkAddress: (b: { handle: string; institutionName: string; domain?: string; accountIds: string[]; compliance: { kycLevel: 'none' | 'basic' | 'full'; travelRuleSupported: boolean; sanctionsScreened: boolean; jurisdictions: string[] }; ttlDays?: number }) => put<Ok<Json>>('/network/address', b),
-  platformConfig: () => get<Ok<{ partner: Json }>>('/platform/config'),
+  platformConfig: (orgId: string) => get<Ok<{ partner: Json }>>('/platform/config', { orgId }),
   setPlatformConfig: (b: { feeBpsTransfer?: number; feeBpsFx?: number; webhookUrl?: string | null }) => put<Ok<Json>>('/platform/config', b),
-  platformCustomers: () => get<Ok<{ customers: Json[] }>>('/platform/customers'),
+  platformCustomers: (orgId: string) => get<Ok<{ customers: Json[] }>>('/platform/customers', { orgId }),
   createPlatformCustomer: (b: { externalRef: string; displayName?: string; email?: string; country?: string }) => post<Ok<{ customer: Json }>>('/platform/customers', b),
-  platformUsage: () => get<Ok<{ usage: Json }>>('/platform/usage'),
+  platformUsage: (orgId: string) => get<Ok<{ usage: Json }>>('/platform/usage', { orgId }),
+  apiKeys: (orgId: string) => get<{ keys: ApiKeyRow[] }>(`/enterprise/orgs/${orgId}/api-keys`),
+  createApiKey: (orgId: string, b: { name: string; scopes: string[] }) => post<{ key: ApiKeyRow; rawKey: string }>(`/enterprise/orgs/${orgId}/api-keys`, b),
+  revokeApiKey: (orgId: string, keyId: string) => del<Json>(`/enterprise/orgs/${orgId}/api-keys/${keyId}`),
+  opsAlerts: () => get<Ok<{ alerts: OpsAlert[] }>>('/ops/alerts'),
+  revealConfig: () => get<Ok<{ provider: string; publishableKey: string }>>('/cards/reveal-config'),
+  privacyAnnouncements: (q: { chain: string; fromBlock: string; toBlock?: string; cursor?: number; limit?: number }) => get<Ok<{ announcements?: Announcement[]; entries?: Announcement[]; nextCursor: number | null; total?: number }>>('/privacy/announcements', q),
 
   // agents
   mandates: () => get<Ok<{ mandates: Mandate[] }>>('/agents/mandates'),

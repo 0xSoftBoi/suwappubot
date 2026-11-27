@@ -97,3 +97,17 @@ Central `describeBankError(code, message)` in bankApi.ts covers every `BankError
 Part 1: a APPLIED (transferIdOf.*), b APPLIED (percent), c APPLIED (fiatDecimals/currencyDecimals), d APPLIED as contract (type + fields documented; Banks tab form unchanged unless it already used account_number/routing_number: NOT re-audited), e APPLIED (EscrowView/PayrollPreview), f APPLIED (LedgerDirection, bill decimals from /assets), g APPLIED (/pay/:slug public, share link = invoicePayLink), h APPLIED (describeBankError(code,message) incl. LOCK_BUSY; bankErrorText used by ErrorBox).
 Part 2: card issuing+cardholder+shipping BUILT; card reveal NOT BUILT (defect 3); escrow deliver/confirm/dispute/resolve/refund BUILT; approvals inbox/token/payroll request/policies BUILT; streams create/usage/EWA BUILT; payroll schedules + my pay + EWA BUILT; unsecured line + receivables BUILT; payer accept BUILT on Payments > Invoices (payer role) using ASSUMED body `{invoiceId}` for POST /credit/receivables/accept (not on /pay/:slug because the public view has no invoice id); bills/vendors BUILT; card budgets BUILT; Privacy BUILT; Developers BUILT (platform part will 403 for Telegram sessions); cheapest-chain hint BUILT; org-transfer form NOT BUILT; invite email now required BUILT; same-key retry on 429/503 BUILT.
 Verification: 390x844 screenshots with intercepted responses (script in scratchpad webapp-verify/verify.cjs) of BankHome, Send confirm, Earn vaults, Cards rules, Credit line, /pay/:slug, RAMP_UNAVAILABLE state; no horizontal overflow (scrollWidth == 390 on all).
+
+## Round 3 status
+1. Transfer ids tracked (escrow funding/transfers[], stream transferId, payInvoice transferId): NOT STARTED
+2. /pay/:slug decimals/acceptance + Accept invoice: NOT STARTED
+3. Receivables financing acceptance + refusal explanations: NOT STARTED
+4. Card reveal via Stripe.js Issuing Elements: NOT STARTED
+5. Ramps decimals/stage/per-rail external-account form: NOT STARTED
+6. Payroll my-pay ids + approve-with-token: NOT STARTED
+7. Business org transfer + approval flow, thresholdCurrency, invite by email/Telegram: NOT STARTED
+8. Developers: platform config/usage/customers?orgId + API keys: NOT STARTED
+9. Privacy local scanning: NOT STARTED
+10. Cards: capCurrency, refund state, frozen shortfall, allowlist copy: NOT STARTED
+11. BankHome ops alerts banner: NOT STARTED
+12. Cosmetic fixes (vault name ellipsis, account dropdown clip): NOT STARTED
