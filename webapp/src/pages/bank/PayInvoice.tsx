@@ -74,7 +74,7 @@ export function PayInvoice() {
           <>
             <Card>
               <div className="flex items-start justify-between gap-2">
-                <p className="text-2xl font-heading font-bold tabular-nums break-all min-w-0">{amountText(inv.amountMinor)}</p>
+                <p className={`${decimals === null ? 'text-base' : 'text-2xl'} font-heading font-bold tabular-nums break-all min-w-0`}>{amountText(inv.amountMinor)}</p>
                 <Chip status={inv.status} />
               </div>
               {inv.memo && <p className="text-sm mt-1 break-words">{inv.memo}</p>}

@@ -3,6 +3,7 @@
  * numeric(78,0) strings. Mirrors database/bank_ddl/earn_credit.py and
  * drizzle/0027_bank_earn_credit.sql (idempotent, ADR 0003).
  */
+import { sql } from 'drizzle-orm'
 import { index, integer, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core'
 
 const num = (name: string) => numeric(name, { precision: 78, scale: 0 })
@@ -112,6 +113,13 @@ export const bankCreditLines = pgTable('bank_credit_lines', {
 	ownerIdx: index('ix_bank_credit_lines_owner').on(t.ownerType, t.ownerId),
 	kindIdx: index('ix_bank_credit_lines_kind').on(t.kind, t.status),
 	recvIdx: index('ix_bank_credit_lines_recv').on(t.receivableId),
+	// MONEY-PATH: one active unsecured line per (owner, asset, chain); one active line per receivable (0037).
+	unsecuredActiveUx: uniqueIndex('ux_bank_credit_lines_unsecured_active')
+		.on(t.ownerType, t.ownerId, t.loanAsset, t.chain)
+		.where(sql`${t.kind} = 'undercollateralized' AND ${t.status} = 'active'`),
+	recvActiveUx: uniqueIndex('ux_bank_credit_lines_recv_active')
+		.on(t.receivableId)
+		.where(sql`${t.kind} = 'receivable' AND ${t.status} = 'active'`),
 }))
 
 export const bankCreditEvents = pgTable('bank_credit_events', {

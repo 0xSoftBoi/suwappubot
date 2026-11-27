@@ -41,6 +41,25 @@ function CreateInvoice({ onClose }: { onClose: () => void }) {
   )
 }
 
+/** Payer-side acceptance: lets the payee finance this invoice (POST /credit/receivables/accept). */
+function AcceptInvoice({ invoice }: { invoice: Invoice }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <Btn variant="ghost" onClick={() => setOpen(true)}>Accept invoice</Btn>
+      {open && (
+        <MoneyAction
+          title="Accept invoice"
+          rows={[{ label: 'Invoice', value: invoice.reference || invoice.memo || invoice.id }, { label: 'Asset', value: `${invoice.asset} on ${invoice.chain}` }, { label: 'Effect', value: 'The issuer may finance this invoice. You still pay it as usual.' }]}
+          confirmLabel="Accept"
+          run={(k) => bank.acceptReceivable({ invoiceId: invoice.id }, k)}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
+  )
+}
+
 function Invoices() {
   const qc = useQueryClient()
   const accounts = useBankAccounts()
@@ -67,6 +86,7 @@ function Invoices() {
               {i.dueAt && <Row label="Due" value={new Date(i.dueAt).toLocaleDateString()} />}
               <div className="grid grid-cols-2 gap-2 mt-2">
                 {role === 'payee' && i.slug && <Btn variant="ghost" onClick={() => setShare(i)}>Share</Btn>}
+                {role === 'payer' && ['open', 'partial'].includes(i.status) && <AcceptInvoice invoice={i} />}
                 {role === 'payee' && i.status === 'draft' && <Btn disabled={act.isPending} onClick={() => act.mutate({ id: i.id, a: 'publish' })}>Publish</Btn>}
                 {role === 'payee' && ['draft', 'open'].includes(i.status) && <Btn variant="danger" disabled={act.isPending} onClick={() => act.mutate({ id: i.id, a: 'void' })}>Void</Btn>}
                 {role === 'payer' && ['open', 'partially_paid', 'overdue'].includes(i.status) && <Btn onClick={() => setPaying(i)}>Pay</Btn>}
