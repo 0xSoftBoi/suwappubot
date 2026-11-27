@@ -315,7 +315,7 @@ export const bankPayrollSchedules = pgTable(
 		dayOfWeek: integer('day_of_week'),
 		dayOfMonth: integer('day_of_month'),
 		localTime: varchar('local_time', { length: 5 }).notNull().default('09:00'),
-		items: jsonb('items').$type<Array<{ payeeId: string; amountMinor: string; memo?: string }>>().notNull(),
+		items: jsonb('items').$type<Array<{ payeeId: string; amountMinor: string; memo?: string; ewaBps?: number }>>().notNull(),
 		poolId: text('pool_id'),
 		/** Owner pre-authorises unattended execution of runs from this schedule. */
 		autoApprove: boolean('auto_approve').notNull().default(false),

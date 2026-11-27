@@ -109,7 +109,7 @@ const authorise = (s: BankStream, o: BankOwner, who: 'payer' | 'either'): Effect
  * MONEY-PATH. Settle one batch. `override` pays exactly that amount (earned-wage advance); otherwise the accrued
  * remainder, subject to the dust threshold unless `force`. Returns the amount confirmed paid (0n if nothing / in flight).
  */
-const settleCore = (id: string, opts: { force: boolean; override?: bigint }): PayFx<bigint> =>
+const settleCore = (id: string, opts: { force: boolean; override?: bigint; out?: { transferId?: string } }): PayFx<bigint> =>
 	Effect.gen(function* () {
 		const xfer = yield* BankTransferService
 		let s = yield* loadStream(id)
@@ -151,6 +151,7 @@ const settleCore = (id: string, opts: { force: boolean; override?: bigint }): Pa
 						: Effect.void,
 				),
 			)
+		if (opts.out) opts.out.transferId = t.id
 		if (t.status === 'confirmed') {
 			yield* bankDb((db) =>
 				db.update(bankStreams).set({ settledMinor: sql`${bankStreams.settledMinor} + ${amount.toString()}::numeric`, settleSeq: seq + 1, pendingMinor: null, lastError: null, updatedAt: new Date() }).where(and(eq(bankStreams.id, id), eq(bankStreams.settleSeq, seq))),
@@ -345,7 +346,7 @@ export const BankStreamServiceLive = Layer.succeed(BankStreamService, {
 				const [ex] = await db.select().from(bankWageAdvances).where(and(eq(bankWageAdvances.workerOwnerType, worker.ownerType), eq(bankWageAdvances.workerOwnerId, worker.ownerId), eq(bankWageAdvances.idempotencyKey, idempotencyKey))).limit(1)
 				if (ex) {
 					if (ex.sourceId !== streamId || ex.amountMinor !== amount.toString()) throw bankErr('CONFLICT', 'idempotencyKey was already used with different terms')
-					return { row: ex, fresh: false }
+					return { row: ex }
 				}
 				const v = streamView(s)
 				if (amount > BigInt(v.advanceAvailableMinor)) throw subErr('EWA_LIMIT', 'LIMIT_EXCEEDED', `Requested ${amount} exceeds the available advance of ${v.advanceAvailableMinor} (${bps / 100}% of accrued-unpaid)`)
@@ -353,14 +354,16 @@ export const BankStreamServiceLive = Layer.succeed(BankStreamService, {
 					.insert(bankWageAdvances)
 					.values({ id: uid('ewa'), sourceType: 'stream', sourceId: streamId, workerOwnerType: worker.ownerType, workerOwnerId: worker.ownerId, amountMinor: amount.toString(), idempotencyKey })
 					.returning()
-				return { row: row!, fresh: true }
+				return { row: row! }
 			})
 			if (!adv.row.transferId) {
-				yield* settleCore(streamId, { force: true, override: amount })
-				const cur = yield* loadStream(streamId)
-				const tid = idemKey('stream', streamId, String(cur.settleSeq - 1))
-				void tid
-				yield* bankDb((db) => db.update(bankWageAdvances).set({ transferId: `stream:${streamId}:${cur.settleSeq - 1}` }).where(eq(bankWageAdvances.id, adv.row.id)))
+				const out: { transferId?: string } = {}
+				yield* settleCore(streamId, { force: true, override: amount, out })
+				if (out.transferId) {
+					const tid = out.transferId
+					yield* bankDb((db) => db.update(bankWageAdvances).set({ transferId: tid }).where(eq(bankWageAdvances.id, adv.row.id)))
+					return { stream: yield* viewOf(streamId), advanceId: adv.row.id, transferId: tid }
+				}
 			}
 			return { stream: yield* viewOf(streamId), advanceId: adv.row.id, transferId: adv.row.transferId ?? null }
 		}),
