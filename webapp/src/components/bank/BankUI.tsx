@@ -65,7 +65,7 @@ export function Field({ label, hint, children }: { label: string; hint?: string;
   )
 }
 
-const inputCls = 'w-full min-h-[44px] px-3 rounded-suwappu-lg border border-suwappu-sakura-mid/40 bg-white text-sm text-suwappu-text outline-none focus:border-suwappu-magenta-mid'
+const inputCls = 'w-full min-h-[44px] pl-3 pr-8 py-2.5 leading-5 text-ellipsis rounded-suwappu-lg border border-suwappu-sakura-mid/40 bg-white text-sm text-suwappu-text outline-none focus:border-suwappu-magenta-mid'
 export function Input(p: InputHTMLAttributes<HTMLInputElement>) {
   return <input {...p} className={`${inputCls} ${p.className ?? ''}`} />
 }

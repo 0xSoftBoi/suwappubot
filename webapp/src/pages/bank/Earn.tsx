@@ -69,6 +69,7 @@ function MoveSheet({ mode, vault, accountId, position, onClose }: { mode: 'depos
 export function Earn() {
   const qc = useQueryClient()
   const accounts = useBankAccounts()
+  const [openName, setOpenName] = useState<string | null>(null)
   const [accountId, setAccountId] = useState('')
   const [tab, setTab] = useState<'vaults' | 'positions' | 'auto'>('vaults')
   const acct = accounts.data?.find((a) => a.id === accountId)
@@ -97,7 +98,7 @@ export function Earn() {
           {(list) => <div className="space-y-2">{list.map((v) => (
             <Card key={v.address}>
               <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0"><p className="text-sm font-semibold truncate">{v.name}</p><p className="text-[11px] text-suwappu-text-secondary">{v.asset} · {v.chain} · fee {v.feePct}%</p></div>
+                <div className="min-w-0"><button type="button" className={`text-sm font-semibold text-left block max-w-full ${openName === v.address ? 'break-words' : 'truncate'}`} title={v.name} onClick={(e) => { e.stopPropagation(); setOpenName(openName === v.address ? null : v.address) }}>{v.name}</button><p className="text-[11px] text-suwappu-text-secondary">{v.asset} · {v.chain} · fee {v.feePct}%</p></div>
                 <div className="text-right shrink-0"><p className="text-lg font-heading font-bold text-green-600">{pct(v.netApy)}</p><p className="text-[11px] text-suwappu-text-secondary">net APY</p></div>
               </div>
               <div className="mt-2 grid grid-cols-2 gap-2">

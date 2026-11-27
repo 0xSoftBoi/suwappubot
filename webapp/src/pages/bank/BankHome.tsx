@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { bank, formatMinor, type BankAccount } from '../../lib/bankApi'
 import { groupByCurrency, useBankAccounts, useBankAssets, useBankTransfers } from '../../hooks/bank/useBankCore'
 import { BankPage, Btn, Card, Chip, Empty, ErrorBox, Field, Input, QueryState, QuickLink, SectionTitle, Select, Sheet } from '../../components/bank/BankUI'
@@ -42,6 +42,25 @@ function OpenAccount({ onClose }: { onClose: () => void }) {
   )
 }
 
+const KIND: Record<string, string> = { transfer: 'Transfer', earn_op: 'Earn deposit or withdrawal', credit_op: 'Credit operation' }
+
+/** Owner's stuck items from GET /bank/ops/alerts. Renders nothing when there are none or the call fails (it is advisory). */
+function NeedsAttention() {
+  const q = useQuery({ queryKey: ['bank', 'ops-alerts'], queryFn: async () => (await bank.opsAlerts()).alerts, retry: 0, staleTime: 60_000 })
+  const list = q.data ?? []
+  if (list.length === 0) return null
+  return (
+    <div role="status" className="rounded-suwappu-xl border border-yellow-500/40 bg-yellow-500/10 p-3 space-y-1">
+      <p className="text-sm font-semibold text-yellow-700">Needs attention ({list.length})</p>
+      {list.slice(0, 5).map((a) => (
+        <p key={`${a.kind}${a.id}`} className="text-xs break-words">{KIND[a.kind] ?? a.kind}: {a.reason} · {a.status} for {a.ageMinutes >= 120 ? `${Math.round(a.ageMinutes / 60)} h` : `${a.ageMinutes} min`}</p>
+      ))}
+      {list.length > 5 && <p className="text-xs text-suwappu-text-secondary">and {list.length - 5} more</p>}
+      <p className="text-[11px] text-suwappu-text-secondary">Nothing is lost. Support reviews these; no action is needed unless it stays stuck.</p>
+    </div>
+  )
+}
+
 function AccountRow({ a, onOpen }: { a: BankAccount; onOpen: () => void }) {
   return (
     <button type="button" onClick={onOpen} className="w-full flex items-center justify-between gap-3 py-3 text-left min-h-[56px]">
@@ -68,6 +87,7 @@ export function BankHome() {
   const more: Array<[string, string]> = [['Convert', '/bank/convert'], ['Payments', '/bank/payments'], ['Payroll', '/bank/payroll'], ['Business', '/bank/business'], ['Agents', '/bank/agents'], ['Privacy', '/bank/privacy'], ['Developers', '/bank/developers'], ['Settings', '/bank/settings']]
   return (
     <BankPage title="Suwappu Bank" back="/home">
+      <NeedsAttention />
       <div className="grid grid-cols-5 gap-2">
         {links.map(([l, i, p]) => <QuickLink key={l} label={l} icon={i} onClick={() => nav(p)} />)}
       </div>

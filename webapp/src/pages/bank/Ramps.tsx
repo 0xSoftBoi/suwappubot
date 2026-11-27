@@ -51,6 +51,15 @@ function Kyc() {
   )
 }
 
+const validAba = (v: string) => /^\d{9}$/.test(v) && (3 * (+v[0]! + +v[3]! + +v[6]!) + 7 * (+v[1]! + +v[4]! + +v[7]!) + (+v[2]! + +v[5]! + +v[8]!)) % 10 === 0
+const validIban = (v: string) => {
+  const s = v.toUpperCase()
+  if (!/^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/.test(s)) return false
+  const r = (s.slice(4) + s.slice(0, 4)).replace(/[A-Z]/g, (c) => String(c.charCodeAt(0) - 55))
+  return BigInt(r) % 97n === 1n
+}
+const validClabe = (v: string) => /^\d{18}$/.test(v) && (10 - (Array.from(v.slice(0, 17)).reduce((a, d, i) => a + ((+d * [3, 7, 1][i % 3]!) % 10), 0) % 10)) % 10 === +v[17]!
+
 function Banks() {
   const ext = useExternalAccounts()
   const qc = useQueryClient()
@@ -58,9 +67,17 @@ function Banks() {
   const [owner, setOwner] = useState('')
   const [f1, setF1] = useState('')
   const [f2, setF2] = useState('')
+  const [country, setCountry] = useState('')
+  const [bic, setBic] = useState('')
   const [label, setLabel] = useState('')
-  const account = type === 'us' ? { account_number: f1, routing_number: f2 } : type === 'iban' ? { iban: f1 } : { clabe: f1 }
-  const add = useMutation({ mutationFn: () => bank.addExternalAccount({ provider: 'bridge', accountType: type, ownerName: owner.trim(), label: label.trim() || undefined, account }), onSuccess: () => { void qc.invalidateQueries({ queryKey: ['bank', 'external-accounts'] }); a11yToast.success('Bank account added'); setF1(''); setF2('') } })
+  const n1 = f1.replace(/[\s-]/g, '')
+  const err: string | null = type === 'us'
+    ? (!/^\d{4,17}$/.test(n1) ? 'Account number is 4 to 17 digits.' : !validAba(f2) ? 'Routing number must be a valid 9-digit ABA number.' : null)
+    : type === 'iban'
+      ? (!validIban(n1) ? 'That IBAN does not look valid.' : !/^[A-Za-z]{3}$/.test(country) ? 'Country is the 3-letter code, e.g. DEU.' : !/^[A-Za-z]{4}[A-Za-z]{2}[A-Za-z0-9]{2}([A-Za-z0-9]{3})?$/.test(bic.trim()) ? 'BIC is 8 or 11 characters.' : null)
+      : (!validClabe(n1) ? 'CLABE is 18 digits with a valid check digit.' : null)
+  const account: Record<string, string> = type === 'us' ? { account_number: n1, routing_number: f2.trim() } : type === 'iban' ? { account_number: n1.toUpperCase(), country: country.toUpperCase(), bic: bic.trim().toUpperCase() } : { account_number: n1 }
+  const add = useMutation({ mutationFn: () => bank.addExternalAccount({ provider: 'bridge', accountType: type, ownerName: owner.trim(), label: label.trim() || undefined, account }), onSuccess: () => { void qc.invalidateQueries({ queryKey: ['bank', 'external-accounts'] }); a11yToast.success('Bank account added'); setF1(''); setF2(''); setBic(''); setCountry('') } })
   return (
     <div className="space-y-3">
       <QueryState query={ext} rows={1} isEmpty={(d) => d.length === 0} empty={<Empty title="No bank accounts saved" />}>
@@ -70,11 +87,13 @@ function Banks() {
         <p className="text-sm font-semibold">Add a bank account</p>
         <Tabs value={type} onChange={setType} tabs={[{ id: 'us', label: 'US' }, { id: 'iban', label: 'IBAN' }, { id: 'clabe', label: 'CLABE (MX)' }]} />
         <Field label="Account holder name"><Input value={owner} onChange={(e) => setOwner(e.target.value)} /></Field>
-        <Field label={type === 'us' ? 'Account number' : type === 'iban' ? 'IBAN' : 'CLABE'}><Input value={f1} inputMode="text" onChange={(e) => setF1(e.target.value)} /></Field>
-        {type === 'us' && <Field label="Routing number"><Input value={f2} inputMode="numeric" onChange={(e) => setF2(e.target.value)} /></Field>}
+        <Field label={type === 'us' ? 'Account number' : type === 'iban' ? 'IBAN (SEPA)' : 'CLABE (SPEI)'}><Input value={f1} inputMode={type === 'iban' ? 'text' : 'numeric'} autoComplete="off" onChange={(e) => setF1(e.target.value)} /></Field>
+        {type === 'us' && <Field label="Routing number (ACH)"><Input value={f2} inputMode="numeric" maxLength={9} onChange={(e) => setF2(e.target.value.replace(/\D/g, ''))} /></Field>}
+        {type === 'iban' && <div className="grid grid-cols-2 gap-2"><Field label="BIC / SWIFT"><Input value={bic} maxLength={11} onChange={(e) => setBic(e.target.value)} /></Field><Field label="Country (3 letters)"><Input value={country} maxLength={3} onChange={(e) => setCountry(e.target.value)} /></Field></div>}
+        {f1 && err && <p className="text-xs text-red-500" role="alert">{err}</p>}
         <Field label="Label (optional)"><Input value={label} onChange={(e) => setLabel(e.target.value)} /></Field>
         {add.isError && <ErrorBox error={add.error} />}
-        <Btn className="w-full" disabled={!owner.trim() || !f1.trim() || (type === 'us' && !f2.trim()) || add.isPending} onClick={() => add.mutate()}>{add.isPending ? 'Saving…' : 'Save bank account'}</Btn>
+        <Btn className="w-full" disabled={!owner.trim() || !!err || add.isPending} onClick={() => add.mutate()}>{add.isPending ? 'Saving…' : 'Save bank account'}</Btn>
       </Card>
     </div>
   )
@@ -107,6 +126,8 @@ function AddMoney() {
     </div>
   )
 }
+
+const STAGE: Record<string, string> = { funded: 'Funds sent to the bank partner', awaiting_funding: 'Waiting for your funds to reach the bank partner', failed: 'Failed' }
 
 function CashOut() {
   const accounts = useBankAccounts()
@@ -148,7 +169,7 @@ function CashOut() {
       {best && a && (
         <Card>
           <Row label="You send" value={`${formatMinor(best.sendAmountMinor, a.decimals)} ${a.asset}`} />
-          <Row label="They receive" value={`${formatMinor(best.receiveAmountMinor, currencyDecimals(best.destCurrency, assets.data))} ${best.destCurrency}`} />
+          <Row label="They receive" value={`${formatMinor(best.receiveAmountMinor, (best.decimals ?? currencyDecimals(best.destCurrency, assets.data)))} ${best.destCurrency}`} />
           <Row label="Fee" value={best.feeMinor ? `${formatMinor(best.feeMinor, a.decimals)} ${a.asset}` : 'Included in rate'} />
           <Row label="Rate" value={best.rate} />
           <Row label="Provider" value={best.provider} />
@@ -163,7 +184,7 @@ function CashOut() {
           title="Confirm cash out"
           rows={[
             { label: 'Send', value: `${formatMinor(best.sendAmountMinor, a.decimals)} ${a.asset}` },
-            { label: 'Receive', value: `${formatMinor(best.receiveAmountMinor, currencyDecimals(best.destCurrency, assets.data))} ${best.destCurrency}` },
+            { label: 'Receive', value: `${formatMinor(best.receiveAmountMinor, (best.decimals ?? currencyDecimals(best.destCurrency, assets.data)))} ${best.destCurrency}` },
             { label: 'Fee', value: best.feeMinor ? `${formatMinor(best.feeMinor, a.decimals)} ${a.asset}` : 'Included in rate' },
             { label: 'To', value: `${e.label || e.rail} (${e.rail.toUpperCase()})` },
             { label: 'Provider', value: best.provider },
@@ -173,7 +194,7 @@ function CashOut() {
           error={go.error}
           onConfirm={() => go.mutate()}
           onClose={() => (go.data ? done() : setOpen(false))}
-          result={go.data && (tid ? <TransferTracker transferId={tid} onDone={done} /> : <div className="space-y-2"><Row label="Status" value={go.data.rampTransfer.status} /><Btn className="w-full" onClick={done}>Done</Btn></div>)}
+          result={go.data && (tid ? <div className="space-y-2"><Row label="Stage" value={STAGE[go.data.stage ?? ''] ?? go.data.stage ?? '—'} /><TransferTracker transferId={tid} onDone={done} /></div> : <div className="space-y-2"><Row label="Stage" value={STAGE[go.data.stage ?? ''] ?? go.data.stage ?? '—'} /><Row label="Status" value={go.data.rampTransfer.status} /><Btn className="w-full" onClick={done}>Done</Btn></div>)}
         />
       )}
       <SectionTitle>Recent bank transfers</SectionTitle>
