@@ -13,6 +13,7 @@ import {
   encodeFunctionData,
 } from 'viem'
 import { AppLayout, AppHeader } from '../components/layout'
+import { BankEntryCard } from '../components/bank/BankEntryCard'
 import { AddressCard, TokenItem } from '../components/cards'
 import { ChainSelector } from '../components/ui'
 import { useAuth } from '../contexts/AuthContext'
@@ -1095,6 +1096,7 @@ export function Wallet() {
   // Main overview
   return (
     <AppLayout header={<AppHeader title="Wallet" />} activeNav="wallet">
+      <div className="p-3 pb-0"><BankEntryCard /></div>
       {isLoading ? (
         <div className="p-3 pb-20 space-y-4">
           <div className="bg-white rounded-suwappu-xl p-3 shadow-suwappu-1 animate-pulse">

@@ -37,6 +37,7 @@ const Battle = lazy(() => import('./pages/Battle').then(m => ({ default: m.Battl
 const Stocks = lazy(() => import('./pages/Stocks').then(m => ({ default: m.Stocks })))
 const Rewards = lazy(() => import('./pages/Rewards').then(m => ({ default: m.Rewards })))
 const MarketData = lazy(() => import('./pages/MarketData'))
+const BankRoutes = lazy(() => import('./pages/bank').then(m => ({ default: m.BankRoutes })))
 import { DesktopLayout } from './components/layout'
 import { HotkeyOverlay } from './components/desktop/HotkeyOverlay'
 import './theme/suwappu.css'
@@ -466,6 +467,15 @@ function AppContent() {
               <PageTransition>
                 <MarketData />
               </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/bank/*"
+          element={
+            <ProtectedRoute>
+              <BankRoutes />
             </ProtectedRoute>
           }
         />

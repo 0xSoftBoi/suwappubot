@@ -67,13 +67,13 @@ export interface MarketParams {
 }
 
 /** Raw eth_call. Throws on RPC error / revert. */
-export async function ethCall(chain: string, to: string, data: Hex): Promise<Hex> {
+export async function ethCall(chain: string, to: string, data: Hex, block: string = 'latest'): Promise<Hex> {
 	const url = RPC_ENDPOINTS[chain]
 	if (!url) throw new Error(`No RPC endpoint for chain ${chain}`)
 	const res = await fetchWithRetry(url, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{ to, data }, 'latest'] }),
+		body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{ to, data }, block] }),
 	})
 	const j = (await res.json()) as { result?: Hex; error?: { message: string } }
 	if (j.error) throw new Error(`eth_call ${to}: ${j.error.message}`)
@@ -82,9 +82,9 @@ export async function ethCall(chain: string, to: string, data: Hex): Promise<Hex
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: viem generic ABI plumbing
-export async function readContract<T = any>(chain: string, to: string, abi: any, functionName: string, args: unknown[] = []): Promise<T> {
+export async function readContract<T = any>(chain: string, to: string, abi: any, functionName: string, args: unknown[] = [], block: string = 'latest'): Promise<T> {
 	const data = encodeFunctionData({ abi, functionName, args } as never)
-	const out = await ethCall(chain, to, data)
+	const out = await ethCall(chain, to, data, block)
 	return decodeFunctionResult({ abi, functionName, data: out } as never) as T
 }
 
@@ -108,20 +108,58 @@ export interface BluePosition {
 	lastUpdate: bigint
 }
 
-/** Position with borrow assets rounded UP like Morpho (toAssetsUp). Interest since lastUpdate is not accrued (see report). */
-export async function loadBluePosition(chain: string, marketId: string, user: string): Promise<BluePosition> {
-	const [pos, mkt] = await Promise.all([
-		readContract<readonly [bigint, bigint, bigint]>(chain, MORPHO_BLUE, blueAbi, 'position', [marketId, user]),
-		readContract<readonly [bigint, bigint, bigint, bigint, bigint, bigint]>(chain, MORPHO_BLUE, blueAbi, 'market', [marketId]),
+export const irmAbi = parseAbi([
+	'function borrowRateView((address loanToken, address collateralToken, address oracle, address irm, uint256 lltv) marketParams, (uint128 totalSupplyAssets, uint128 totalSupplyShares, uint128 totalBorrowAssets, uint128 totalBorrowShares, uint128 lastUpdate, uint128 fee) market) view returns (uint256)',
+])
+
+/** Morpho MathLib.wTaylorCompounded: e^(x*n) - 1 to the third order (x = per-second WAD rate). */
+export const wTaylorCompounded = (x: bigint, n: bigint): bigint => {
+	const first = x * n
+	const second = (first * first) / (2n * WAD)
+	const third = (second * first) / (3n * WAD)
+	return first + second + third
+}
+
+/** Latest block number + timestamp, so every read in one valuation sees the same state. */
+export async function latestBlock(chain: string): Promise<{ number: Hex; timestamp: bigint }> {
+	const url = RPC_ENDPOINTS[chain]
+	if (!url) throw new Error(`No RPC endpoint for chain ${chain}`)
+	const res = await fetchWithRetry(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getBlockByNumber', params: ['latest', false] }) })
+	const j = (await res.json()) as { result?: { number: Hex; timestamp: Hex }; error?: { message: string } }
+	if (j.error || !j.result) throw new Error(`eth_getBlockByNumber: ${j.error?.message ?? 'empty'}`)
+	return { number: j.result.number, timestamp: BigInt(j.result.timestamp) }
+}
+
+/**
+ * MONEY-PATH. Position with interest ACCRUED to the block timestamp, exactly as Morpho's periphery
+ * (MorphoBalancesLib.expectedMarketBalances + expectedBorrowAssets): borrow rate from the market's IRM
+ * `borrowRateView`, interest = totalBorrowAssets * wTaylorCompounded(rate, elapsed), borrow assets rounded UP
+ * (toAssetsUp, virtual 1 / 1e6 offsets). All bigint. `at` pins every read to one block (default: latest block).
+ */
+export async function loadBluePosition(chain: string, marketId: string, user: string, at?: { number: Hex; timestamp: bigint }): Promise<BluePosition> {
+	const blk = at ?? (await latestBlock(chain))
+	const tag = blk.number
+	const [pos, mkt, mpRaw] = await Promise.all([
+		readContract<readonly [bigint, bigint, bigint]>(chain, MORPHO_BLUE, blueAbi, 'position', [marketId, user], tag),
+		readContract<readonly [bigint, bigint, bigint, bigint, bigint, bigint]>(chain, MORPHO_BLUE, blueAbi, 'market', [marketId], tag),
+		readContract<readonly [Hex, Hex, Hex, Hex, bigint]>(chain, MORPHO_BLUE, blueAbi, 'idToMarketParams', [marketId], tag),
 	])
 	const borrowShares = pos[1]
-	const totalBorrowAssets = mkt[2]
+	let totalBorrowAssets = mkt[2]
 	const totalBorrowShares = mkt[3]
+	const lastUpdate = mkt[4]
+	const elapsed = blk.timestamp - lastUpdate
+	const irm = mpRaw[3]
+	if (elapsed > 0n && totalBorrowAssets !== 0n && !/^0x0{40}$/i.test(irm)) {
+		const marketParams = { loanToken: mpRaw[0], collateralToken: mpRaw[1], oracle: mpRaw[2], irm, lltv: mpRaw[4] }
+		const rate = await readContract<bigint>(chain, irm, irmAbi, 'borrowRateView', [marketParams, { totalSupplyAssets: mkt[0], totalSupplyShares: mkt[1], totalBorrowAssets: mkt[2], totalBorrowShares: mkt[3], lastUpdate: mkt[4], fee: mkt[5] }], tag)
+		totalBorrowAssets += (totalBorrowAssets * wTaylorCompounded(rate, elapsed)) / WAD // wMulDown
+	}
 	// toAssetsUp(shares, totalAssets, totalShares) with virtual 1 / 1e6 offsets.
 	const num = borrowShares * (totalBorrowAssets + 1n)
 	const den = totalBorrowShares + 1_000_000n
 	const borrowAssets = (num + den - 1n) / den
-	return { collateral: pos[2], borrowShares, borrowAssets, totalBorrowAssets, totalBorrowShares, lastUpdate: mkt[4] }
+	return { collateral: pos[2], borrowShares, borrowAssets, totalBorrowAssets, totalBorrowShares, lastUpdate }
 }
 
 export interface HealthMetrics {

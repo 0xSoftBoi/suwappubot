@@ -16,6 +16,8 @@ import {
 	type BankAccountKind,
 	type BankLedgerEntry,
 	bankAccounts,
+	bankCreditLines,
+	bankEarnPositions,
 	bankLedgerEntries,
 	bankOrgMembers,
 	bankOrgWallets,
@@ -75,7 +77,15 @@ export interface ReconcileReport {
 	/** Accounts sharing this wallet+asset (the unit that can be compared on-chain). */
 	accountsInGroup: string[]
 	ledgerMinor: string
+	/** Position-aware on-chain total = wallet + vault position value + collateral posted (see `components`). */
 	onchainMinor: string
+	components: {
+		walletMinor: string
+		/** ERC-4626 convertToAssets(held + pledged shares) for earn positions on the group's accounts. */
+		vaultPositionMinor: string
+		/** Same-asset collateral supplied to Morpho Blue from the wallet (not ledger-debited). */
+		collateralPostedMinor: string
+	}
 	deltaMinor: string
 	inFlightTransfers: number
 	status: 'in_sync' | 'pending_settlement' | 'drift'
@@ -467,12 +477,42 @@ export const BankLedgerServiceLive = Layer.succeed(BankLedgerService, {
 					),
 				)
 			const ledger = group.reduce((s, a) => s + BigInt(a.balanceMinor), 0n)
-			let onchain: bigint
+			// MONEY-PATH. Funds deposited into a vault or supplied as collateral leave the wallet but stay on the ledger,
+			// so compare ledger against wallet + vault position value + collateral posted.
+			let wallet: bigint
 			try {
-				onchain = asset.family === 'evm' ? await evmTokenBalance(asset, acct.address) : await solTokenBalance(asset, acct.address)
+				wallet = asset.family === 'evm' ? await evmTokenBalance(asset, acct.address) : await solTokenBalance(asset, acct.address)
 			} catch (e) {
 				throw bankErr('UPSTREAM', `Could not read on-chain balance: ${String(e)}`, { cause: e })
 			}
+			let vaultValue = 0n
+			let collateralPosted = 0n
+			if (asset.family === 'evm') {
+				const { readContract, vaultAbi, blueAbi, MORPHO_BLUE } = await import('./earnCreditChain')
+				try {
+					const groupIds = group.map((g) => g.id)
+					const positions = await db.select().from(bankEarnPositions).where(or(inArray(bankEarnPositions.savingsAccountId, groupIds), inArray(bankEarnPositions.checkingAccountId, groupIds)))
+					const seen = new Set<string>()
+					for (const p of positions) {
+						if (seen.has(p.savingsAccountId) || p.chain !== acct.chain || !groupIds.includes(p.savingsAccountId)) continue
+						seen.add(p.savingsAccountId)
+						const shares = BigInt(p.sharesMinor) + BigInt(p.pledgedSharesMinor)
+						if (shares > 0n) vaultValue += await readContract<bigint>(p.chain, p.vault, vaultAbi, 'convertToAssets', [shares])
+					}
+					const lines = await db
+						.select()
+						.from(bankCreditLines)
+						.where(and(inArray(bankCreditLines.accountId, groupIds), eq(bankCreditLines.kind, 'collateralized'), eq(bankCreditLines.status, 'active')))
+					for (const l of lines) {
+						if (l.collateralSavingsAccountId || !l.marketId || !l.collateralToken || l.collateralToken.toLowerCase() !== asset.address.toLowerCase()) continue
+						const pos = await readContract<readonly [bigint, bigint, bigint]>(acct.chain, MORPHO_BLUE, blueAbi, 'position', [l.marketId, acct.address])
+						collateralPosted += pos[2]
+					}
+				} catch (e) {
+					throw bankErr('UPSTREAM', `Could not read on-chain vault/collateral position: ${String(e)}`, { cause: e })
+				}
+			}
+			const onchain = wallet + vaultValue + collateralPosted
 			const ids = group.map((g) => g.id)
 			const inflight = await db
 				.select({ id: bankTransfers.id })
@@ -492,6 +532,7 @@ export const BankLedgerServiceLive = Layer.succeed(BankLedgerService, {
 				accountsInGroup: ids,
 				ledgerMinor: ledger.toString(),
 				onchainMinor: onchain.toString(),
+				components: { walletMinor: wallet.toString(), vaultPositionMinor: vaultValue.toString(), collateralPostedMinor: collateralPosted.toString() },
 				deltaMinor: delta.toString(),
 				inFlightTransfers: inflight.length,
 				status: delta === 0n ? 'in_sync' : inflight.length > 0 ? 'pending_settlement' : 'drift',
