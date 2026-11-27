@@ -667,7 +667,7 @@ const RECOVER_TTL_MS = 5 * 60 * 1000
 /** MONEY-PATH: recovery for a sale that went `unserved` via the reconcile job (the payer holds no retrieval token).
  * Without `signature`: returns a server-issued challenge bound to (sale, slug, nonce, expiry <= 5 min). With `signature`: an EIP-191
  * personal_sign of that challenge must recover to the authorization's `from`; a one-shot retrieval token is then issued (sha256 stored). */
-export const recoverPaidResource = (slug: string, i: { chain: string; nonce: string; signature?: string }): Effect.Effect<{ challenge?: string; expiresAt?: string; retrievalToken?: string }, BankError, never> =>
+export const recoverPaidResource = (slug: string, i: { chain: string; nonce: string; signature?: string }): Effect.Effect<{ challenge?: string; expiresAt?: string; retrievalToken?: string }, BankError, DrizzleService> =>
 	bankDb(async (db) => {
 		const nonce = i.nonce.toLowerCase()
 		const [res] = await db.select().from(bankAgentResources).where(and(eq(bankAgentResources.slug, slug), eq(bankAgentResources.status, 'active'))).limit(1)
