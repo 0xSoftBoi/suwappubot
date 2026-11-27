@@ -146,12 +146,14 @@ export const featureEnabled = (acct: Pick<BankAccount, 'segmentProfile'>, featur
 	(getSegmentProfile(acct.segmentProfile)?.features ?? DEFAULT_FEATURES)[feature]
 
 export const setAccountSegment = (owner: BankOwner, accountId: string, segment: Segment | null): Effect.Effect<BankAccount, ReturnType<typeof bankErr>, DrizzleService> =>
-	bankDb(async (db) => {
+	bankDb((db0) => db0.transaction(async (db) => {
+		// MONEY-PATH: account row lock in the same tx as the open-position check and the update (no race with a concurrent card/credit/earn open).
 		const [a] = await db
 			.select()
 			.from(bankAccounts)
 			.where(and(eq(bankAccounts.id, accountId), eq(bankAccounts.ownerType, owner.ownerType), eq(bankAccounts.ownerId, owner.ownerId)))
 			.limit(1)
+			.for('update')
 		if (!a) throw bankErr('NOT_FOUND', 'Account not found')
 		if (segment === 'sharia_compliant') {
 			const md = (a.metadata ?? {}) as Record<string, unknown>
@@ -171,4 +173,4 @@ export const setAccountSegment = (owner: BankOwner, accountId: string, segment: 
 		const [row] = await db.update(bankAccounts).set({ segmentProfile: segment, updatedAt: new Date() }).where(eq(bankAccounts.id, accountId)).returning()
 		await db.insert(bankOrgAudit).values({ id: `aud_${randomUUID().replace(/-/g, '')}`, orgId: a.ownerType === 'org' ? a.ownerId : `${a.ownerType}:${a.ownerId}`.slice(0, 120), actorKind: owner.ownerType === 'agent' ? 'agent' : 'user', actorAgentId: owner.ownerType === 'agent' ? owner.ownerId : null, action: 'account.segment.change', targetType: 'account', targetId: accountId, detail: { from: a.segmentProfile, to: segment } })
 		return row!
-	})
+	}))

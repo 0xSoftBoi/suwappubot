@@ -34,3 +34,11 @@ check after g1-g4: `bun run check` clean.
 - DDL: none was required (all derived from existing tables), so no 0039 migration. A SQL sanity query for the hold ran on bank_proof_a.
 - e: NOT STARTED (BankTransferService.ts has other editors).
 - Final: bun run check clean; check:openapi in sync.
+
+## Items e-e6
+- e partner fee atomicity: DONE (compile-checked). BankTransferService.ts: optional `feeLeg` on TransferInput + exported feeKeyFor; fee row `${key}:pfee` inserted in the SAME tx as the principal in insertTransferGuarded under the source-row lock (available >= amount+fee, daily limit includes fee); replay with a changed fee = CONFLICT via requestHash; advance() gates the fee row on principal status (confirmed -> proceeds, failed -> voided unfunded, else waits; poller completes it, so no fee-without-transfer window). BankFxService.ts: same feeLeg for fx. BankPartnerService.ts: withFeeFirst/chargeFee/refund removed; feeLegFor (bps 0..10000, floor math, legacy `${key}:fee` only suppresses a new fee when live AND not refunded); webhook enqueue failures ignored after money moved. Fee settlement choice: real transfer to partner revenue wallet gated on principal confirmation (separate on-chain send if wallet differs), not a same-ledger-tx credit, to keep revenue balances backed on-chain. Deviation from brief: fee is its own row/ledger phases, not legs inside the principal's ledger tx.
+- e2 segments.ts: DONE. setAccountSegment now runs in one transaction with the account row selected FOR UPDATE before the open-position check and update.
+- e6: NOT STARTED
+- e3: NOT STARTED
+- e4: NOT STARTED
+- e5: NOT STARTED

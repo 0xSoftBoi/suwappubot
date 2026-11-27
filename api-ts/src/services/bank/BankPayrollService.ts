@@ -91,6 +91,9 @@ export interface Receipt {
 	txHash: string | null
 	paidAt: string | null
 	error: string | null
+	/** Set only on myPayouts rows (the caller's own payee records) so earned-wage access needs no typed ids. */
+	scheduleId?: string | null
+	payeeId?: string
 }
 
 export interface ScheduleInput {
@@ -581,7 +584,8 @@ export const BankPayrollServiceLive = Layer.succeed(BankPayrollService, {
 			const out: Receipt[] = []
 			for (const it of items) {
 				const run = yield* loadRunById(it.runId)
-				out.push(...(yield* receiptsFor(run, [it], false)))
+				// `items` were selected via payees linked to the caller, so payeeId/scheduleId are the caller's own.
+				out.push(...(yield* receiptsFor(run, [it], false)).map((r) => ({ ...r, scheduleId: run.scheduleId ?? null, payeeId: it.payeeId })))
 			}
 			return out
 		}),
