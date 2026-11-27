@@ -301,6 +301,25 @@ export const bankOrgCardBudgets = pgTable(
 	(t) => ({ uniq: uniqueIndex('ux_bank_org_card_budgets').on(t.orgId, t.scope, t.scopeId) }),
 )
 
+/**
+ * Dedicated custody wallet per org + chain family. Provisioned via Turnkey (sub-org) and mirrored into
+ * Python's users/wallets (synthetic non-person user) so the fallback signer works. Never a member's wallet.
+ */
+export const bankOrgWallets = pgTable(
+	'bank_org_wallets',
+	{
+		orgId: text('org_id').notNull(),
+		family: varchar('family', { length: 8 }).notNull(),
+		walletId: integer('wallet_id').notNull(),
+		walletUserId: integer('wallet_user_id').notNull(),
+		address: text('address').notNull(),
+		turnkeySubOrgId: text('turnkey_sub_org_id').notNull(),
+		turnkeyWalletId: text('turnkey_wallet_id').notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => ({ uniq: uniqueIndex('ux_bank_org_wallets_org_family').on(t.orgId, t.family) }),
+)
+
 export type BankOrg = typeof bankOrgs.$inferSelect
 export type BankOrgMember = typeof bankOrgMembers.$inferSelect
 export type BankApprovalRequest = typeof bankApprovalRequests.$inferSelect

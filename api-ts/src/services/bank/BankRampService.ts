@@ -115,10 +115,11 @@ const toBankErr = (e: unknown): BankError => {
 	if (e instanceof RampError) {
 		switch (e.code) {
 			case 'PROVIDER_NOT_CONFIGURED':
-				return bankErr('NOT_CONFIGURED', e.message, e.extra.missing ? { missing: e.extra.missing } : {})
+				return bankErr('PROVIDER_NOT_CONFIGURED', e.message, e.extra.missing ? { missing: e.extra.missing } : {})
 			case 'AUTH':
 				return bankErr('NOT_CONFIGURED', e.message, { missing: e.extra.missing ?? 'provider credentials' })
 			case 'RAIL_NO_PROVIDER':
+				return bankErr('RAIL_NO_PROVIDER', e.message)
 			case 'UNSUPPORTED':
 				return bankErr('ASSET_UNSUPPORTED', e.message)
 			case 'AML_REJECTED':
@@ -162,7 +163,7 @@ const pickProvider = (id: ProviderId): Effect.Effect<RampProvider, BankError, En
 		const p = (yield* getProviders).find((x) => x.id === id)
 		if (!p) return yield* Effect.fail(bankErr('VALIDATION', `Unknown provider ${id}`))
 		const missing = p.missingConfig()
-		if (missing) return yield* Effect.fail(bankErr('NOT_CONFIGURED', `PROVIDER_NOT_CONFIGURED: ${missing}`, { missing }))
+		if (missing) return yield* Effect.fail(bankErr('PROVIDER_NOT_CONFIGURED', `${missing} is not configured`, { missing }))
 		return p
 	})
 

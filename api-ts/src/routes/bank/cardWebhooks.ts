@@ -36,7 +36,7 @@ const handle = (provider: CardProviderName) => async (c: { req: { text: () => Pr
 	const e = result.left as unknown
 	if (e instanceof BankError) {
 		if (e.code === 'FORBIDDEN' || e.code === 'VALIDATION') return c.json({ error: e.code, message: e.message }, 400)
-		if (e.code === 'NOT_CONFIGURED') return c.json({ error: e.code, message: e.message, missing: e.missing }, 503)
+		if (e.code === 'NOT_CONFIGURED' || e.code === 'PROVIDER_NOT_CONFIGURED' || e.code === 'PROVIDER_DOCS_REQUIRED') return c.json({ error: e.code, message: e.message, missing: e.missing }, 503)
 		// Non-auth failure: a real-time request that blew the budget must still get a decline.
 		return c.json({ error: e.code }, 500)
 	}

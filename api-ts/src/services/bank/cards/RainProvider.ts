@@ -17,7 +17,7 @@ const DEFAULT_BASE = 'https://api-dev.raincards.xyz/v1'
 
 const docsRequired = (op: string): Fx<never> =>
 	Effect.fail(
-		bankErr('NOT_CONFIGURED', `PROVIDER_DOCS_REQUIRED: Rain ${op} endpoint is not in the available docs (gated). Obtain Rain API docs to implement it.`, {
+		bankErr('PROVIDER_DOCS_REQUIRED', `Rain ${op} endpoint is not in the available docs (gated). Obtain Rain API docs to implement it.`, {
 			missing: `RAIN_DOCS:${op}`,
 		}),
 	)
@@ -25,7 +25,7 @@ const docsRequired = (op: string): Fx<never> =>
 const call = (cfg: RainConfig, path: string, body: unknown): Effect.Effect<Record<string, unknown>, BankError> =>
 	Effect.gen(function* () {
 		if (!cfg.apiKey)
-			return yield* Effect.fail(bankErr('NOT_CONFIGURED', 'PROVIDER_NOT_CONFIGURED: RAIN_API_KEY', { missing: 'RAIN_API_KEY' }))
+			return yield* Effect.fail(bankErr('PROVIDER_NOT_CONFIGURED', 'RAIN_API_KEY is not configured', { missing: 'RAIN_API_KEY' }))
 		const base = (cfg.baseUrl ?? DEFAULT_BASE).replace(/\/$/, '')
 		const res = yield* Effect.tryPromise({
 			try: () =>

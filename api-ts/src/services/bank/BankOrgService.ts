@@ -22,10 +22,14 @@ import {
 	bankOrgInvites,
 	bankOrgMembers,
 	bankOrgs,
+	bankOrgWallets,
 	type DrizzleService,
+	users,
+	wallets,
 } from '../../db'
 import { findAsset } from './assets'
-import { BankLedgerService } from './BankLedgerService'
+import { BankLedgerService, verifyOrgCustodyWallet } from './BankLedgerService'
+import { TurnkeyService } from '../TurnkeyService'
 import {
 	type OrgAction,
 	type OrgRole,
@@ -163,6 +167,54 @@ export interface CardBudget {
 	perTxCapMinor: string | null
 	categoryBudgets: Record<string, string>
 }
+
+/**
+ * MONEY-PATH. Returns the org's dedicated custody wallet for a chain family, provisioning it on first use via
+ * the same path as agent wallets: Turnkey sub-org (TurnkeyService.createOrgWallet) mirrored into Python's
+ * users/wallets through /internal/agent/provision-wallet (synthetic non-person user keyed on a stable org uuid).
+ * Fails with NOT_CONFIGURED naming the missing input; never falls back to a member's wallet.
+ */
+export const ensureOrgCustodyWallet = (org: string, family: 'evm' | 'solana') =>
+	Effect.gen(function* () {
+		const existing = yield* bankDb((db) =>
+			db.select({ id: bankOrgWallets.walletId }).from(bankOrgWallets).where(and(eq(bankOrgWallets.orgId, org), eq(bankOrgWallets.family, family))).limit(1),
+		)
+		const verify = bankDb((db) => verifyOrgCustodyWallet(db, org, family))
+		if (existing[0]) return yield* verify
+		const env = yield* EnvService
+		const missing = [
+			!env.TURNKEY_API_PUBLIC_KEY && 'TURNKEY_API_PUBLIC_KEY',
+			!env.TURNKEY_API_PRIVATE_KEY && 'TURNKEY_API_PRIVATE_KEY',
+			!env.TURNKEY_ORGANIZATION_ID && 'TURNKEY_ORGANIZATION_ID',
+			!env.INTERNAL_API_KEY && 'INTERNAL_API_KEY',
+			!env.INTERNAL_API_URL && 'INTERNAL_API_URL',
+		].filter(Boolean) as string[]
+		if (missing.length)
+			return yield* Effect.fail(bankErr('NOT_CONFIGURED', `Org custody wallet provisioning is not configured: ${missing.join(', ')}`, { missing: missing.join(',') }))
+		const turnkey = yield* TurnkeyService
+		const tk = yield* turnkey.createOrgWallet(org, family).pipe(Effect.mapError((e) => bankErr('WALLET_UNAVAILABLE', `Org wallet creation failed: ${e.message}`)))
+		const prov = yield* Effect.tryPromise({
+			try: async () => {
+				const res = await fetch(`${env.INTERNAL_API_URL}/internal/agent/provision-wallet`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json', 'X-Internal-Key': env.INTERNAL_API_KEY! },
+					body: JSON.stringify({ agent_uuid: `bankorg:${org}`, chain_type: family, turnkey_wallet_id: tk.walletId, turnkey_sub_org_id: tk.subOrgId, address: tk.address }),
+					signal: AbortSignal.timeout(15_000),
+				})
+				if (!res.ok) throw new Error(`provision-wallet HTTP ${res.status}`)
+				return (await res.json()) as { internal_user_id: number; internal_wallet_id: number }
+			},
+			catch: (e) => bankErr('WALLET_UNAVAILABLE', `Org wallet mirror into signer failed: ${String(e)}`),
+		})
+		yield* bankDb(async (db) => {
+			await db
+				.insert(bankOrgWallets)
+				.values({ orgId: org, family, walletId: prov.internal_wallet_id, walletUserId: prov.internal_user_id, address: tk.address, turnkeySubOrgId: tk.subOrgId, turnkeyWalletId: tk.walletId })
+				.onConflictDoNothing()
+		})
+		// Re-read: a concurrent provisioner may have won; its row is authoritative (ours stays unfunded).
+		return yield* verify
+	})
 
 const impl = {
 	createOrg: (i: { owner: BankOwner; name: string; reportingCurrency: string }): Fx<{ org: BankOrg }> =>
@@ -346,18 +398,18 @@ const impl = {
 			return { member }
 		}),
 
-	/** Org-owned account, custody wallet = the org's custody user's wallet (explicit `wallet` per ledger contract). */
+	/** Org-owned account on the org's OWN dedicated custody wallet (provisioned on first use; never a member's wallet). */
 	openAccount: (
 		owner: BankOwner,
 		id: string,
 		i: { kind: 'checking' | 'savings' | 'treasury'; asset: string; chain: string; label?: string | undefined },
-	): Effect.Effect<{ account: BankAccount }, BankError, DrizzleService | BankLedgerService> =>
+	): Effect.Effect<{ account: BankAccount }, BankError, DrizzleService | BankLedgerService | TurnkeyService | EnvService> =>
 		Effect.gen(function* () {
 			const c = yield* authorize(owner, id, 'accounts.open')
 			const asset = findAsset(i.asset, i.chain)
 			if (!asset) return yield* Effect.fail(bankErr('ASSET_UNSUPPORTED', `Unsupported asset ${i.asset} on ${i.chain}`))
 			const ledger = yield* BankLedgerService
-			const wallet = yield* ledger.resolveCustodyWallet({ ownerType: 'user', ownerId: String(c.org.custodyUserId) }, asset.family)
+			const wallet = yield* ensureOrgCustodyWallet(id, asset.family)
 			const account = yield* ledger.openAccount({
 				owner: { ownerType: 'org', ownerId: id },
 				kind: i.kind,

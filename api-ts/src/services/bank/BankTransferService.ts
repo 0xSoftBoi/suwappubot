@@ -17,6 +17,7 @@
  * persists 'submitted' only if the claim still holds (else aborts BEFORE broadcast).
  * Status changes that touch money (confirm / reverse) are atomic with their ledger posting.
  */
+import { type ConsumesHold, assertAvailable } from './holds'
 import { and, desc, eq, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm'
 import { Context, Effect, Layer } from 'effect'
 import { createHash, randomUUID } from 'node:crypto'
@@ -48,6 +49,8 @@ export interface TransferInput {
 	amountMinor: string
 	memo?: string | undefined
 	metadata?: Record<string, unknown> | undefined
+	/** Hold-releasing transfers (card capture, escrow release/fund, stream settlement) name the hold they consume so it is not subtracted from available balance. */
+	consumesHold?: ConsumesHold | undefined
 }
 
 export interface SendEvmInput {
@@ -591,10 +594,10 @@ export const enforceSpendControls = (args: {
 
 /**
  * Inserts a transfer (onConflictDoNothing on the idempotency key) in one transaction that holds
- * the source account row lock while it checks the rolling-24h daily limit — concurrent transfers
+ * the source account row lock while it checks available balance (ledger - holds, see holds.ts) and the rolling-24h daily limit — concurrent transfers
  * from one account serialise here, so the limit cannot be raced. Returns null when the key already exists.
  */
-export const insertTransferGuarded = (values: typeof bankTransfers.$inferInsert, from: BankAccount): Fx<BankTransfer | null> =>
+export const insertTransferGuarded = (values: typeof bankTransfers.$inferInsert, from: BankAccount, consumesHold?: ConsumesHold): Fx<BankTransfer | null> =>
 	bankDb((db) =>
 		db.transaction(async (tx) => {
 			const [acct] = await tx
@@ -740,6 +743,7 @@ export const BankTransferServiceLive = Layer.succeed(BankTransferService, {
 					metadata: input.metadata ?? {},
 				},
 				from,
+				input.consumesHold,
 			)
 			if (!inserted) {
 				// Lost a race on the idempotency key: return the winner.

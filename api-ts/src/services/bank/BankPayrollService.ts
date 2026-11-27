@@ -252,7 +252,7 @@ const driveItem = (run: BankPayrollRun, item: BankPayrollItem): PayFx<void> =>
 			if (!payee.railAccountId) return yield* Effect.fail(bankErr('VALIDATION', 'Payee has no registered external account (railAccountId)'))
 			const r = yield* ramp.value
 				.offramp({ owner, fromAccountId: run.fundingAccountId, externalAccountId: payee.railAccountId, amountMinor: item.amountMinor, idempotencyKey: itemKey(run, item) })
-				.pipe(Effect.mapError((e) => (e.code === 'NOT_CONFIGURED' ? subErr('RAMP_UNAVAILABLE', 'NOT_CONFIGURED', e.message, e.missing) : e)))
+				.pipe(Effect.mapError((e) => ((e.code === 'NOT_CONFIGURED' || e.code === 'PROVIDER_NOT_CONFIGURED') ? subErr('RAMP_UNAVAILABLE', 'NOT_CONFIGURED', e.message, e.missing) : e)))
 			yield* setItem(item.id, { status: 'converting', payout: { rampTransferId: r.rampTransfer.id, state: r.rampTransfer.status }, error: null })
 			return
 		}
@@ -301,7 +301,7 @@ const driveItem = (run: BankPayrollRun, item: BankPayrollItem): PayFx<void> =>
 	}).pipe(
 		Effect.asVoid,
 		Effect.catchAll((e: BankError) =>
-			TRANSIENT.has(e.code) || e.code === 'NOT_CONFIGURED'
+			TRANSIENT.has(e.code) || e.code === 'NOT_CONFIGURED' || e.code === 'PROVIDER_NOT_CONFIGURED' || e.code === 'RAMP_UNAVAILABLE'
 				? setItem(item.id, { error: e.message.slice(0, 500) }) // stays pending/converting; the job re-drives it
 				: failItem(item, e.message),
 		),

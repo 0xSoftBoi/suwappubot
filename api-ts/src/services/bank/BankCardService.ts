@@ -10,6 +10,7 @@
  * Amounts: `amountMinor` = asset minor units (ledger); `providerAmountMinor` = card-currency
  * minor units (cents). No PAN/CVC is ever stored or logged.
  */
+import { registerHoldProvider, sumRow, totalHolds } from './holds'
 import { randomUUID } from 'node:crypto'
 import { and, desc, eq, gt, inArray, sql } from 'drizzle-orm'
 import { Context, Effect, Either, Layer, Option } from 'effect'
@@ -129,7 +130,7 @@ const settlementAddress = (chain: string): Effect.Effect<string, BankError, EnvS
 		const fam = familyOf(chain)
 		const v = fam === 'solana' ? env.BANK_CARD_SETTLEMENT_ADDRESS_SOLANA : env.BANK_CARD_SETTLEMENT_ADDRESS_EVM
 		const key = fam === 'solana' ? 'BANK_CARD_SETTLEMENT_ADDRESS_SOLANA' : 'BANK_CARD_SETTLEMENT_ADDRESS_EVM'
-		if (!v) return yield* Effect.fail(bankErr('NOT_CONFIGURED', `PROVIDER_NOT_CONFIGURED: ${key}`, { missing: key }))
+		if (!v) return yield* Effect.fail(bankErr('PROVIDER_NOT_CONFIGURED', `${key} is not configured`, { missing: key }))
 		return v
 	})
 
@@ -249,6 +250,15 @@ const loadHistory = (card: BankCard, rules: NormalizedRules, now: number): Fx<Ct
 		return { cardHistory: pick([card.id]), memberHistory: pick(memberIds), teamHistory: pick(teamIds), priorUseCount: used?.n ?? 0 }
 	})
 
+// MONEY-PATH: card authorization holds participate in the unified available balance (holds.ts).
+registerHoldProvider('card', async (accountId, tx, excludeId) =>
+	sumRow(
+		await tx.execute(
+			sql`select coalesce(sum(amount_minor),0)::text as s from bank_card_holds where account_id = ${accountId} and status = 'active' and expires_at > now() and (${excludeId ?? null}::text is null or id <> ${excludeId ?? null}::text)`,
+		),
+	),
+)
+
 /** Ledger balance minus active (unexpired) holds. */
 const availableOf = (account: BankAccount): Fx<bigint> =>
 	Effect.gen(function* () {
@@ -342,11 +352,8 @@ const decideAuthorization = (provider: CardProvider, req: AuthorizationRequest):
 				// Serialize concurrent authorizations on this funding account.
 				const locked = (await tx.execute(sql`select balance_minor::text as b from bank_accounts where id = ${account.id} for update`)) as unknown as Array<{ b: string }>
 				if (v.decision === 'approved') {
-					const held = big(
-						((await tx.execute(
-							sql`select coalesce(sum(amount_minor),0)::text as s from bank_card_holds where account_id = ${account.id} and status = 'active' and expires_at > now()`,
-						)) as unknown as Array<{ s: string }>)[0]?.s ?? '0',
-					)
+					// MONEY-PATH: unified availability (ledger - card holds - escrow/stream/agent-pay holds) under the row lock above.
+					const held = await totalHolds(account.id, tx)
 					const base = creditBase ?? big(locked[0]?.b ?? '0')
 					if (base - held < assetAmount)
 						v = { decision: 'declined', decidedBy: 'balance', reason: `Insufficient available balance (${base - held} < ${assetAmount})` }

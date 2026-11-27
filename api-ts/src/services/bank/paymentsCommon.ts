@@ -30,10 +30,13 @@ export const idemKey = (...parts: string[]): string => {
 	return `${parts[0]}:${h}`
 }
 
-/** Typed sub-errors that are not in BankErrorCode: the machine code is the message prefix (e.g. `POOL_UNFUNDED: ...`). */
+/** Typed sub-errors that are not in BankErrorCode: the machine code is the message prefix (POOL_UNFUNDED, EXPOSURE_LIMIT, RAMP_UNAVAILABLE are real BankErrorCodes; the rest are message prefixes). */
 export type SubErrorCode = 'POOL_UNFUNDED' | 'EXPOSURE_LIMIT' | 'RAMP_UNAVAILABLE' | 'APPROVAL_REQUIRED' | 'EWA_LIMIT' | 'INVALID_TRANSITION'
+const REAL_CODES = new Set<SubErrorCode>(['POOL_UNFUNDED', 'EXPOSURE_LIMIT', 'RAMP_UNAVAILABLE'])
 export const subErr = (sub: SubErrorCode, code: BankError['code'], message: string, missing?: string): BankError =>
-	bankErr(code, `${sub}: ${message}`, missing ? { missing } : undefined)
+	REAL_CODES.has(sub)
+		? bankErr(sub as BankError['code'], message, missing ? { missing } : undefined)
+		: bankErr(code, `${sub}: ${message}`, missing ? { missing } : undefined)
 
 export const parseMinor = (s: string, what = 'amount'): bigint => {
 	if (!/^[1-9][0-9]{0,77}$/.test(s)) throw bankErr('VALIDATION', `${what} must be a positive integer string in minor units`)

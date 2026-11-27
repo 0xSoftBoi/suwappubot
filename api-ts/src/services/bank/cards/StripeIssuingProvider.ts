@@ -33,7 +33,7 @@ export interface StripeIssuingConfig {
 }
 
 const notConfigured = (missing: string): BankError =>
-	bankErr('NOT_CONFIGURED', `PROVIDER_NOT_CONFIGURED: ${missing}`, { missing })
+	bankErr('PROVIDER_NOT_CONFIGURED', `${missing} is not configured`, { missing })
 
 const upstream = (op: string, e: unknown): BankError =>
 	bankErr('UPSTREAM', `Stripe Issuing ${op} failed: ${e instanceof Error ? e.message : String(e)}`, { cause: e })

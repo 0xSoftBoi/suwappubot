@@ -17,7 +17,11 @@ import {
 	type BankLedgerEntry,
 	bankAccounts,
 	bankLedgerEntries,
+	bankOrgMembers,
+	bankOrgWallets,
+	bankOrgs,
 	bankTransfers,
+	users,
 	wallets,
 } from '../../db'
 import type { DbClient, DbTransaction, DrizzleService } from '../../db'
@@ -200,6 +204,42 @@ async function postWithDb(db: DbClient, input: PostInput): Promise<BankLedgerEnt
 			.from(bankLedgerEntries)
 			.where(and(eq(bankLedgerEntries.transferId, input.transferId), eq(bankLedgerEntries.phase, input.phase)))
 	}
+}
+
+/**
+ * MONEY-PATH. Org funds must never sit on a person's wallet. Verifies that `wallet` is the org's own
+ * dedicated custody wallet (bank_org_wallets row) and that its owning user is the synthetic custody
+ * user (negative telegram_id, never an org member / owner). Returns the verified wallet ref.
+ */
+export const verifyOrgCustodyWallet = async (
+	db: DbClient,
+	orgId: string,
+	family: 'evm' | 'solana',
+	expect?: { walletId: number; walletUserId: number; address: string },
+): Promise<WalletRef> => {
+	const [row] = await db
+		.select()
+		.from(bankOrgWallets)
+		.where(and(eq(bankOrgWallets.orgId, orgId), eq(bankOrgWallets.family, family)))
+		.limit(1)
+	if (!row)
+		throw bankErr('WALLET_UNAVAILABLE', `Organisation has no dedicated ${family} custody wallet`)
+	const [w] = await db.select().from(wallets).where(eq(wallets.id, row.walletId)).limit(1)
+	if (!w || !w.isActive || w.userId !== row.walletUserId || w.turnkeyWalletId !== row.turnkeyWalletId || w.address !== row.address || !w.turnkeySubOrgId)
+		throw bankErr('WALLET_UNAVAILABLE', 'Organisation custody wallet is not usable for signing')
+	const [u] = await db.select({ telegramId: users.telegramId }).from(users).where(eq(users.id, w.userId)).limit(1)
+	const [org] = await db.select({ ownerUserId: bankOrgs.ownerUserId }).from(bankOrgs).where(eq(bankOrgs.id, orgId)).limit(1)
+	const [member] = await db
+		.select({ id: bankOrgMembers.id })
+		.from(bankOrgMembers)
+		.where(and(eq(bankOrgMembers.orgId, orgId), eq(bankOrgMembers.userId, w.userId)))
+		.limit(1)
+	if (!u || u.telegramId === null || u.telegramId >= 0 || member || org?.ownerUserId === w.userId)
+		throw bankErr('FORBIDDEN', 'Org account points at a personal wallet; refusing')
+	const ref = { walletId: w.id, walletUserId: w.userId, address: w.address }
+	if (expect && (expect.walletId !== ref.walletId || expect.walletUserId !== ref.walletUserId || expect.address !== ref.address))
+		throw bankErr('FORBIDDEN', 'Org account wallet is not the organisation custody wallet')
+	return ref
 }
 
 export const BankLedgerServiceLive = Layer.succeed(BankLedgerService, {

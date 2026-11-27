@@ -26,7 +26,7 @@ let adapter: IssuerAdapter | null = null
 export const registerIssuerAdapter = (a: IssuerAdapter | null) => { adapter = a }
 
 const notConfigured = (what: string) =>
-	bankErr('NOT_CONFIGURED', `ISSUER_NOT_CONFIGURED: ${what} requires a branded-stablecoin issuer adapter. Bridge does not publish public issuance endpoints; no endpoint is assumed.`, { missing: 'IssuerAdapter registration (issuer API credentials + a registered adapter implementing mint/redeem/reserveReport)' })
+	bankErr('ISSUER_NOT_CONFIGURED', `${what} requires a branded-stablecoin issuer adapter. Bridge does not publish public issuance endpoints; no endpoint is assumed.`, { missing: 'IssuerAdapter registration (issuer API credentials + a registered adapter implementing mint/redeem/reserveReport)' })
 
 export interface TwabInput {
 	accountId: string
@@ -88,7 +88,7 @@ export const BankStablecoinServiceLive = Layer.succeed(BankStablecoinService, {
 			} else if (adapter?.yieldForPeriod) {
 				const r = yield* Effect.tryPromise({ try: () => adapter!.yieldForPeriod!(i.asset, i.from, i.to), catch: (e) => bankErr('UPSTREAM', `issuer yield report failed: ${String(e)}`) })
 				total = BigInt(r.totalYieldMinor)
-			} else return yield* Effect.fail(bankErr('NOT_CONFIGURED', 'ISSUER_NOT_CONFIGURED: totalYieldMinor not supplied and no issuer adapter reports yield', { missing: 'totalYieldMinor (issuer-reported reserve yield for the period) or an IssuerAdapter.yieldForPeriod' }))
+			} else return yield* Effect.fail(bankErr('ISSUER_NOT_CONFIGURED', 'totalYieldMinor not supplied and no issuer adapter reports yield', { missing: 'totalYieldMinor (issuer-reported reserve yield for the period) or an IssuerAdapter.yieldForPeriod' }))
 			const distributable = (total * BigInt(i.holderShareBps)) / 10_000n
 			const fromMs = i.from.getTime()
 			const toMs = i.to.getTime()

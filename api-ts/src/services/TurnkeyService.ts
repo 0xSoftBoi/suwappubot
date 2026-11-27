@@ -58,6 +58,10 @@ export interface TurnkeyServiceInterface {
 		agentId: number,
 		chainType: 'evm' | 'solana'
 	) => Effect.Effect<TurnkeyWallet, Error>
+	readonly createOrgWallet: (
+		orgId: string,
+		chainType: 'evm' | 'solana'
+	) => Effect.Effect<TurnkeyWallet, Error>
 	readonly createPolicy: (
 		subOrgId: string,
 		policyName: string,
@@ -387,14 +391,14 @@ export const TurnkeyServiceLive = Layer.effect(
 				return signResult.signedTransaction
 			})
 
-		const createAgentWallet = (agentId: number, chainType: 'evm' | 'solana') =>
+		const createManagedCustodyWallet = (label: string, chainType: 'evm' | 'solana') =>
 			Effect.gen(function* () {
 				if (!env.TURNKEY_API_PUBLIC_KEY || !env.TURNKEY_API_PRIVATE_KEY || !env.TURNKEY_ORGANIZATION_ID) {
 					return yield* Effect.fail(new Error('Turnkey credentials not configured'))
 				}
 
 				const isEvm = chainType === 'evm'
-				const subOrgName = `agent-${agentId}-${chainType}`
+				const subOrgName = `${label}-${chainType}`
 
 				const createSubOrgResult = yield* Effect.tryPromise({
 					try: async () => {
@@ -403,10 +407,10 @@ export const TurnkeyServiceLive = Layer.effect(
 							subOrganizationName: subOrgName,
 							rootUsers: [
 								{
-									userName: `agent-${agentId}`,
+									userName: label,
 									apiKeys: [
 										{
-											apiKeyName: `agent-${agentId}-key`,
+											apiKeyName: `${label}-key`,
 											publicKey: env.TURNKEY_API_PUBLIC_KEY!,
 											curveType: 'API_KEY_CURVE_P256' as const,
 										},
@@ -417,7 +421,7 @@ export const TurnkeyServiceLive = Layer.effect(
 							],
 							rootQuorumThreshold: 1,
 							wallet: {
-								walletName: `agent-${agentId}-wallet`,
+								walletName: `${label}-wallet`,
 								accounts: [
 									isEvm
 										? {
@@ -459,6 +463,13 @@ export const TurnkeyServiceLive = Layer.effect(
 					address,
 				}
 			})
+
+		const createAgentWallet = (agentId: number, chainType: 'evm' | 'solana') =>
+			createManagedCustodyWallet(`agent-${agentId}`, chainType)
+
+		/** Dedicated custody wallet for a bank organisation (same Turnkey sub-org path as agents). */
+		const createOrgWallet = (orgId: string, chainType: 'evm' | 'solana') =>
+			createManagedCustodyWallet(`bankorg-${orgId}`, chainType)
 
 		const createPolicy = (
 			subOrgId: string,
@@ -565,6 +576,7 @@ export const TurnkeyServiceLive = Layer.effect(
 			signTransactionForAgent,
 			signRawPayload,
 			createAgentWallet,
+			createOrgWallet,
 			createPolicy,
 			listPolicies,
 			deletePolicy,

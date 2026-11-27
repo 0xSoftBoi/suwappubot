@@ -6,6 +6,7 @@
  * MONEY-PATH: payForResource (mandate enforcement, reserve -> sign -> pay -> confirm/reverse) and
  * servePaidResource (facilitator settlement + seller credit).
  */
+import { assertAvailable, registerHoldProvider, sumRow } from './holds'
 import { createHash, randomBytes } from 'node:crypto'
 import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm'
 import { Context, Effect, Layer, Option } from 'effect'
@@ -143,11 +144,24 @@ const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').repla
 
 // ------------------------------------------------------------ MONEY-PATH: spend reservation
 
+// MONEY-PATH: a 'reserved' spend with no transfer row yet is a hold on the account; once the transfer row exists the
+// ledger debit (account -> clearing) is the reserve, so it is excluded to avoid double counting.
+registerHoldProvider('agent-pay', async (accountId, tx, excludeId) =>
+	sumRow(
+		await tx.execute(
+			sql`select coalesce(sum(amount_minor),0)::text as s from bank_agent_spend where account_id = ${accountId} and status = 'reserved' and not exists (select 1 from bank_transfers t where t.metadata->>'spendId' = bank_agent_spend.id) and (${excludeId ?? null}::text is null or id <> ${excludeId ?? null}::text)`,
+		),
+	),
+)
+
 /** MONEY-PATH: atomically enforce per-call max + daily cap under an advisory lock, then insert a 'reserved' spend row. */
 const reserveSpend = (m: BankAgentMandate, a: { host: string; payee: string; asset: string; chain: string; amountMinor: bigint; url: string }) =>
 	bankDb(async (db) =>
 		db.transaction(async (tx) => {
 			await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${m.id}))`)
+			// MONEY-PATH: lock the funding account row and check unified availability (ledger - cards/escrow/streams/other spend holds).
+			await tx.execute(sql`select 1 from bank_accounts where id = ${m.accountId} for update`)
+			await assertAvailable(m.accountId, tx, a.amountMinor)
 			const since = new Date(Date.now() - 24 * 3600_000)
 			const [row] = await tx
 				.select({ total: sql<string>`coalesce(sum(${bankAgentSpend.amountMinor}), 0)` })

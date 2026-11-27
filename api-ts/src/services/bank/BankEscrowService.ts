@@ -12,6 +12,7 @@ import { and, asc, eq, inArray, lte, sql } from 'drizzle-orm'
 import { Context, Effect, Layer } from 'effect'
 import { type BankEscrow, type BankEscrowMilestone, bankEscrowEvents, bankEscrowMilestones, bankEscrows, type EscrowStatus, type MilestoneStatus } from '../../db'
 import { logger } from '../../lib/logger'
+import { assertAvailable, registerHoldProvider, sumRow } from './holds'
 import { BankLedgerService } from './BankLedgerService'
 import { BankTransferService } from './BankTransferService'
 import { type BankOwner, bankDb } from './db'
@@ -225,6 +226,15 @@ const requireRole = (e: BankEscrow, o: BankOwner, ...allowed: Array<'payer' | 'p
 	return Effect.succeed(roles)
 }
 
+// MONEY-PATH: an escrow in 'funding' reserves its full amount on the payer account until the funding transfer row exists (from then the ledger debit is the reserve).
+registerHoldProvider('escrow', async (accountId, tx, excludeId) =>
+	sumRow(
+		await tx.execute(
+			sql`select coalesce(sum(amount_minor),0)::text as s from bank_escrows where payer_account_id = ${accountId} and status = 'funding' and not exists (select 1 from bank_transfers t where t.metadata->>'escrowId' = bank_escrows.id and t.metadata->>'kind' = 'fund') and (${excludeId ?? null}::text is null or id <> ${excludeId ?? null}::text)`,
+		),
+	),
+)
+
 // MONEY-PATH: fund the escrow account (idempotent on key escrow:{id}:fund).
 const ensureFunded = (e: BankEscrow): PayFx<BankEscrow> =>
 	Effect.gen(function* () {
@@ -260,6 +270,7 @@ const ensureFunded = (e: BankEscrow): PayFx<BankEscrow> =>
 			amountMinor: e.amountMinor,
 			memo: 'Escrow funding',
 			metadata: { escrowId: e.id, kind: 'fund', module: 'escrow' },
+			consumesHold: { provider: 'escrow', id: e.id },
 		})
 		if (t.status === 'confirmed') {
 			yield* bankDb((db) =>
@@ -303,6 +314,9 @@ export const BankEscrowServiceLive = Layer.succeed(BankEscrowService, {
 						if (ex.payerAccountId !== from.id || ex.payeeAccountId !== to.id || BigInt(ex.amountMinor) !== total) throw bankErr('CONFLICT', 'idempotencyKey was already used with different escrow terms')
 						return ex
 					}
+					// MONEY-PATH: lock the payer account, then reserve against ledger balance minus ALL holds (cards, streams, other escrows).
+					await tx.execute(sql`select 1 from bank_accounts where id = ${from.id} for update`)
+					await assertAvailable(from.id, tx, total)
 					const id = uid('esc')
 					const [row] = await tx
 						.insert(bankEscrows)
@@ -332,7 +346,7 @@ export const BankEscrowServiceLive = Layer.succeed(BankEscrowService, {
 			)
 			const funded = yield* ensureFunded(esc).pipe(
 				Effect.tapError((e) =>
-					['INSUFFICIENT_FUNDS', 'LIMIT_EXCEEDED', 'POLICY_BLOCKED', 'ACCOUNT_STATE', 'VALIDATION'].includes(e.code)
+					['INSUFFICIENT_FUNDS', 'INSUFFICIENT_AVAILABLE', 'LIMIT_EXCEEDED', 'POLICY_BLOCKED', 'ACCOUNT_STATE', 'VALIDATION'].includes(e.code)
 						? bankDb((db) => db.update(bankEscrows).set({ status: 'failed', updatedAt: new Date() }).where(and(eq(bankEscrows.id, esc.id), eq(bankEscrows.status, 'funding'))))
 						: Effect.void,
 				),

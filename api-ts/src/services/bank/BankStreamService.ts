@@ -12,13 +12,14 @@ import { Context, Effect, Layer } from 'effect'
 import { type BankStream, bankStreams, bankStreamUsage, bankWageAdvances } from '../../db'
 import { logger } from '../../lib/logger'
 import { BankLedgerService } from './BankLedgerService'
+import { registerHoldProvider, sumRow } from './holds'
 import { BankTransferService } from './BankTransferService'
 import { type BankOwner, bankDb } from './db'
 import { type BankError, bankErr } from './errors'
 import { guard, idemKey, type PayFx, parseMinor, sameOwner, subErr, toOwner, uid } from './paymentsCommon'
 import { accruedMinor, foldCheckpoint, settleAmount, type StreamAccrualState } from './streamMath'
 
-const NON_RETRYABLE = new Set(['INSUFFICIENT_FUNDS', 'LIMIT_EXCEEDED', 'POLICY_BLOCKED', 'ACCOUNT_STATE', 'VALIDATION', 'FORBIDDEN', 'ASSET_UNSUPPORTED', 'NOT_FOUND'])
+const NON_RETRYABLE = new Set(['INSUFFICIENT_FUNDS', 'INSUFFICIENT_AVAILABLE', 'LIMIT_EXCEEDED', 'POLICY_BLOCKED', 'ACCOUNT_STATE', 'VALIDATION', 'FORBIDDEN', 'ASSET_UNSUPPORTED', 'NOT_FOUND'])
 
 export interface CreateStreamInput {
 	idempotencyKey: string
@@ -105,6 +106,16 @@ const authorise = (s: BankStream, o: BankOwner, who: 'payer' | 'either'): Effect
 	return Effect.succeed(isPayer ? 'payer' : 'payee')
 }
 
+// MONEY-PATH: a claimed settlement intent (pending_minor) is reserved on the payer account until its transfer row exists
+// (from then the ledger debit is the reserve, so it is not double counted).
+registerHoldProvider('stream', async (accountId, tx, excludeId) =>
+	sumRow(
+		await tx.execute(
+			sql`select coalesce(sum(pending_minor),0)::text as s from bank_streams where payer_account_id = ${accountId} and pending_minor is not null and ended_at is null and not exists (select 1 from bank_transfers t where t.metadata->>'streamId' = bank_streams.id and t.metadata->>'seq' = bank_streams.settle_seq::text) and (${excludeId ?? null}::text is null or id <> ${excludeId ?? null}::text)`,
+		),
+	),
+)
+
 /**
  * MONEY-PATH. Settle one batch. `override` pays exactly that amount (earned-wage advance); otherwise the accrued
  * remainder, subject to the dust threshold unless `force`. Returns the amount confirmed paid (0n if nothing / in flight).
@@ -143,6 +154,7 @@ const settleCore = (id: string, opts: { force: boolean; override?: bigint; out?:
 				amountMinor: amount.toString(),
 				memo: `Stream ${s.kind} settlement`,
 				metadata: { streamId: s.id, seq, module: 'stream' },
+				consumesHold: { provider: 'stream', id: s.id },
 			})
 			.pipe(
 				Effect.tapError((e) =>

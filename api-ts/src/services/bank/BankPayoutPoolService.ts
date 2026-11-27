@@ -205,7 +205,7 @@ export const BankPayoutPoolServiceLive = Layer.succeed(BankPayoutPoolService, {
 				})
 				.pipe(
 					Effect.tapError((e) =>
-						e.code === 'INSUFFICIENT_FUNDS' || e.code === 'VALIDATION' || e.code === 'ACCOUNT_STATE' || e.code === 'LIMIT_EXCEEDED' || e.code === 'POLICY_BLOCKED'
+						e.code === 'INSUFFICIENT_FUNDS' || e.code === 'INSUFFICIENT_AVAILABLE' || e.code === 'VALIDATION' || e.code === 'ACCOUNT_STATE' || e.code === 'LIMIT_EXCEEDED' || e.code === 'POLICY_BLOCKED'
 							? bankDb((db) => db.update(bankPoolReceivables).set({ status: 'void' }).where(and(eq(bankPoolReceivables.id, rec.id), sql`${bankPoolReceivables.payoutTransferId} is null`)))
 							: Effect.void,
 					),
@@ -275,7 +275,7 @@ export const BankPayoutPoolServiceLive = Layer.succeed(BankPayoutPoolService, {
 						})
 						.pipe(
 							Effect.tapError((e) =>
-								['INSUFFICIENT_FUNDS', 'LIMIT_EXCEEDED', 'POLICY_BLOCKED', 'ACCOUNT_STATE'].includes(e.code)
+								['INSUFFICIENT_FUNDS', 'INSUFFICIENT_AVAILABLE', 'LIMIT_EXCEEDED', 'POLICY_BLOCKED', 'ACCOUNT_STATE'].includes(e.code)
 									? bankDb((db) => db.update(bankPoolReceivables).set({ status: 'open' }).where(and(eq(bankPoolReceivables.id, r.id), eq(bankPoolReceivables.status, 'settling'), sql`${bankPoolReceivables.settleTransferId} is null`)))
 									: Effect.void,
 							),
