@@ -80,6 +80,11 @@ export function isNotAvailable(e: unknown): boolean {
 
 /** Plain-language line for every typed bank error code (api-ts services/bank/errors.ts). Falls back to the API's own message. */
 export function describeBankError(code: string, message?: string): string {
+  const m = message ?? ''
+  // Receivables financing refusals: explain in plain language, keep the server's reason after it.
+  if (/related[- ]part|related owner|same owner|self[- ]deal/i.test(m)) return `Financing is not offered on invoices between related parties, such as your own accounts or members of the same business. (${m})`
+  if (/delinquen|past due|overdue line/i.test(m)) return `Your credit line is delinquent, so new financing is paused until it is brought current. Repay what is overdue first. (${m})`
+  if (code === 'EXPOSURE_LIMIT' && /receivable|invoice|payer|cap/i.test(m)) return `This would go over the exposure cap for financing against this payer. Try a smaller invoice or wait for other advances to be repaid. (${m})`
   switch (code) {
     case 'INSUFFICIENT_AVAILABLE': return 'Not enough available balance. Part of your balance is on hold or already committed, so only the available amount can be used.'
     case 'INSUFFICIENT_FUNDS': return 'Your balance is too low for this amount plus fees.'

@@ -101,15 +101,15 @@ Verification: 390x844 screenshots with intercepted responses (script in scratchp
 ## Round 3 status
 1. Transfer ids tracked: BUILT (escrow fundingTransferId on create via TransferTracker + per-milestone TransferLine in EscrowDetail; stream Settle now confirm sheet + tracker; payInvoice uses top-level transferId)
 2. /pay/:slug: BUILT (symbol/decimals/chainName, acceptance row, Accept banner only if invoice is in viewer's payer list, POST /payments/invoices/:id/accept)
-3. Receivables financing acceptance + refusal explanations: NOT STARTED
+3. Receivables: BUILT (acceptance state per invoice, finance only when accepted; describeBankError keyword-explains related-party / exposure cap / delinquent line; refusal codes not enumerated by backend so matching is on message text)
 4. Card reveal: BUILT (components/bank/RevealCard.tsx; Stripe.js loaded on tap; needs card.providerCardId from GET /cards/:id, else shows unavailable)
-5. Ramps decimals/stage/per-rail external-account form: NOT STARTED
+5. Ramps: BUILT (quote decimals preferred, ISO table fallback; off-ramp stage; external account form with ABA/IBAN mod97/CLABE checksum validation, fields per contract d). Rail-level `decimals` not otherwise used
 6. Payroll: BUILT (My pay uses scheduleId/payeeId from my-payouts, manual ids removed; run approve takes approval token when approvalRequired)
 7. Business: BUILT (Send tab org transfer with approval-required result + token resubmit; policy thresholdCurrency/Decimals; invite by email or Telegram id)
 8. Developers: BUILT (org picker for owner/admin; platform config/usage/customers with ?orgId=; API keys list/create with scopes/revoke via /enterprise/orgs/:orgId/api-keys, secret shown once with copy)
 9. Privacy local scanning: NOT STARTED
 10. Cards: BUILT (capCurrency/capDecimals via GET /cards/:id; refund state; shortfall note inferred from frozen + failed settlement since no explicit field; merchantAllow editor with exact-match/id: copy)
-11. BankHome ops alerts banner: NOT STARTED
-12. Cosmetic fixes (vault name ellipsis, account dropdown clip): NOT STARTED
+11. Ops alerts banner: BUILT
+12. Cosmetics: BUILT (vault name truncates, tap expands; Select padding/ellipsis)
 
 Build after items 1,2,4,8,10: passes. Remaining: 3,5,6,7,9,11,12 NOT STARTED; deep-link cold-open of /bank/claim/:token and /pay/:slug NOT CHECKED.

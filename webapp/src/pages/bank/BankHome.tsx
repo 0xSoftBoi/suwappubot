@@ -56,7 +56,7 @@ function NeedsAttention() {
         <p key={`${a.kind}${a.id}`} className="text-xs break-words">{KIND[a.kind] ?? a.kind}: {a.reason} · {a.status} for {a.ageMinutes >= 120 ? `${Math.round(a.ageMinutes / 60)} h` : `${a.ageMinutes} min`}</p>
       ))}
       {list.length > 5 && <p className="text-xs text-suwappu-text-secondary">and {list.length - 5} more</p>}
-      <p className="text-[11px] text-suwappu-text-secondary">Nothing is lost. Support reviews these; no action is needed unless it stays stuck.</p>
+      <p className="text-[11px] text-suwappu-text-secondary">These items have been flagged for review.</p>
     </div>
   )
 }

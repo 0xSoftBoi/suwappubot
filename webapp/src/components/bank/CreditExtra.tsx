@@ -60,7 +60,9 @@ export function Receivables() {
           <Card key={i.id} className="!p-3 space-y-1">
             <div className="flex justify-between gap-2"><p className="text-sm font-semibold tabular-nums">{formatMinor(i.amountMinor, dec(i))} {i.asset}</p><Chip status={i.status} /></div>
             {i.memo && <p className="text-xs text-suwappu-text-secondary break-words">{i.memo}</p>}
-            {['open', 'accepted', 'partial'].includes(i.status) && <Btn variant="ghost" className="w-full" onClick={() => { setInv(i); setAcct('') }}>Finance this invoice</Btn>}
+            {i.acceptance?.required && <p className="text-[11px] text-suwappu-text-secondary">{i.acceptance.acceptedAt ? `Accepted by payer ${new Date(i.acceptance.acceptedAt).toLocaleDateString()}` : 'Waiting for the payer to accept. Financing is refused until they do.'}</p>}
+            {!i.acceptance?.required && <p className="text-[11px] text-suwappu-text-secondary">No named payer, so this invoice cannot be accepted or financed.</p>}
+            {['open', 'accepted', 'partial'].includes(i.status) && !!i.acceptance?.acceptedAt && <Btn variant="ghost" className="w-full" onClick={() => { setInv(i); setAcct('') }}>Finance this invoice</Btn>}
           </Card>
         ))}</>}
       </QueryState>

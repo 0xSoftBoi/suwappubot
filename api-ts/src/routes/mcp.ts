@@ -15,7 +15,8 @@ import { and, desc, eq } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
 import { AgentService, AgentTrustService, TokenService, SwapService, BalanceService, JupiterService, TurnkeyService, CHAINS, COMMON_TOKENS, TEMPO_TOKEN_DECIMALS, SOLANA_TOKENS, type QuoteParams } from '../services'
 import { isStarknet } from '../config/chains'
-import { TOOLS, TOOL_ANNOTATIONS, TOOLS_WITH_ANNOTATIONS as ALL_TOOLS_WITH_ANNOTATIONS, TOOLS_WITH_OUTPUT_SCHEMA } from './mcpTools'
+import { BANK_TOOL_SPECS, TOOLS, TOOL_ANNOTATIONS, TOOLS_WITH_ANNOTATIONS as ALL_TOOLS_WITH_ANNOTATIONS, TOOLS_WITH_OUTPUT_SCHEMA } from './mcpTools'
+import { bankAgentRoutes } from './bank'
 import { PolymarketService } from '../services/PolymarketService'
 import { HyperliquidService } from '../services/HyperliquidService'
 import { MorphoService } from '../services/MorphoService'
@@ -1126,6 +1127,93 @@ async function handleGetSwapHistory(args: Record<string, unknown>, agent: Agent)
 }
 
 // Mirrors GET /v1/agent/wallet/policies (src/routes/agent.ts)
+// ---------------------------------------------------------------
+// Suwappu Bank tools (bank_*) — see BANK_TOOL_SPECS in mcpTools.ts.
+//
+// Dispatches IN-PROCESS through the same Hono app that serves /v1/agent/bank,
+// forwarding the caller's credentials. The route therefore resolves the same
+// owner for this API key and runs the identical validation, idempotency,
+// policy/mandate/limit/segment checks and BankError mapping. Nothing here
+// touches a bank service directly.
+// ---------------------------------------------------------------
+const BANK_IDEM_RE = /^[A-Za-z0-9_.:-]{8,128}$/
+const camel = (k: string) => k.replace(/_([a-z])/g, (_, ch: string) => ch.toUpperCase())
+// For routes with no server-side idempotency key (agents/pay): same (agent, key, args) returns the first
+// result; same key with different args is rejected. Process-local, 24h.
+const bankLocalDedupe = new Map<string, { hash: string; exp: number; result: Promise<{ isError?: boolean; content: Array<{ type: 'text'; text: string }> }> }>()
+
+function bankToolError(code: string, message: string, extra: Record<string, unknown> = {}) {
+	return { isError: true, content: [{ type: 'text' as const, text: JSON.stringify({ success: false, error_code: code, message, ...extra }) }] }
+}
+
+async function handleBankTool(name: string, args: Record<string, unknown>, c: Context, agent: Agent) {
+	const spec = BANK_TOOL_SPECS.find((t) => t.name === name)
+	if (!spec) return bankToolError('NOT_FOUND', `Unknown tool: ${name}`)
+	const key = spec.keyed ? args.idempotency_key : undefined
+	if (spec.keyed && (typeof key !== 'string' || !BANK_IDEM_RE.test(key))) {
+		return bankToolError('VALIDATION_ERROR', 'idempotency_key is required: 8-128 chars of A-Za-z0-9_.:-', { fields: { idempotency_key: 'required' } })
+	}
+	let path = spec.path
+	for (const p of spec.pathParams ?? []) {
+		const v = args[p]
+		if (typeof v !== 'string' || !v) return bankToolError('VALIDATION_ERROR', `Missing required argument: ${p}`)
+		path = path.replace(`{${p}}`, encodeURIComponent(v))
+	}
+	const inPath = new Set(spec.pathParams ?? [])
+	const qs = new URLSearchParams()
+	const body: Record<string, unknown> = {}
+	for (const [k, v] of Object.entries(args)) {
+		if (v === undefined || v === null || inPath.has(k)) continue
+		if (spec.query?.includes(k)) qs.set(camel(k), String(v))
+		else body[camel(k)] = v
+	}
+	const headers: Record<string, string> = { 'content-type': 'application/json' }
+	for (const h of ['authorization', 'x-api-key']) {
+		const v = c.req.header(h)
+		if (v) headers[h] = v
+	}
+	if (typeof key === 'string') headers['idempotency-key'] = key
+	type BankToolResult = { isError?: boolean; content: Array<{ type: 'text'; text: string }> }
+	const send = async (): Promise<BankToolResult> => {
+		const res = await bankAgentRoutes.request(`${path}${qs.size ? `?${qs}` : ''}`, {
+			method: spec.method,
+			headers,
+			...(spec.method === 'POST' ? { body: JSON.stringify(body) } : {}),
+		})
+		const text = await res.text()
+		let json: Record<string, unknown> | undefined
+		try { json = JSON.parse(text) } catch { /* non-JSON body */ }
+		if (!res.ok || json?.success === false) {
+			const code = (json?.error_code ?? json?.error ?? `HTTP_${res.status}`) as string
+			const ra = res.headers.get('Retry-After')
+			return bankToolError(code, (json?.message as string | undefined) ?? (json?.error as string | undefined) ?? text.slice(0, 500), {
+				http_status: res.status,
+				...(json?.fields ? { fields: json.fields } : {}),
+				...(json?.missing ? { missing: json.missing } : {}),
+				retryable: res.status === 429 || (res.status === 503 && code === 'LOCK_BUSY'),
+				...(ra ? { retry_after_seconds: Number(ra) } : {}),
+			})
+		}
+		return { content: [{ type: 'text' as const, text }] }
+	}
+	void agent // authenticated agent is required by the /mcp gate; the route re-resolves the same owner from the forwarded credentials
+	if (!spec.localDedupe) return send()
+	const now = Date.now()
+	for (const [k, v] of bankLocalDedupe) if (v.exp < now) bankLocalDedupe.delete(k)
+	const dk = `${agent.id}:${name}:${key as string}`
+	const hash = JSON.stringify(Object.entries(body).filter(([k]) => k !== 'idempotencyKey').sort())
+	const prior = bankLocalDedupe.get(dk)
+	if (prior) {
+		if (prior.hash !== hash) return bankToolError('CONFLICT', 'idempotency_key was already used with different arguments')
+		return prior.result
+	}
+	const result = send()
+	bankLocalDedupe.set(dk, { hash, exp: now + 86_400_000, result })
+	const r = await result
+	if (r.isError) bankLocalDedupe.delete(dk) // failed attempts may be retried with the same key
+	return r
+}
+
 async function handleListWalletPolicies(args: Record<string, unknown>, agent: Agent) {
 	void args // wallet_address is accepted for parity but the agent's managed wallet is always used (matches REST route behavior)
 	const metadata = (agent.metadata || {}) as Record<string, unknown>
@@ -1852,6 +1940,28 @@ mcpRoutes.post('/', async (c) => {
 						break
 					case 'near_convert_amount':
 						result = handleNearConvertAmount(args || {})
+						break
+					case 'bank_list_accounts':
+					case 'bank_open_account':
+					case 'bank_get_statement':
+					case 'bank_transfer':
+					case 'bank_get_transfer':
+					case 'bank_fx_quote':
+					case 'bank_fx_execute':
+					case 'bank_earn_vaults':
+					case 'bank_earn_deposit':
+					case 'bank_earn_withdraw':
+					case 'bank_credit_lines':
+					case 'bank_credit_draw':
+					case 'bank_credit_repay':
+					case 'bank_create_invoice':
+					case 'bank_pay_invoice':
+					case 'bank_remit_send':
+					case 'bank_agent_pay':
+					case 'bank_agent_register_resource':
+					case 'bank_fee_model':
+					case 'bank_ops_alerts':
+						result = await handleBankTool(name, args || {}, c, callAgent)
 						break
 					default:
 						// Unreachable while TOOL_NAMES gates above, but if a tool is added to
