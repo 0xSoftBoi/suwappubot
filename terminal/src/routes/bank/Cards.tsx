@@ -171,7 +171,7 @@ export function Cards() {
                     <Btn variant="danger" disabled={card.status === 'canceled' || act.isPending} onClick={() => { if (window.confirm('Cancel this card permanently?')) act.mutate('cancel') }}>Cancel card</Btn>
                   </div>
                 </Card>
-                {card.status === 'active' && <RevealCard cardId={card.id} providerCardId={detail.data?.card.providerCardId} provider={card.provider} />}
+                {card.status === 'active' && <RevealCard cardId={card.id} providerCardId={detail.data?.card?.providerCardId} provider={card.provider} />}
                 <Tabs value={tab} onChange={setTab} tabs={[{ id: 'rules', label: 'Rules' }, { id: 'activity', label: 'Activity' }]} />
                 {tab === 'rules' ? <Rules key={card.id + JSON.stringify(card.rules)} card={card} decimals={decimals} capCurrency={capCurrency} /> : <Activity card={card} decimals={decimals} />}
               </>

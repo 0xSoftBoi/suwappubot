@@ -28,11 +28,14 @@ export function BankShell({ title, onBack, children, bare = false }: { title?: s
   )
 }
 
+const BOT_URL = 'https://t.me/suwappubot'
+
 function NeedsTelegram() {
   return (
     <div role="status" className="p-6 max-w-sm mx-auto text-center space-y-2">
       <p className="text-sm font-semibold">Open Suwappu Bank from Telegram</p>
       <p className="text-xs text-terminal-text-secondary">Bank sign-in uses your Telegram session. Open this page from the Suwappu bot (/bank) to continue.</p>
+      <a href={BOT_URL} className="terminal-button inline-flex min-h-[44px] items-center px-4 text-sm font-semibold">Open in Telegram</a>
     </div>
   )
 }
