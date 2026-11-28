@@ -25,11 +25,11 @@ export function EscrowDetail({ e, onClose }: { e: Escrow; onClose: () => void })
   const ms: EscrowMilestone[] = view?.milestones ?? []
   const has = (r: Role) => roles.includes(r)
   const hasArbiter = !!view?.escrow.arbiterOwnerId
-  const releaseMinor = act?.a === 'resolve' ? parseToMinor(release, decs ?? 0) ?? (/^0(\.0+)?$/.test(release.trim()) ? '0' : null) : null
+  const releaseMinor = act?.a === 'resolve' ? decs === null ? null : (parseToMinor(release, decs) ?? (/^0(\.0+)?$/.test(release.trim()) ? '0' : null)) : null
   const validRelease = releaseMinor !== null && act ? cmpMinor(releaseMinor, act.amount) <= 0 : false
   const close = () => { setAct(null); setText(''); setRelease(''); void d.refetch() }
   const amt = (m: string) => `${formatMinor(m, decs)} ${e.asset}`
-  const ready = act && (act.a === 'confirm' || act.a === 'refund' || (act.a === 'resolve' ? validRelease : text.trim().length > 0))
+  const ready = act && decs !== null && (act.a === 'confirm' || act.a === 'refund' || (act.a === 'resolve' ? validRelease : text.trim().length > 0))
   return (
     <Sheet title="Escrow" onClose={onClose}>
       <div className="space-y-2">
@@ -50,10 +50,10 @@ export function EscrowDetail({ e, onClose }: { e: Escrow; onClose: () => void })
             {m.autoReleaseAt && m.status === 'delivered' && <Row label="Auto-releases" value={new Date(m.autoReleaseAt).toLocaleString()} />}
             <div className="grid grid-cols-2 gap-2 pt-1">
               {has('payee') && m.status === 'funded' && <Btn onClick={() => setAct({ seq: m.seq, a: 'deliver', amount: m.amountMinor })}>Mark delivered</Btn>}
-              {has('payer') && m.status === 'delivered' && <Btn onClick={() => setAct({ seq: m.seq, a: 'confirm', amount: m.amountMinor })}>Release funds</Btn>}
+              {has('payer') && (m.status === 'delivered' || (!hasArbiter && (m.status === 'funded' || m.status === 'disputed'))) && <Btn onClick={() => setAct({ seq: m.seq, a: 'confirm', amount: m.amountMinor })}>Release funds</Btn>}
               {hasArbiter && ((has('payer') && ['funded', 'delivered'].includes(m.status)) || (has('payee') && m.status === 'delivered')) && <Btn variant="danger" onClick={() => setAct({ seq: m.seq, a: 'dispute', amount: m.amountMinor })}>Dispute</Btn>}
               {has('arbiter') && m.status === 'disputed' && <Btn onClick={() => setAct({ seq: m.seq, a: 'resolve', amount: m.amountMinor })}>Resolve</Btn>}
-              {has('payee') && ['funded', 'delivered'].includes(m.status) && <Btn variant="ghost" onClick={() => setAct({ seq: m.seq, a: 'refund', amount: m.amountMinor })}>Refund payer</Btn>}
+              {has('payee') && ['funded', 'delivered', 'disputed'].includes(m.status) && <Btn variant="ghost" onClick={() => setAct({ seq: m.seq, a: 'refund', amount: m.amountMinor })}>Refund payer</Btn>}
             </div>
           </Card>
         ))}

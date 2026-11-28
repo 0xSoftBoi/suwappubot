@@ -42,7 +42,7 @@ function OpenAccount({ onClose }: { onClose: () => void }) {
   )
 }
 
-const KIND: Record<string, string> = { transfer: 'Transfer', earn_op: 'Earn deposit or withdrawal', credit_op: 'Credit operation' }
+const KIND: Record<string, string> = { transfer: 'Transfer', earn_op: 'Earn deposit or withdrawal', credit_op: 'Credit operation', ramp_transfer: 'Cash-out' }
 
 /** Owner's stuck items from GET /bank/ops/alerts. Renders nothing when there are none or the call fails (it is advisory). */
 function NeedsAttention() {
@@ -53,7 +53,7 @@ function NeedsAttention() {
     <div role="status" className="rounded-terminal-card border border-terminal-warn/40 bg-terminal-warn/10 p-3 space-y-1">
       <p className="text-sm font-semibold text-terminal-warn">Needs attention ({list.length})</p>
       {list.slice(0, 5).map((a) => (
-        <p key={`${a.kind}${a.id}`} className="text-xs break-words">{a.kind === 'ramp_transfer' && a.cancelOwed ? 'Cash-out failed — provider transfer being cancelled' : `${KIND[a.kind] ?? a.kind}: ${a.reason}`} · {a.status} for {a.ageMinutes >= 120 ? `${Math.round(a.ageMinutes / 60)} h` : `${a.ageMinutes} min`}</p>
+        <p key={`${a.kind}${a.id}`} className="text-xs break-words">{`${KIND[a.kind] ?? a.kind}: ${a.reason}`} · {a.status} for {a.ageMinutes >= 120 ? `${Math.round(a.ageMinutes / 60)} h` : `${a.ageMinutes} min`}</p>
       ))}
       {list.length > 5 && <p className="text-xs text-terminal-text-secondary">and {list.length - 5} more</p>}
       <p className="text-[11px] text-terminal-text-secondary">These items have been flagged for review.</p>

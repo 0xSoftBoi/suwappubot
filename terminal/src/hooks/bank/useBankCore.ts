@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useBankQuery as useQuery } from './useBankQuery'
 import { bank, type BankAccount } from '../../lib/bankApi'
 
 export const bankKeys = {

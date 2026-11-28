@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useBankQuery as useQuery } from './useBankQuery'
 import { bank } from '../../lib/bankApi'
 
 const q = { retry: 1, staleTime: 15_000 } as const

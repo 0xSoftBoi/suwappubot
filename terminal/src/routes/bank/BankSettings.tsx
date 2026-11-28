@@ -14,7 +14,8 @@ export function BankSettings() {
   const [id, setId] = useState('')
   const features = useFeatures(id || undefined)
   const [seg, setSeg] = useState('')
-  const dec = accounts.data?.find((a) => a.id === id)?.decimals ?? 6
+  // Segment limits are fixed 6-decimal USD-equivalent units on the server (segments.ts), independent of the account's asset decimals.
+  const LIMIT_DECIMALS = 6
   const save = useMutation({ mutationFn: () => bank.setSegment(id, seg || null), onSuccess: () => { void qc.invalidateQueries({ queryKey: ['bank', 'features', id] }); a11yToast.success('Profile updated') } })
   return (
     <BankPage title="Bank settings">
@@ -39,7 +40,7 @@ export function BankSettings() {
                 <p className="text-sm font-semibold mb-1">Features</p>
                 {Object.entries(f.features).map(([k, on]) => <Row key={k} label={k.replace(/([A-Z])/g, ' $1').toLowerCase()} value={<Chip status={on ? 'on' : 'off'} tone={on ? 'good' : 'neutral'} />} />)}
               </Card>
-              {f.limits && <Card><p className="text-sm font-semibold mb-1">Limits</p><Row label="Per transaction" value={formatMinor(f.limits.perTxMinor, dec)} /><Row label="Per day" value={formatMinor(f.limits.dailyMinor, dec)} /></Card>}
+              {f.limits && <Card><p className="text-sm font-semibold mb-1">Limits (USD equivalent)</p><Row label="Per transaction" value={`${formatMinor(f.limits.perTxMinor, LIMIT_DECIMALS)} USD`} /><Row label="Per day" value={`${formatMinor(f.limits.dailyMinor, LIMIT_DECIMALS)} USD`} /></Card>}
               {f.profile?.onboardingChecklist?.length ? <Card><p className="text-sm font-semibold mb-1">Getting started</p><ul className="text-sm space-y-1 list-disc pl-5">{f.profile.onboardingChecklist.map((c) => <li key={c}>{c.replace(/_/g, ' ')}</li>)}</ul></Card> : null}
             </>
           )}

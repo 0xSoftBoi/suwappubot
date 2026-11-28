@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Receivables, UnsecuredLine } from '../../components/bank/CreditExtra'
 import { bank, transferIdOf, formatMinor, parseToMinor, str, type CreditLineView, type CreditMarket } from '../../lib/bankApi'
-import { useBankAccounts } from '../../hooks/bank/useBankCore'
+import { useBankAccounts, useBankAssets } from '../../hooks/bank/useBankCore'
 import { useCreditEvents, useCreditLines, useCreditMarkets, useCreditScore } from '../../hooks/bank/useBankDomains'
 import { useIdempotencyKey } from '../../hooks/bank/useIdempotencyKey'
 import { BankPage, Btn, Card, Chip, Empty, ErrorBox, Field, Input, QueryState, Row, SectionTitle, Sheet, Tabs } from '../../components/bank/BankUI'
@@ -14,8 +14,16 @@ import { TransferTracker } from '../../components/bank/TransferTracker'
 const bps = (n: unknown) => (typeof n === 'number' ? `${(n / 100).toFixed(2)}%` : '—')
 const pctN = (n: number) => `${n.toFixed(2)}%`
 
+/** Loan-asset decimals from the asset registry, else a matching account; null (never a guess) when neither is known. */
+function useLoanDecimals(asset: string, chain: string): number | null {
+  const assets = useBankAssets()
+  const accounts = useBankAccounts()
+  const d = assets.data?.find((a) => a.symbol === asset && a.chain === chain)?.decimals ?? accounts.data?.find((a) => a.asset === asset && a.chain === chain)?.decimals
+  return typeof d === 'number' && Number.isInteger(d) && d >= 0 ? d : null
+}
+
 function LineCard({ v, onAct }: { v: CreditLineView; onAct: (a: 'draw' | 'repay' | 'withdraw') => void }) {
-  const loanDec = useBankAccounts().data?.find((a) => a.asset === v.line.loanAsset && a.chain === v.line.chain)?.decimals ?? 6
+  const loanDec = useLoanDecimals(v.line.loanAsset, v.line.chain)
   const h = v.health
   return (
     <Card>
@@ -39,7 +47,7 @@ function LineCard({ v, onAct }: { v: CreditLineView; onAct: (a: 'draw' | 'repay'
 
 function LineAction({ v, mode, onClose }: { v: CreditLineView; mode: 'draw' | 'repay' | 'withdraw'; onClose: () => void }) {
   const qc = useQueryClient()
-  const loanDec = useBankAccounts().data?.find((a) => a.asset === v.line.loanAsset && a.chain === v.line.chain)?.decimals ?? 6
+  const loanDec = useLoanDecimals(v.line.loanAsset, v.line.chain)
   const dec = mode === 'withdraw' ? v.line.collateralDecimals ?? null : loanDec
   const [amount, setAmount] = useState('')
   const [all, setAll] = useState(false)
@@ -130,7 +138,7 @@ function OpenLine({ markets, onClose }: { markets: CreditMarket[]; onClose: () =
   return (
     <Sheet title="Open a credit line" onClose={onClose}>
       <div className="space-y-3">
-        <Field label="Borrow into"><AccountSelect accounts={(accounts.data ?? []).filter((a) => a.chain === mk?.chain || !mk)} value={accountId} onChange={setAccountId} /></Field>
+        <Field label="Borrow into"><AccountSelect accounts={(accounts.data ?? []).filter((a) => !mk || (a.chain === mk.chain && a.asset === mk.loanAsset.symbol))} value={accountId} onChange={setAccountId} /></Field>
         <Field label="Market">
           <select className="w-full min-h-[44px] px-3 rounded-terminal-control border border-terminal-border bg-terminal-panel text-sm" value={marketId} onChange={(e) => setMarketId(e.target.value)}>
             <option value="">Select market</option>

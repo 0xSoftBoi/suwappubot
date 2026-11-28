@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useBankQuery as useQuery } from './useBankQuery'
 import { bank } from '../../lib/bankApi'
 
 const TERMINAL = new Set(['confirmed', 'failed', 'reversed'])
@@ -10,6 +10,7 @@ export function useTransferPoll(transferId: string | null | undefined) {
     queryFn: async () => (await bank.getTransfer(transferId as string)).transfer,
     enabled: !!transferId,
     refetchInterval: (q) => {
+      if (q.state.status === 'error') return false
       const s = q.state.data?.status
       return s && TERMINAL.has(s) ? false : 2500
     },

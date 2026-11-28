@@ -19,7 +19,8 @@ function loadStripeJs(): Promise<void> {
     const existing = document.querySelector<HTMLScriptElement>(`script[src="${STRIPE_SRC}"]`)
     const s = existing ?? document.createElement('script')
     s.addEventListener('load', () => resolve())
-    s.addEventListener('error', () => reject(new Error('Could not load the secure card display. Check your connection and try again.')))
+    // Drop the dead element so a retry injects a fresh script instead of waiting on one that already failed.
+    s.addEventListener('error', () => { s.remove(); reject(new Error('Could not load the secure card display. Check your connection and try again.')) })
     if (!existing) { s.src = STRIPE_SRC; s.async = true; document.head.appendChild(s) }
   })
 }
@@ -59,7 +60,8 @@ export function RevealCard({ cardId, providerCardId, provider }: { cardId: strin
       if (!n.nonce) throw new Error(n.error?.message ?? 'Could not start a secure session.')
       const k = await bank.revealKey(cardId, n.nonce)
       const els = stripe.elements()
-      const common = { issuingCard: providerCardId, nonce: n.nonce, ephemeralKeySecret: k.ephemeralKeySecret, style: { base: { fontSize: '16px', fontFamily: 'monospace' } } }
+      if (k.providerCardId !== providerCardId) throw new Error('Could not start a secure session.')
+      const common = { issuingCard: k.providerCardId, nonce: n.nonce, ephemeralKeySecret: k.ephemeralKeySecret, style: { base: { fontSize: '16px', fontFamily: 'monospace' } } }
       setState('shown')
       // Wait a tick so the mount targets are rendered.
       await new Promise((r) => setTimeout(r, 0))

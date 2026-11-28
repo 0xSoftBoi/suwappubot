@@ -11,7 +11,7 @@ export function Agents() {
   const resources = useMyResources()
   const directory = useDirectory()
   const revoke = useMutation({ mutationFn: (id: string) => bank.revokeMandate(id), onSuccess: () => void qc.invalidateQueries({ queryKey: ['bank', 'mandates'] }) })
-  const toggle = useMutation({ mutationFn: ({ id, a }: { id: string; a: 'enable' | 'disable' }) => bank.setResource(id, a), onSuccess: () => void qc.invalidateQueries({ queryKey: ['bank', 'resources'] }) })
+  const toggle = useMutation({ mutationFn: ({ id, a }: { id: string; a: 'enable' | 'disable' }) => bank.setResource(id, a), onSuccess: () => { void qc.invalidateQueries({ queryKey: ['bank', 'resources'] }); void qc.invalidateQueries({ queryKey: ['bank', 'directory'] }) } })
   return (
     <BankPage title="Agents">
       <Tabs value={tab} onChange={setTab} tabs={[{ id: 'mandates', label: 'Mandates' }, { id: 'resources', label: 'My resources' }, { id: 'directory', label: 'Directory' }]} />

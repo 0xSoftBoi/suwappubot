@@ -107,6 +107,8 @@ export interface ScheduleInput {
 	items: Array<{ payeeId: string; amountMinor: string; memo?: string | undefined; ewaBps?: number | undefined }>
 	poolId?: string | undefined
 	autoApprove?: boolean | undefined
+	/** Optional caller key (same semantics as payroll run creation). */
+	idempotencyKey?: string | undefined
 }
 
 export interface BankPayrollServiceInterface {
@@ -604,6 +606,14 @@ export const BankPayrollServiceLive = Layer.succeed(BankPayrollService, {
 
 	createSchedule: (owner, input) =>
 		Effect.gen(function* () {
+			// MONEY-PATH: optional caller key; same key + same terms -> the original schedule, different terms -> CONFLICT. No key: legacy behaviour.
+			const idemHash = input.idempotencyKey ? createHash('sha256').update(JSON.stringify([input.fundingAccountId, input.name, input.frequency, input.timezone, input.dayOfWeek ?? null, input.dayOfMonth ?? null, input.localTime ?? null, input.items, input.poolId ?? null, input.autoApprove ?? false])).digest('hex') : undefined
+			const findByKey = () => bankDb(async (db) => (await db.select().from(bankPayrollSchedules).where(and(eq(bankPayrollSchedules.ownerType, owner.ownerType), eq(bankPayrollSchedules.ownerId, owner.ownerId), eq(bankPayrollSchedules.idemKey, input.idempotencyKey!))).limit(1))[0])
+			const replay = (r: BankPayrollSchedule) => (r.idemHash !== idemHash ? Effect.fail(bankErr('CONFLICT', 'idempotencyKey already used with different terms')) : Effect.succeed(r))
+			if (input.idempotencyKey) {
+				const prior = yield* findByKey()
+				if (prior) return yield* replay(prior)
+			}
 			const ledger = yield* BankLedgerService
 			const fund = yield* ledger.getAccount(owner, input.fundingAccountId)
 			{ const sysErr = assertSpendable(fund); if (sysErr) return yield* Effect.fail(sysErr) } // MONEY-PATH: system-kind accounts are never user-spendable
@@ -624,8 +634,12 @@ export const BankPayrollServiceLive = Layer.succeed(BankPayrollService, {
 				if (!p || p.asset !== fund.asset || p.chain !== fund.chain) return yield* Effect.fail(bankErr('VALIDATION', 'Pool not found or denominated differently from the funding account'))
 			}
 			const [row] = yield* bankDb((db) =>
-				db.insert(bankPayrollSchedules).values({ id: uid('psch'), ownerType: owner.ownerType, ownerId: owner.ownerId, fundingAccountId: fund.id, name: input.name, frequency: input.frequency, timezone: input.timezone, dayOfWeek: input.dayOfWeek ?? null, dayOfMonth: input.dayOfMonth ?? null, localTime: spec.localTime, items: input.items, poolId: input.poolId ?? null, autoApprove: input.autoApprove ?? false, nextRunAt: first.at }).returning(),
+				db.insert(bankPayrollSchedules).values({ id: uid('psch'), ownerType: owner.ownerType, ownerId: owner.ownerId, fundingAccountId: fund.id, name: input.name, frequency: input.frequency, timezone: input.timezone, dayOfWeek: input.dayOfWeek ?? null, dayOfMonth: input.dayOfMonth ?? null, localTime: spec.localTime, items: input.items, poolId: input.poolId ?? null, autoApprove: input.autoApprove ?? false, nextRunAt: first.at, ...(input.idempotencyKey ? { idemKey: input.idempotencyKey, idemHash } : {}) }).onConflictDoNothing().returning(),
 			)
+			if (!row && input.idempotencyKey) {
+				const raced = yield* findByKey()
+				if (raced) return yield* replay(raced)
+			}
 			return row!
 		}),
 

@@ -302,6 +302,13 @@
       "when": 1791900400000,
       "tag": "0045_bank_sales_recovery",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1791900500000,
+      "tag": "0046_bank_schedule_idempotency",
+      "breakpoints": true
     }
   ]
 }

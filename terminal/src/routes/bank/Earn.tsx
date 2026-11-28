@@ -80,6 +80,8 @@ export function Earn() {
   const [move, setMove] = useState<{ mode: 'deposit' | 'withdraw'; vault: Vault; position?: EarnPosition } | null>(null)
   const [sweepVault, setSweepVault] = useState('')
   const [floor, setFloor] = useState('')
+  // The vault list is per account (asset + chain): a vault chosen for the previous account must not be submitted for the new one.
+  useEffect(() => { setSweepVault('') }, [accountId])
   const floorMinor = acct?.decimals != null ? (floor === '0' || floor === '0.0' ? '0' : parseToMinor(floor, acct.decimals)) : null
   const save = useMutation({
     mutationFn: (enabled: boolean) => bank.setEarnSettings({ accountId, vault: sweepVault, enabled, floorMinor: floorMinor as string }),

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { bank, bankErrorText } from '../../lib/bankApi'
 import { scanLocally, type LocalMatch } from '../../lib/stealthScan'
@@ -19,6 +19,7 @@ export function Privacy() {
   const [chain, setChain] = useState('base'); const [from, setFrom] = useState(''); const [vk, setVk] = useState(''); const [sk, setSk] = useState('')
   const scan = useMutation({ mutationFn: () => bank.privacyScan({ chain: chain.trim(), fromBlock: toHexBlock(from) ?? from.trim(), viewPrivateKey: vk.trim(), spendPublicKey: sk.trim() }) })
   const cancelRef = useRef(false)
+  useEffect(() => () => { cancelRef.current = true }, [])
   const [local, setLocal] = useState(INIT)
   const runLocal = async () => {
     cancelRef.current = false

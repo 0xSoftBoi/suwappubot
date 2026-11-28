@@ -100,11 +100,14 @@ export interface AppConfig {
 // Per-request context variables set by middleware (see request-ID middleware below).
 type AppVariables = { requestId: string }
 
+// Remittance claim tokens are bearer secrets carried in the URL path: never write them to logs or Sentry.
+const redactClaimPath = (s: string) => s.replace(/(\/remittance\/claim\/|\/claim\/)[^/?\s]+/g, '$1[redacted]')
+
 export function createApp(config: AppConfig) {
 	const app = new Hono<{ Variables: AppVariables }>()
 
 	// Global middleware
-	app.use('*', honoLogger())
+	app.use('*', honoLogger((str, ...rest) => console.log(redactClaimPath(str), ...rest)))
 	app.use('*', createCorsMiddleware(config.allowedOrigins))
 
 	// OpenTelemetry request tracing — only registered when OTEL_ENABLED='true'.
@@ -131,7 +134,7 @@ export function createApp(config: AppConfig) {
 		const ms = performance.now() - start
 		c.header('X-Response-Time', `${ms.toFixed(0)}ms`)
 		if (ms > 100) {
-			logger.info(`${c.req.method} ${c.req.path} → ${c.res.status} in ${ms.toFixed(0)}ms`)
+			logger.info(`${c.req.method} ${redactClaimPath(c.req.path)} → ${c.res.status} in ${ms.toFixed(0)}ms`)
 		}
 	})
 
@@ -146,7 +149,7 @@ export function createApp(config: AppConfig) {
 			// traffic, not incidents — capturing them would flood the quota.
 			if (err.status >= 500) {
 				captureServerError(err, {
-					path: c.req.path,
+					path: redactClaimPath(c.req.path),
 					method: c.req.method,
 					requestId,
 					status: err.status,
@@ -168,7 +171,7 @@ export function createApp(config: AppConfig) {
 		}
 
 		logger.error({ err, requestId }, 'Unhandled error')
-		captureServerError(err, { path: c.req.path, method: c.req.method, requestId })
+		captureServerError(err, { path: redactClaimPath(c.req.path), method: c.req.method, requestId })
 		return c.json({ error: 'Internal Server Error', requestId, timestamp }, 500)
 	})
 

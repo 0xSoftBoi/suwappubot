@@ -99,7 +99,9 @@ export interface PublicInvoiceView {
 	lineItems: InvoiceLineItem[]
 	memo: string | null
 	dueAt: string | null
-	paymentRequest: PaymentRequest
+	/** null once partially paid: the scanner only matches the ORIGINAL tagged total (see walletCheckout). */
+	paymentRequest: PaymentRequest | null
+	walletCheckout?: 'available' | 'unavailable_after_partial'
 }
 
 export interface BankPaymentsServiceInterface {
@@ -466,7 +468,10 @@ export const BankPaymentsServiceLive = Layer.succeed(BankPaymentsService, {
 			const inv = yield* loadInvoice({ slug })
 			if (inv.status === 'draft') return yield* Effect.fail(bankErr('NOT_FOUND', 'Invoice not found'))
 			const payTo = yield* payToOf(inv)
-			const paymentRequest = yield* guard(() => buildPaymentRequest(inv, payTo))
+			// MONEY-PATH: the EVM scanner matches the original amount+tag total only, so after a partial payment a
+			// wallet payer following this request would overpay. Withhold the wallet request until it can match a remaining balance.
+			const partial = BigInt(inv.paidMinor) > 0n
+			const paymentRequest = partial ? null : yield* guard(() => buildPaymentRequest(inv, payTo))
 			return {
 				slug: inv.slug,
 				status: inv.status,
@@ -482,6 +487,7 @@ export const BankPaymentsServiceLive = Layer.succeed(BankPaymentsService, {
 				memo: inv.memo,
 				dueAt: inv.dueAt ? inv.dueAt.toISOString() : null,
 				paymentRequest,
+				walletCheckout: partial ? ('unavailable_after_partial' as const) : ('available' as const),
 			}
 		}),
 

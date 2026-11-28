@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { bank, formatMinor, type Invoice } from '../../lib/bankApi'
 import { useBankAccounts, useBankAssets } from '../../hooks/bank/useBankCore'
 import { useCreditScore, useInvoices } from '../../hooks/bank/useBankDomains'
-import { Btn, Card, Chip, Empty, ErrorBox, Field, QueryState, Row, Sheet } from './BankUI'
+import { Btn, Card, Chip, Empty, Field, QueryState, Row, Sheet } from './BankUI'
 import { AccountSelect } from './AccountSelect'
 import { MoneyAction } from './MoneyAction'
 
@@ -50,7 +50,7 @@ export function Receivables() {
   const [inv, setInv] = useState<Invoice | null>(null)
   const [acct, setAcct] = useState('')
   const dec = (i: Invoice) => assets.data?.find((a) => a.symbol === i.asset && a.chain === i.chain)?.decimals ?? null
-  const eligible = inv ? (accounts.data ?? []).filter((a) => a.asset === inv.asset && a.chain === inv.chain) : []
+  const eligible = inv ? (accounts.data ?? []).filter((a) => a.id === inv.payeeAccountId) : []
   const a = eligible.find((x) => x.id === acct)
   return (
     <div className="space-y-2">
@@ -62,7 +62,7 @@ export function Receivables() {
             {i.memo && <p className="text-xs text-terminal-text-secondary break-words">{i.memo}</p>}
             {i.acceptance?.required && <p className="text-[11px] text-terminal-text-secondary">{i.acceptance.acceptedAt ? `Accepted by payer ${new Date(i.acceptance.acceptedAt).toLocaleDateString()}` : 'Waiting for the payer to accept. Financing is refused until they do.'}</p>}
             {!i.acceptance?.required && <p className="text-[11px] text-terminal-text-secondary">No named payer, so this invoice cannot be accepted or financed.</p>}
-            {['open', 'accepted', 'partial'].includes(i.status) && !!i.acceptance?.acceptedAt && <Btn variant="ghost" className="w-full" onClick={() => { setInv(i); setAcct('') }}>Finance this invoice</Btn>}
+            {['open', 'overdue', 'partially_paid'].includes(i.status) && !!i.acceptance?.acceptedAt && <Btn variant="ghost" className="w-full" onClick={() => { setInv(i); setAcct('') }}>Finance this invoice</Btn>}
           </Card>
         ))}</>}
       </QueryState>
@@ -84,7 +84,6 @@ export function Receivables() {
           </div>
         </Sheet>
       )}
-      {invoices.isError && <ErrorBox error={invoices.error} />}
     </div>
   )
 }
