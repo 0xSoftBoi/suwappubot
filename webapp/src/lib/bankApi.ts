@@ -216,9 +216,12 @@ const del = <T>(path: string) => req<T>('DELETE', path)
 
 /** One key per user intent. Generate once, reuse on retry, discard after a terminal result. */
 export function newIdempotencyKey(): string {
+  // CSPRNG only (no Math.random fallback): getRandomValues is available in every browser/WebView
+  // that ships Web Crypto, including non-secure contexts where randomUUID is absent.
   const c = globalThis.crypto
-  const id = c && 'randomUUID' in c ? c.randomUUID() : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`
-  return `ui_${id}`
+  if (typeof c.randomUUID === 'function') return `ui_${c.randomUUID()}`
+  const b = c.getRandomValues(new Uint8Array(16))
+  return `ui_${Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('')}`
 }
 
 const MINOR_RE = /^\d+$/

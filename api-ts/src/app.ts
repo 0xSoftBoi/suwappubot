@@ -231,6 +231,14 @@ export function createApp(config: AppConfig) {
 	app.route('/', createTerminalSwapProxyRoutes({ baseUrl: config.internalApiUrl }))
 
 	// Suwappu Bank (webapp-authed). Must precede the general /webapp router.
+	// Bank request bodies are bounded: the largest legitimate payloads are an ISO 20022
+	// batch or a payroll run. Unbounded bodies let a single request pin the event loop.
+	app.use('/webapp/bank/*', bodyLimit({ maxSize: 2 * 1024 * 1024 }))
+	app.use('/v1/agent/bank/*', bodyLimit({ maxSize: 2 * 1024 * 1024 }))
+	app.use('/bank/webhooks/*', bodyLimit({ maxSize: 1024 * 1024 }))
+	app.use('/webhooks/bank/*', bodyLimit({ maxSize: 1024 * 1024 }))
+	app.use('/public/bank/*', bodyLimit({ maxSize: 64 * 1024 }))
+	app.use('/x402/bank/*', bodyLimit({ maxSize: 1024 * 1024 }))
 	app.route('/webapp/bank', bankWebappRoutes)
 	// Bank provider webhooks (raw-body signature verified, no user auth).
 	app.use('/bank/webhooks/*', ipRateLimit(600)) // signature-authenticated ramp provider callbacks

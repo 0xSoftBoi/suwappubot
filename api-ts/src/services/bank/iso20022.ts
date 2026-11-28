@@ -87,9 +87,29 @@ export function serialisePain001(b: CreditTransferBatch): string {
 
 // ---- tiny XML reader (elements, attributes, text, entities; no DTD/PI processing)
 interface XNode { name: string; attrs: Record<string, string>; children: XNode[]; text: string }
+const MAX_XML_CHARS = 2_000_000
+/**
+ * Remove every `open ... close` span (processing instructions, comments) in one linear pass.
+ * Replaces lazy `[\s\S]*?` regexes, which re-scan to end-of-input from every unterminated opener
+ * (O(n^2) on e.g. '<?<?<?...' from a request body — polynomial ReDoS). An unterminated span is
+ * rejected rather than silently dropped.
+ */
+const stripSpans = (s: string, open: string, close: string): string => {
+	let out = ''
+	let i = 0
+	for (;;) {
+		const a = s.indexOf(open, i)
+		if (a === -1) return out + s.slice(i)
+		const b = s.indexOf(close, a + open.length)
+		if (b === -1) throw bankErr('VALIDATION', `Malformed XML: unterminated ${open}`)
+		out += s.slice(i, a)
+		i = b + close.length
+	}
+}
 export function parseXml(xml: string): XNode {
+	if (xml.length > MAX_XML_CHARS) throw bankErr('VALIDATION', 'XML document too large')
 	if (/<!DOCTYPE|<!ENTITY/i.test(xml)) throw bankErr('VALIDATION', 'DTD/entity declarations are not allowed')
-	const src = xml.replace(/<\?[\s\S]*?\?>/g, '').replace(/<!--[\s\S]*?-->/g, '')
+	const src = stripSpans(stripSpans(xml, '<!--', '-->'), '<?', '?>')
 	const re = /<(\/?)([A-Za-z_][\w.:-]*)((?:\s+[\w.:-]+\s*=\s*"[^"]*")*)\s*(\/?)>|([^<]+)/g
 	const root: XNode = { name: '#root', attrs: {}, children: [], text: '' }
 	const stack: XNode[] = [root]
