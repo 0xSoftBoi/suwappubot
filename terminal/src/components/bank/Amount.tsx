@@ -1,5 +1,6 @@
 import { formatMinor } from '../../lib/bankApi'
 import { Input } from './BankUI'
+import { isDecimalInput } from '../../lib/bankValidate'
 
 export function Money({ minor, decimals, symbol, className = '' }: { minor: string | null | undefined; decimals: number | null | undefined; symbol?: string; className?: string }) {
   return <span className={`tabular-nums ${className}`}>{formatMinor(minor, decimals)}{symbol ? ` ${symbol}` : ''}</span>
@@ -16,7 +17,7 @@ export function AmountInput({ value, onChange, symbol, decimals }: { value: stri
         aria-label="Amount"
         onChange={(e) => {
           const v = e.target.value.replace(',', '.')
-          if (v === '' || /^\d*\.?\d*$/.test(v)) onChange(v)
+          if (v === '' || isDecimalInput(v)) onChange(v)
         }}
         className="pr-16"
       />

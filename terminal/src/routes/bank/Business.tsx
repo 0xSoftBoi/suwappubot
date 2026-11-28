@@ -5,6 +5,7 @@ import { useOrgData, useOrgs } from '../../hooks/bank/useBankDomains'
 import { BankPage, Btn, Card, Chip, Empty, ErrorBox, Field, Input, QueryState, Row, SectionTitle, Select, Tabs } from '../../components/bank/BankUI'
 import { ApprovalsInbox, BillsPanel, CardBudgets, OrgTransfer, PoliciesEditor } from './BusinessExtra'
 import { a11yToast } from '@/lib/a11yToast'
+import { isEmailLike, isTelegramId } from '../../lib/bankValidate'
 
 type Tab = 'transfer' | 'members' | 'approvals' | 'treasury' | 'bills' | 'cards'
 const ROLES = ['admin', 'approver', 'accountant', 'member', 'viewer']
@@ -30,7 +31,7 @@ function Members({ orgId }: { orgId: string }) {
         <Field label="Invitee email"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
         <Field label="Or Telegram id" hint="Numeric Telegram user id. Use email or Telegram id, not both."><Input inputMode="numeric" value={tg} disabled={!!email.trim()} onChange={(e) => setTg(e.target.value.replace(/\D/g, ''))} /></Field>
         {inv.isError && <ErrorBox error={inv.error} />}
-        <Btn className="w-full" disabled={inv.isPending || !(email.trim() ? /^\S+@\S+\.\S+$/.test(email.trim()) : /^[1-9]\d{0,14}$/.test(tg))} onClick={() => inv.mutate()}>{inv.isPending ? 'Creating…' : 'Create invite'}</Btn>
+        <Btn className="w-full" disabled={inv.isPending || !(email.trim() ? isEmailLike(email) : isTelegramId(tg))} onClick={() => inv.mutate()}>{inv.isPending ? 'Creating…' : 'Create invite'}</Btn>
         {typeof token === 'string' && <p className="font-mono text-[11px] break-all">{token}</p>}
       </Card>
     </div>

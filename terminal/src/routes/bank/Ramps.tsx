@@ -12,6 +12,7 @@ import { AmountInput } from '../../components/bank/Amount'
 import { ConfirmSheet } from '../../components/bank/ConfirmSheet'
 import { TransferTracker } from '../../components/bank/TransferTracker'
 import { a11yToast } from '@/lib/a11yToast'
+import { isEmailLike } from '../../lib/bankValidate'
 
 type Tab = 'add' | 'out' | 'kyc' | 'banks' | 'rails' | 'qr'
 const PROVIDERS = ['bridge', 'due'] as const
@@ -44,7 +45,7 @@ function Kyc() {
           <Field label="Email"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
           <Tabs value={type} onChange={setType} tabs={[{ id: 'individual', label: 'Individual' }, { id: 'business', label: 'Business' }]} />
           {start.isError && <ErrorBox error={start.error} />}
-          <Btn className="w-full" disabled={!name.trim() || !/.+@.+\..+/.test(email) || start.isPending} onClick={() => start.mutate()}>{start.isPending ? 'Starting…' : 'Start verification'}</Btn>
+          <Btn className="w-full" disabled={!name.trim() || !isEmailLike(email) || start.isPending} onClick={() => start.mutate()}>{start.isPending ? 'Starting…' : 'Start verification'}</Btn>
         </Card>
       )}
     </div>
