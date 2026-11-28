@@ -8,6 +8,7 @@
  * one transaction; the transfers run afterwards with deterministic keys `escrow:{id}:{milestone}:{kind}:{attempt}`.
  * If the process dies between claim and transfer, the recurring job re-executes the intents (same keys => no double pay).
  */
+import { findAsset } from './assets'
 import { and, asc, eq, inArray, lte, sql } from 'drizzle-orm'
 import { Context, Effect, Layer } from 'effect'
 import { type BankEscrow, type BankEscrowMilestone, bankEscrowEvents, bankEscrowMilestones, bankEscrows, type EscrowStatus, type MilestoneStatus } from '../../db'
@@ -44,6 +45,9 @@ export interface EscrowView {
 	events: Array<typeof bankEscrowEvents.$inferSelect>
 	/** Funding transfer (null until the fund transfer row exists). */
 	fundingTransferId?: string | null
+	/** Asset metadata so clients can format/parse minor amounts without a separate lookup. */
+	symbol?: string
+	decimals?: number | null
 	/** Release/refund transfers per milestone, so a client can track each one. */
 	transfers?: Array<{ milestoneSeq: number; kind: string; transferId: string; amountMinor: string; state: string }>
 }
@@ -79,7 +83,7 @@ const loadView = (id: string): PayFx<EscrowView> =>
 		// MONEY-PATH: read-only lookup of the funding transfer (metadata written by ensureFunded).
 		const fr = (await db.execute(sql`select id from bank_transfers where metadata->>'escrowId' = ${id} and metadata->>'kind' = 'fund' order by created_at asc limit 1`)) as unknown as Array<{ id: string }>
 		const transfers = milestones.flatMap((m) => m.settlement.filter((x) => x.transferId).map((x) => ({ milestoneSeq: m.seq, kind: x.kind as string, transferId: x.transferId, amountMinor: x.amountMinor, state: x.state as string })))
-		return { escrow, milestones, events, fundingTransferId: fr[0]?.id ?? null, transfers }
+		return { escrow, milestones, events, fundingTransferId: fr[0]?.id ?? null, transfers, symbol: escrow.asset, decimals: findAsset(escrow.asset, escrow.chain)?.decimals ?? null }
 	})
 
 const roleOf = (e: BankEscrow, o: BankOwner): Array<'payer' | 'payee' | 'arbiter'> => {

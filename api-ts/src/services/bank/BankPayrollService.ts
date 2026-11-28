@@ -107,6 +107,8 @@ export interface ScheduleInput {
 	items: Array<{ payeeId: string; amountMinor: string; memo?: string | undefined; ewaBps?: number | undefined }>
 	poolId?: string | undefined
 	autoApprove?: boolean | undefined
+	/** Optional caller key (same semantics as payroll run creation). */
+	idempotencyKey?: string | undefined
 }
 
 export interface BankPayrollServiceInterface {
@@ -127,8 +129,8 @@ export interface BankPayrollServiceInterface {
 	readonly listSchedules: (owner: BankOwner) => PayFx<BankPayrollSchedule[]>
 	readonly setScheduleStatus: (owner: BankOwner, id: string, status: 'active' | 'paused' | 'cancelled') => PayFx<BankPayrollSchedule>
 	/** Earned-wage access against a payroll schedule's current-period accrual. */
-	readonly advanceScheduleWages: (worker: BankOwner, scheduleId: string, payeeId: string, amountMinor: string, idempotencyKey: string) => PayFx<{ advanceId: string; transferId: string | null; availableAfterMinor: string }>
-	readonly scheduleAdvanceAvailable: (worker: BankOwner, scheduleId: string, payeeId: string) => PayFx<{ accruedMinor: string; advancedMinor: string; availableMinor: string; ewaBps: number }>
+	readonly advanceScheduleWages: (worker: BankOwner, scheduleId: string, payeeId: string, amountMinor: string, idempotencyKey: string) => PayFx<{ advanceId: string; transferId: string | null; availableAfterMinor: string; asset: string; symbol: string; chain: string; decimals: number | null }>
+	readonly scheduleAdvanceAvailable: (worker: BankOwner, scheduleId: string, payeeId: string) => PayFx<{ accruedMinor: string; advancedMinor: string; availableMinor: string; ewaBps: number; asset: string; symbol: string; chain: string; decimals: number | null }>
 	readonly runJob: () => PayFx<{ schedulesRun: number; itemsDriven: number }>
 }
 
@@ -443,7 +445,7 @@ const specOf = (s: BankPayrollSchedule): ScheduleSpec => ({ frequency: s.frequen
 
 // ------------------------------------------------------------------ service
 
-const scheduleAvail = (worker: BankOwner, scheduleId: string, payeeId: string): PayFx<{ accruedMinor: string; advancedMinor: string; availableMinor: string; ewaBps: number }> =>
+const scheduleAvail = (worker: BankOwner, scheduleId: string, payeeId: string): PayFx<{ accruedMinor: string; advancedMinor: string; availableMinor: string; ewaBps: number; asset: string; symbol: string; chain: string; decimals: number | null }> =>
 	Effect.gen(function* () {
 		const [sch] = yield* bankDb((db) => db.select().from(bankPayrollSchedules).where(eq(bankPayrollSchedules.id, scheduleId)).limit(1))
 		const payee = yield* loadPayee(payeeId)
@@ -454,7 +456,10 @@ const scheduleAvail = (worker: BankOwner, scheduleId: string, payeeId: string): 
 		const { periodKey, accrued } = accrualFor(sch, item, new Date())
 		const advanced = yield* advancedIn(sch.id, payeeId, periodKey)
 		const cap = (accrued * BigInt(bps)) / 10_000n - advanced
-		return { accruedMinor: accrued.toString(), advancedMinor: advanced.toString(), availableMinor: (cap > 0n ? cap : 0n).toString(), ewaBps: bps }
+		// The advance is always paid from the schedule's funding account: state its asset so clients never display another unit.
+		const fund = yield* (yield* BankLedgerService).getAccountById(sch.fundingAccountId)
+		const fa = findAsset(fund.asset, fund.chain)
+		return { accruedMinor: accrued.toString(), advancedMinor: advanced.toString(), availableMinor: (cap > 0n ? cap : 0n).toString(), ewaBps: bps, asset: fund.asset, symbol: fund.asset, chain: fund.chain, decimals: fa?.decimals ?? null }
 	})
 
 export const BankPayrollServiceLive = Layer.succeed(BankPayrollService, {
@@ -604,6 +609,14 @@ export const BankPayrollServiceLive = Layer.succeed(BankPayrollService, {
 
 	createSchedule: (owner, input) =>
 		Effect.gen(function* () {
+			// MONEY-PATH: optional caller key; same key + same terms -> the original schedule, different terms -> CONFLICT. No key: legacy behaviour.
+			const idemHash = input.idempotencyKey ? createHash('sha256').update(JSON.stringify([input.fundingAccountId, input.name, input.frequency, input.timezone, input.dayOfWeek ?? null, input.dayOfMonth ?? null, input.localTime ?? null, input.items, input.poolId ?? null, input.autoApprove ?? false])).digest('hex') : undefined
+			const findByKey = () => bankDb(async (db) => (await db.select().from(bankPayrollSchedules).where(and(eq(bankPayrollSchedules.ownerType, owner.ownerType), eq(bankPayrollSchedules.ownerId, owner.ownerId), eq(bankPayrollSchedules.idemKey, input.idempotencyKey!))).limit(1))[0])
+			const replay = (r: BankPayrollSchedule) => (r.idemHash !== idemHash ? Effect.fail(bankErr('CONFLICT', 'idempotencyKey already used with different terms')) : Effect.succeed(r))
+			if (input.idempotencyKey) {
+				const prior = yield* findByKey()
+				if (prior) return yield* replay(prior)
+			}
 			const ledger = yield* BankLedgerService
 			const fund = yield* ledger.getAccount(owner, input.fundingAccountId)
 			{ const sysErr = assertSpendable(fund); if (sysErr) return yield* Effect.fail(sysErr) } // MONEY-PATH: system-kind accounts are never user-spendable
@@ -624,8 +637,12 @@ export const BankPayrollServiceLive = Layer.succeed(BankPayrollService, {
 				if (!p || p.asset !== fund.asset || p.chain !== fund.chain) return yield* Effect.fail(bankErr('VALIDATION', 'Pool not found or denominated differently from the funding account'))
 			}
 			const [row] = yield* bankDb((db) =>
-				db.insert(bankPayrollSchedules).values({ id: uid('psch'), ownerType: owner.ownerType, ownerId: owner.ownerId, fundingAccountId: fund.id, name: input.name, frequency: input.frequency, timezone: input.timezone, dayOfWeek: input.dayOfWeek ?? null, dayOfMonth: input.dayOfMonth ?? null, localTime: spec.localTime, items: input.items, poolId: input.poolId ?? null, autoApprove: input.autoApprove ?? false, nextRunAt: first.at }).returning(),
+				db.insert(bankPayrollSchedules).values({ id: uid('psch'), ownerType: owner.ownerType, ownerId: owner.ownerId, fundingAccountId: fund.id, name: input.name, frequency: input.frequency, timezone: input.timezone, dayOfWeek: input.dayOfWeek ?? null, dayOfMonth: input.dayOfMonth ?? null, localTime: spec.localTime, items: input.items, poolId: input.poolId ?? null, autoApprove: input.autoApprove ?? false, nextRunAt: first.at, ...(input.idempotencyKey ? { idemKey: input.idempotencyKey, idemHash } : {}) }).onConflictDoNothing().returning(),
 			)
+			if (!row && input.idempotencyKey) {
+				const raced = yield* findByKey()
+				if (raced) return yield* replay(raced)
+			}
 			return row!
 		}),
 
@@ -687,7 +704,7 @@ export const BankPayrollServiceLive = Layer.succeed(BankPayrollService, {
 				yield* bankDb((db) => db.update(bankWageAdvances).set({ transferId: t.id }).where(eq(bankWageAdvances.id, adv.id)))
 			}
 			const after = yield* scheduleAvail(worker, scheduleId, payeeId)
-			return { advanceId: adv.id, transferId, availableAfterMinor: after.availableMinor }
+			return { advanceId: adv.id, transferId, availableAfterMinor: after.availableMinor, asset: after.asset, symbol: after.symbol, chain: after.chain, decimals: after.decimals }
 		}),
 
 	runJob: () =>

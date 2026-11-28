@@ -58,6 +58,9 @@ export interface QuoteInput {
 	amountMinor: string
 	/** Fiat currency override; defaults to the rail's currency. */
 	currency?: string | undefined
+	/** Quote for the provider/rail that `offramp` will actually execute with (needs `owner`). */
+	externalAccountId?: string | undefined
+	owner?: BankOwner | undefined
 }
 
 /** funded = stablecoin send recorded (bankTransferId set); awaiting_funding = provider transfer exists but no send recorded (bankTransferId null); failed = send failed, nothing sent. */
@@ -71,6 +74,8 @@ export interface OfframpInput {
 	externalAccountId: string
 	amountMinor: string
 	idempotencyKey: string
+	/** Optional floor taken from a prior quote (receive amount, dest-fiat minor units): refuse if the executed quote pays less. */
+	minReceiveMinor?: string | undefined
 }
 
 export interface BankRampServiceInterface {
@@ -191,17 +196,34 @@ export const BankRampServiceLive = Layer.succeed(BankRampService, {
 
 	quote: (i) =>
 		Effect.gen(function* () {
-			const providers = yield* getProviders
-			const info = RAIL_INFO[i.rail]
-			const fiat = (i.currency ?? info.currency).toUpperCase()
+			let providers = yield* getProviders
+			let rail = i.rail
+			let currency = i.currency
+			if (i.externalAccountId) {
+				// Quote for the provider + rail that offramp() will execute with (the destination account's), not just the best one.
+				const owner = i.owner
+				if (!owner) return yield* Effect.fail(bankErr('VALIDATION', 'externalAccountId needs an owner'))
+				const ext = yield* bankDb(async (db) => {
+					const [e] = await db.select().from(bankExternalAccounts).where(and(eq(bankExternalAccounts.id, i.externalAccountId!), eq(bankExternalAccounts.ownerType, owner.ownerType), eq(bankExternalAccounts.ownerId, owner.ownerId))).limit(1)
+					if (!e) throw bankErr('NOT_FOUND', 'External account not found')
+					return e
+				})
+				if (!isRail(ext.rail)) return yield* Effect.fail(bankErr('VALIDATION', `Unknown rail ${ext.rail}`))
+				if (i.direction !== 'offramp') return yield* Effect.fail(bankErr('VALIDATION', 'externalAccountId applies to offramp quotes only'))
+				rail = ext.rail
+				currency = ext.currency
+				providers = providers.filter((pr) => pr.id === ext.provider)
+			}
+			const info = RAIL_INFO[rail]
+			const fiat = (currency ?? info.currency).toUpperCase()
 			const fiatDec = FIAT_DECIMALS[fiat]
 			if (fiatDec === undefined) return yield* Effect.fail(bankErr('VALIDATION', `Unsupported fiat currency ${fiat}`))
 			const stableDec = yield* Effect.try({ try: () => symbolDecimals(i.asset), catch: (e) => e as BankError })
 			const asset = i.asset.toUpperCase()
 			const q: RampQuoteRequest =
 				i.direction === 'offramp'
-					? { sourceRail: 'crypto', sourceCurrency: asset, destRail: i.rail, destCurrency: fiat, amountMinor: i.amountMinor, sourceDecimals: stableDec, destDecimals: fiatDec }
-					: { sourceRail: i.rail, sourceCurrency: fiat, destRail: 'crypto', destCurrency: asset, amountMinor: i.amountMinor, sourceDecimals: fiatDec, destDecimals: stableDec }
+					? { sourceRail: 'crypto', sourceCurrency: asset, destRail: rail, destCurrency: fiat, amountMinor: i.amountMinor, sourceDecimals: stableDec, destDecimals: fiatDec }
+					: { sourceRail: rail, sourceCurrency: fiat, destRail: 'crypto', destCurrency: asset, amountMinor: i.amountMinor, sourceDecimals: fiatDec, destDecimals: stableDec }
 			return yield* viaProvider(() => bestQuote(providers, i.direction, q))
 		}),
 
@@ -379,6 +401,8 @@ export const BankRampServiceLive = Layer.succeed(BankRampService, {
 			const quote = yield* viaProvider(() =>
 				p.quoteOfframp({ sourceRail: 'crypto', sourceCurrency: asset.symbol, destRail: ext.rail as Rail, destCurrency: ext.currency, amountMinor: i.amountMinor, sourceDecimals: asset.decimals, destDecimals: fiatDec }),
 			)
+			// MONEY-PATH: refuse materially worse terms than the quote the user confirmed (before any provider transfer / fund movement).
+			if (i.minReceiveMinor && BigInt(quote.receiveAmountMinor) < BigInt(i.minReceiveMinor)) return yield* Effect.fail(bankErr('CONFLICT', `Off-ramp quote moved: receive ${quote.receiveAmountMinor} < accepted minimum ${i.minReceiveMinor}; re-quote`))
 			const pt = yield* viaProvider(() =>
 				p.createOfframp({
 					providerCustomerId: customer.providerCustomerId,

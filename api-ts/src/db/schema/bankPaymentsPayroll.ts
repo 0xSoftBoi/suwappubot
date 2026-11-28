@@ -333,10 +333,16 @@ export const bankPayrollSchedules = pgTable(
 		nextRunAt: ts('next_run_at').notNull(),
 		lastPeriodKey: varchar('last_period_key', { length: 32 }),
 		status: varchar('status', { length: 12 }).notNull().default('active'),
+		// MONEY-PATH: optional caller key for POST /payroll/schedules (0046); hash = sha256 of the create terms.
+		idemKey: varchar('idem_key', { length: 128 }),
+		idemHash: varchar('idem_hash', { length: 64 }),
 		createdAt: ts('created_at').defaultNow().notNull(),
 		updatedAt: ts('updated_at').defaultNow().notNull(),
 	},
-	(t) => ({ dueIdx: index('ix_bank_payroll_schedules_due').on(t.status, t.nextRunAt) }),
+	(t) => ({
+		dueIdx: index('ix_bank_payroll_schedules_due').on(t.status, t.nextRunAt),
+		idemUniq: uniqueIndex('ux_bank_payroll_schedules_idem').on(t.ownerType, t.ownerId, t.idemKey).where(sql`${t.idemKey} is not null`),
+	}),
 )
 
 export const bankPayoutPools = pgTable(

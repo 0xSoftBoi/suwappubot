@@ -66,6 +66,19 @@ function SeasonPointsChip() {
   )
 }
 
+// Entry point to Suwappu Bank (/bank). Always visible, including on mobile, since the Telegram Mini App is mobile-first.
+function BankLink() {
+  return (
+    <Link
+      to="/bank"
+      className="terminal-theme-control flex h-8 items-center gap-1.5 rounded-[7px] px-2.5 text-xs font-semibold text-terminal-text transition-colors hover:text-terminal-accent"
+      title="Open Suwappu Bank"
+    >
+      Bank
+    </Link>
+  )
+}
+
 export function Header() {
   const { selectedChain, setSelectedChain, selectedPair } = usePair()
   const { tradingMode, side } = useTrading()
@@ -279,6 +292,7 @@ export function Header() {
         {menuOpen && (
           <div className="terminal-mobile-header-menu terminal-theme-overlay absolute left-0 right-0 top-[calc(100%+6px)] z-[80] flex flex-col gap-3 overflow-y-auto p-3">
             <ModeSwitch className="terminal-mobile-mode-switch w-full justify-between" />
+            <div className="min-h-[44px] [&>a]:h-11 [&>a]:w-full [&>a]:justify-center" onClick={() => setMenuOpen(false)}><BankLink /></div>
 
             <button
               type="button"
@@ -379,6 +393,7 @@ export function Header() {
         >
           API Keys
         </a>
+        <BankLink />
         <SeasonPointsChip />
         {walletButton}
         {googleButton}

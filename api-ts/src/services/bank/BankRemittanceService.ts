@@ -34,7 +34,8 @@ type Fx<A> = Effect.Effect<A, BankError, Deps>
 export type Recipient =
 	| { kind: 'user'; telegramId?: number | undefined; username?: string | undefined }
 	| { kind: 'address'; address: string }
-	| { kind: 'claim'; label?: string | undefined }
+	/** telegramId/username (optional): bind the claim link to that identity; omitted = open bearer link. */
+	| { kind: 'claim'; label?: string | undefined; telegramId?: number | undefined; username?: string | undefined }
 	| { kind: 'payout'; rail: Rail; externalAccountId: string }
 
 export interface SendInput {
@@ -208,7 +209,9 @@ const impl: BankRemittanceServiceInterface = {
 			}
 
 			if (rec.kind === 'claim') {
-				yield* insert({ recipientRef: rec.label ?? null })
+				// MONEY-PATH: sender named a recipient -> remember it so only that identity can redeem the token.
+				const claimFor = rec.telegramId != null || rec.username ? { ...(rec.telegramId != null ? { telegramId: rec.telegramId } : {}), ...(rec.username ? { username: rec.username.replace(/^@/, '').toLowerCase() } : {}) } : null
+				yield* insert({ recipientRef: rec.label ?? (claimFor ? String(claimFor.telegramId ?? claimFor.username) : null), ...(claimFor ? { metadata: { claimFor } } : {}) })
 				// MONEY-PATH: the claim escrow needs a custody wallet like every other account (same as BankEscrowService): reuse the sender's.
 				if (from.walletId == null || from.walletUserId == null || !from.address) return yield* Effect.fail(bankErr('WALLET_UNAVAILABLE', 'Source account has no custody wallet'))
 				const escrow = yield* ledger.openAccount({ owner, kind: 'escrow', asset: from.asset, chain: from.chain, label: `remit:${id}`.slice(0, 80), metadata: { remittanceId: id }, wallet: { walletId: from.walletId, walletUserId: from.walletUserId, address: from.address } }).pipe(Effect.tapError(fail('escrow account')))
@@ -251,6 +254,15 @@ const impl: BankRemittanceServiceInterface = {
 			})
 			if (!found) return yield* Effect.fail(bankErr('NOT_FOUND', 'Claim link not found'))
 			if (found.senderType === claimer.ownerType && found.senderId === claimer.ownerId) return yield* Effect.fail(bankErr('VALIDATION', 'Sender cannot claim their own remittance (use cancel)'))
+			// MONEY-PATH: recipient-bound link: only the named Telegram identity may redeem (checked before the single-use CAS so a wrong claimer cannot burn it).
+			const claimFor = (found.metadata as { claimFor?: { telegramId?: number; username?: string } } | null)?.claimFor
+			if (claimFor) {
+				const me = claimer.ownerType === 'user' && /^\d+$/.test(claimer.ownerId)
+					? yield* bankDb(async (db) => (await db.select({ telegramId: users.telegramId, username: users.username }).from(users).where(eq(users.id, Number(claimer.ownerId))).limit(1))[0])
+					: undefined
+				const ok = !!me && ((claimFor.telegramId != null && Number(me.telegramId) === claimFor.telegramId) || (!!claimFor.username && (me.username ?? '').toLowerCase() === claimFor.username))
+				if (!ok) return yield* Effect.fail(bankErr('FORBIDDEN', 'This claim link was issued to a different recipient'))
+			}
 			if (i.choice === 'cashout' && !i.externalAccountId) return yield* Effect.fail(bankErr('VALIDATION', 'cashout requires externalAccountId'))
 			// Single-use: only one caller wins this swap. Expired links never match.
 			const won = yield* cas(and(eq(bankRemittances.claimTokenHash, th), eq(bankRemittances.status, 'awaiting_claim'), sql`${bankRemittances.claimExpiresAt} > now()`), 'pending')

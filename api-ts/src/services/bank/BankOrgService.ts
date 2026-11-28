@@ -463,10 +463,12 @@ const impl = {
 				const m = yield* bankDb((db) => db.select({ id: bankOrgMembers.id }).from(bankOrgMembers).where(and(eq(bankOrgMembers.orgId, id), eq(bankOrgMembers.userId, Number.isInteger(uid) ? uid : -1))).limit(1))
 				if (!m.length) return yield* Effect.fail(bankErr('NOT_FOUND', 'Member not found in this organisation'))
 			}
+			// MONEY-PATH: merge-patch. An omitted field keeps the stored value; an explicit null clears a cap (full-object clients behave as before).
+			const [ex] = yield* bankDb((db) => db.select().from(bankOrgCardBudgets).where(and(eq(bankOrgCardBudgets.orgId, id), eq(bankOrgCardBudgets.scope, i.scope), eq(bankOrgCardBudgets.scopeId, i.scopeId))).limit(1))
 			const vals = {
-				monthlyCapMinor: i.monthlyCapMinor ?? null,
-				perTxCapMinor: i.perTxCapMinor ?? null,
-				categoryBudgets: i.categoryBudgets ?? {},
+				monthlyCapMinor: i.monthlyCapMinor !== undefined ? i.monthlyCapMinor : (ex?.monthlyCapMinor ?? null),
+				perTxCapMinor: i.perTxCapMinor !== undefined ? i.perTxCapMinor : (ex?.perTxCapMinor ?? null),
+				categoryBudgets: i.categoryBudgets !== undefined ? i.categoryBudgets : (ex?.categoryBudgets ?? {}),
 				updatedBy: c.actor.userId,
 				updatedAt: new Date(),
 			}

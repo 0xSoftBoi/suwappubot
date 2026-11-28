@@ -41,6 +41,7 @@ const ScheduleCreate = z.object({
 	items: z.array(z.object({ payeeId: id, amountMinor: minor, memo: z.string().max(140).optional(), ewaBps: z.number().int().min(1).max(10_000).optional() })).min(1).max(1000),
 	poolId: id.optional(),
 	autoApprove: z.boolean().optional(),
+	idempotencyKey: z.string().regex(/^[A-Za-z0-9_.:-]{8,128}$/).optional(),
 })
 const PoolCreate = z.object({
 	accountId: id.optional(),
@@ -123,7 +124,7 @@ export function register(app: BankRouteApp, deps: BankRouteDeps): void {
 		const o = await resolveOwner(c)
 		const b = await withBody(c, ScheduleCreate)
 		if (!b.ok) return b.res
-		return run(c, Effect.gen(function* () { return { schedule: yield* (yield* P).createSchedule(o, b.data) } }))
+		return run(c, Effect.gen(function* () { return { schedule: yield* (yield* P).createSchedule(o, { ...b.data, idempotencyKey: b.data.idempotencyKey ?? (c.req.header('Idempotency-Key')?.trim() || undefined) }) } }))
 	})
 	app.get('/payroll/schedules', async (c) => {
 		const o = await resolveOwner(c)

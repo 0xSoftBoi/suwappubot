@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@ledgerhq/connect-kit-loader": "^1.1.8",
+    "@noble/curves": "^1.9.7",
     "@rainbow-me/rainbowkit": "^2.2.3",
     "@solana/web3.js": "^1.98.4",
     "@suwappu/design-tokens": "file:../packages/design-tokens",

@@ -30,7 +30,7 @@ const SendSchema = z
 		recipient: z.discriminatedUnion('kind', [
 			z.object({ kind: z.literal('user'), telegramId: z.number().int().positive().optional(), username: z.string().min(1).max(64).optional() }),
 			z.object({ kind: z.literal('address'), address: z.string().min(20).max(128) }),
-			z.object({ kind: z.literal('claim'), label: z.string().max(80).optional() }),
+			z.object({ kind: z.literal('claim'), label: z.string().max(80).optional(), telegramId: z.number().int().positive().optional(), username: z.string().min(1).max(64).optional() }),
 			z.object({ kind: z.literal('payout'), rail: z.enum(RAILS), externalAccountId: z.string().min(1).max(64) }),
 		]),
 	})
