@@ -33,10 +33,10 @@ function Kyc() {
       <Card className="space-y-2">
         {kyc.isLoading && <p className="text-sm animate-pulse">Checking status…</p>}
         {kyc.isError && <ErrorBox error={kyc.error} />}
-        {kyc.data && <><Row label="Verification" value={<Chip status={kyc.data.kycStatus} />} />
-          {tos && <a className="block text-sm font-semibold text-terminal-accent min-h-[44px] leading-[44px]" href={tos} target="_blank" rel="noreferrer">Accept terms of service</a>}
-          {link && <a className="block text-sm font-semibold text-terminal-accent min-h-[44px] leading-[44px]" href={link} target="_blank" rel="noreferrer">Continue identity verification</a>}
-          <Btn variant="ghost" className="w-full" onClick={() => void kyc.refetch()}>Refresh status</Btn></>}
+        {kyc.data && <Row label="Verification" value={<Chip status={kyc.data.kycStatus} />} />}
+        {tos && <a className="block text-sm font-semibold text-terminal-accent min-h-[44px] leading-[44px]" href={tos} target="_blank" rel="noreferrer">Accept terms of service</a>}
+        {link && <a className="block text-sm font-semibold text-terminal-accent min-h-[44px] leading-[44px]" href={link} target="_blank" rel="noreferrer">Continue identity verification</a>}
+        {kyc.data && <Btn variant="ghost" className="w-full" onClick={() => void kyc.refetch()}>Refresh status</Btn>}
       </Card>
       {(kyc.isError || !kyc.data) && !kyc.isLoading && (
         <Card className="space-y-3">

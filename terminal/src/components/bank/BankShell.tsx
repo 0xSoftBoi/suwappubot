@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { TerminalThemeScope } from '../../theme/TerminalThemeScope'
 import { hasBankCredential } from '../../lib/bankAuth'
 import { TELEGRAM_BOT_URL } from '../../lib/botLink'
@@ -35,11 +35,14 @@ export function BankShell({ title, onBack, children, bare = false }: { title?: s
 const BOT_URL = TELEGRAM_BOT_URL
 
 function NeedsTelegram() {
+  // On /bank/claim/<token>, carry the token into the bot deep link so the bot can resume the claim.
+  const m = /^\/bank\/claim\/([^/?#]+)/.exec(useLocation().pathname)
+  const href = m ? `${BOT_URL}?start=claim_${m[1]}` : BOT_URL
   return (
     <div role="status" className="p-6 max-w-sm mx-auto text-center space-y-2">
       <p className="text-sm font-semibold">Open Suwappu Bank from Telegram</p>
       <p className="text-xs text-terminal-text-secondary">Bank sign-in uses your Telegram session. Open this page from the Suwappu bot (/bank) to continue.</p>
-      <a href={BOT_URL} className="terminal-button inline-flex min-h-[44px] items-center px-4 text-sm font-semibold">Open in Telegram</a>
+      <a href={href} className="terminal-button inline-flex min-h-[44px] items-center px-4 text-sm font-semibold">Open in Telegram</a>
     </div>
   )
 }

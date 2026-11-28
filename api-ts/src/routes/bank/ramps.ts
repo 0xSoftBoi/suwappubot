@@ -16,7 +16,7 @@ const provider = z.enum(['bridge', 'due'])
 const rail = z.enum(RAILS)
 
 const QuoteSchema = z
-	.object({ direction: z.enum(['offramp', 'onramp']), rail, asset: z.string().min(2).max(16), amountMinor: minor.optional(), amount: human.optional(), currency: z.string().min(3).max(8).optional() })
+	.object({ direction: z.enum(['offramp', 'onramp']), rail, asset: z.string().min(2).max(16), amountMinor: minor.optional(), amount: human.optional(), currency: z.string().min(3).max(8).optional(), externalAccountId: z.string().min(1).max(64).optional() })
 	.refine((v) => (v.amountMinor ? 1 : 0) + (v.amount ? 1 : 0) === 1, { message: 'provide exactly one of amountMinor or amount' })
 
 const KycSchema = z.object({ provider: provider.default('bridge'), email: z.string().email(), fullName: z.string().min(1).max(256), type: z.enum(['individual', 'business']).default('individual') })
@@ -33,7 +33,7 @@ const ExternalSchema = z.object({
 
 const VirtualSchema = z.object({ provider: provider.default('bridge'), accountId: z.string().min(1).max(64), sourceCurrency: z.enum(['usd', 'eur', 'mxn', 'brl', 'cop', 'gbp']) })
 
-const OfframpSchema = z.object({ idempotencyKey: idem.optional(), provider: provider.optional(), fromAccountId: z.string().min(1).max(64), externalAccountId: z.string().min(1).max(64), amountMinor: minor })
+const OfframpSchema = z.object({ idempotencyKey: idem.optional(), provider: provider.optional(), fromAccountId: z.string().min(1).max(64), externalAccountId: z.string().min(1).max(64), amountMinor: minor, minReceiveMinor: z.string().regex(/^[0-9]{1,78}$/).optional() })
 
 const QrGenSchema = z.discriminatedUnion('kind', [
 	z.object({ kind: z.literal('pix'), key: z.string().min(1).max(77), merchantName: z.string().min(1).max(25), merchantCity: z.string().min(1).max(15), amountMinor: minor.optional(), txid: z.string().max(25).optional(), description: z.string().max(40).optional() }),
@@ -60,7 +60,7 @@ export function register(app: BankRouteApp, deps: BankRouteDeps): void {
 	)
 
 	app.post('/ramps/quote', async (c) => {
-		await resolveOwner(c)
+		const quoteOwner = await resolveOwner(c)
 		const parsed = QuoteSchema.safeParse(await readJson(c))
 		if (!parsed.success) return bad(c, formatZodErrors(parsed.error))
 		const b = parsed.data
@@ -72,7 +72,9 @@ export function register(app: BankRouteApp, deps: BankRouteDeps): void {
 				amountMinor = yield* Effect.try({ try: () => toMinor(b.amount as string, dec).toString(), catch: (e) => bankErr('VALIDATION', (e as Error).message) })
 			}
 			const fiat = (b.currency ?? RAIL_INFO[b.rail].currency).toUpperCase()
-				return { routed: yield* (yield* BankRampService).quote({ direction: b.direction, rail: b.rail, asset: b.asset, amountMinor, currency: b.currency }), fiatCurrency: fiat, decimals: FIAT_DECIMALS[fiat] ?? 2 }
+				const routed = yield* (yield* BankRampService).quote({ direction: b.direction, rail: b.rail, asset: b.asset, amountMinor, currency: b.currency, ...(b.externalAccountId ? { externalAccountId: b.externalAccountId, owner: quoteOwner } : {}) })
+				// provider/quoteId/expiresAt: the quote offramp would execute against (best of the executing provider when externalAccountId is given). Pass receiveAmountMinor back as minReceiveMinor to refuse worse terms.
+				return { routed, fiatCurrency: fiat, decimals: FIAT_DECIMALS[fiat] ?? 2, provider: routed.best.provider, quoteId: routed.best.quoteId, expiresAt: routed.best.expiresAt, receiveAmountMinor: routed.best.receiveAmountMinor }
 		}))
 	})
 
@@ -128,7 +130,7 @@ export function register(app: BankRouteApp, deps: BankRouteDeps): void {
 		const idempotencyKey = b.idempotencyKey ?? c.req.header('Idempotency-Key')?.trim()
 		if (!idempotencyKey) return bad(c, { idempotencyKey: 'required (body field or Idempotency-Key header)' })
 		return run(c, Effect.gen(function* () {
-			return yield* (yield* BankRampService).offramp({ owner, provider: b.provider, fromAccountId: b.fromAccountId, externalAccountId: b.externalAccountId, amountMinor: b.amountMinor, idempotencyKey })
+			return yield* (yield* BankRampService).offramp({ owner, provider: b.provider, fromAccountId: b.fromAccountId, externalAccountId: b.externalAccountId, amountMinor: b.amountMinor, idempotencyKey, minReceiveMinor: b.minReceiveMinor })
 		}))
 	})
 

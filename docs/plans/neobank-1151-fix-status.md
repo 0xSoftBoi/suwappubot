@@ -39,3 +39,23 @@ row 9 (server) -> FIXED (BankRemittanceService.send: recipient kind 'claim' now 
 - row 34 (IssueCard) → not in C1 ownership; left to C2.
 row 10 (server) -> FIXED (BankPayrollService.scheduleAvail + advanceScheduleWages result: added asset, symbol, chain, decimals of the schedule funding account)
 row 16 (server) -> FIXED (BankOrgService.setCardBudget: merge-patch, omitted monthlyCapMinor/perTxCapMinor/categoryBudgets keep stored values, explicit null clears)
+## Batch D checkpoint (bun run check clean after rows 2,3,9,10,16,17)
+item 1 (org accounts presenter; decimals+symbol? decimals+balance via presentAccount; asset field doubles as symbol as for personal accounts) -> FIXED
+item 2 (partial invoice) -> FIXED, option chosen: paymentRequest null + walletCheckout (scanner untouched)
+item 3 (a)(b)(c) -> FIXED (Idempotency-Key header or body key on POST /payroll/schedules; EWA availability+advance carry asset/symbol/chain/decimals; org accounts carry decimals)
+item 4 -> FIXED (recipient binding + log redaction); body-token claim route NOT DONE
+item 5 -> FIXED (same as 10)
+item 6 -> FIXED
+item 7 (ramps quote/offramp) -> NOT STARTED
+item 8 (cloudflare worker comment), 9 (escrow decimals) -> NOT STARTED
+- [C2] row 18 → FIXED (components/bank/EscrowDetail.tsx: resolve parse returns null when decs null; actions blocked until decimals known)
+- [C2] row 48 → FIXED (EscrowDetail.tsx: payer Release when !hasArbiter and funded/disputed; payee Refund also on disputed)
+- [C2] row 35 → FIXED (components/bank/Amount.tsx: aria-label only via optional ariaLabel prop, so Field label names the input)
+- [C2] row 32 → FIXED (routes/bank/BankSettings.tsx: constant 6 decimals, labelled USD equivalent)
+- [C2] row 36 → FIXED (routes/bank/BankHome.tsx KIND + OpsAlert.cancelOwed removed in lib/bankApi.ts)
+- [C2] row 22 → FIXED (new hooks/bank/useBankQuery.ts gates on hasBankCredential; useBankCore/useBankDomains/useTransferPoll use it)
+- [C2] row 33 → FIXED (hooks/bank/useTransferPoll.ts stops polling on error)
+- [C2] row 39 → FIXED (components/bank/CheapestChainHint.tsx 350ms debounce + keepPreviousData)
+- [C2] row 23 → FIXED (routes/bank/Privacy.tsx cancel on unmount)
+- [C2] row 38 → FIXED (routes/bank/Agents.tsx invalidates ['bank','directory'])
+- [C2] row 34 + row 19 → FIXED (hooks/bank/useIdempotencyKey.ts: optional fingerprint persists key in sessionStorage via intentKey, reset on success, settle(err) clears on definitive 4xx; MoneyAction.tsx + IssueCard.tsx use it). Hook now also returns stable object + settle().
