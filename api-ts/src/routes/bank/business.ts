@@ -17,7 +17,7 @@ import { BankPayablesService } from '../../services/bank/BankPayablesService'
 import { BankTreasuryService } from '../../services/bank/BankTreasuryService'
 import type { BankOwner } from '../../services/bank/db'
 import { formatZodErrors } from '../validators'
-import { readJson } from './core'
+import { presentAccount, readJson } from './core'
 import type { BankRouteApp, BankRouteDeps } from './index'
 
 const role = z.enum(['owner', 'admin', 'approver', 'accountant', 'member', 'viewer'])
@@ -109,8 +109,8 @@ export function register(app: BankRouteApp, deps: BankRouteDeps): void {
 	route('delete', '/orgs/:orgId/invites/:inviteId', null, (o, p) => Effect.flatMap(BankOrgService, (s) => s.revokeInvite(o, p('orgId'), p('inviteId'))))
 
 	// Accounts + transfers
-	route('get', '/orgs/:orgId/accounts', null, (o, p) => Effect.flatMap(BankOrgService, (s) => s.listAccounts(o, p('orgId'))))
-	route('post', '/orgs/:orgId/accounts', S.account, (o, p, b) => Effect.flatMap(BankOrgService, (s) => s.openAccount(o, p('orgId'), b)))
+	route('get', '/orgs/:orgId/accounts', null, (o, p) => Effect.flatMap(BankOrgService, (s) => Effect.map(s.listAccounts(o, p('orgId')), (r) => ({ ...r, accounts: r.accounts.map(presentAccount) }))))
+	route('post', '/orgs/:orgId/accounts', S.account, (o, p, b) => Effect.flatMap(BankOrgService, (s) => Effect.map(s.openAccount(o, p('orgId'), b), (r) => ({ ...r, account: presentAccount(r.account) }))))
 	app.post('/orgs/:orgId/transfers', async (c) => {
 		const owner = await resolveOwner(c)
 		const parsed = S.transfer.safeParse((await readJson(c)) ?? {})

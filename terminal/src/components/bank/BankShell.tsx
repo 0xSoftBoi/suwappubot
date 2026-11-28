@@ -13,9 +13,12 @@ export function BankShell({ title, onBack, children, bare = false }: { title?: s
   const navigate = useNavigate()
   return (
     <TerminalThemeScope>
-      <div className="terminal-theme-page min-h-screen w-full text-terminal-text font-sans flex flex-col">
+      <div
+        className="terminal-theme-page h-[100dvh] w-full overflow-y-auto overflow-x-hidden overscroll-contain text-terminal-text font-sans flex flex-col"
+        style={{ WebkitOverflowScrolling: 'touch', paddingBottom: 'env(safe-area-inset-bottom)', paddingLeft: 'env(safe-area-inset-left)', paddingRight: 'env(safe-area-inset-right)' }}
+      >
         {!bare && (
-          <header className="sticky top-0 z-20 flex items-center gap-1 h-12 px-2 bg-terminal-bg border-b border-terminal-border">
+          <header style={{ paddingTop: 'env(safe-area-inset-top)' }} className="sticky top-0 z-20 shrink-0 flex items-center gap-1 min-h-12 px-2 bg-terminal-bg border-b border-terminal-border">
             <button type="button" aria-label="Back" onClick={onBack ?? (() => navigate('/bank'))} className="min-w-[44px] min-h-[44px] text-terminal-text-secondary hover:text-terminal-text">←</button>
             <h1 className="flex-1 min-w-0 truncate font-display font-semibold text-sm">{title}</h1>
             <button type="button" onClick={() => navigate('/')} className="min-h-[44px] px-2 text-xs font-semibold text-terminal-text-secondary hover:text-terminal-text">Terminal</button>

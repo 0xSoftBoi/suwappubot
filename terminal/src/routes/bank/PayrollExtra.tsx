@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { bank, formatMinor, parseToMinor, transferIdOf } from '../../lib/bankApi'
+import { bank, formatMinor, isMinor, parseToMinor, transferIdOf } from '../../lib/bankApi'
 import { useBankAccounts, useBankAssets } from '../../hooks/bank/useBankCore'
 import { usePayees } from '../../hooks/bank/useBankDomains'
 import { Btn, Card, Chip, Empty, ErrorBox, Field, Input, QueryState, Row, SectionTitle, Select, Sheet } from '../../components/bank/BankUI'
@@ -27,7 +27,7 @@ export function CreateSchedule({ onClose }: { onClose: () => void }) {
   const [lines, setLines] = useState<Line[]>([{ payeeId: '', amount: '', ewa: '' }])
   const [review, setReview] = useState(false)
   const a = accounts.data?.find((x) => x.id === funding)
-  const d = a?.decimals ?? null
+  const d = typeof a?.decimals === 'number' && Number.isInteger(a.decimals) ? a.decimals : null
   const items = lines.map((l) => ({ l, m: d !== null ? parseToMinor(l.amount, d) : null, ewaN: l.ewa.trim() ? Number(l.ewa) : undefined }))
   const domN = Number(dom)
   const ok = !!a && !!name.trim() && /^([01]\d|2[0-3]):[0-5]\d$/.test(time) && items.length > 0 && items.every((i) => i.l.payeeId && i.m && (i.ewaN === undefined || (Number.isInteger(i.ewaN) && i.ewaN >= 1 && i.ewaN <= 10000))) && (freq === 'monthly' ? Number.isInteger(domN) && domN >= 1 && domN <= 31 : true)
@@ -45,7 +45,7 @@ export function CreateSchedule({ onClose }: { onClose: () => void }) {
         ]}
         confirmLabel="Create schedule"
         note={auto ? 'Automatic runs send real money on schedule.' : undefined}
-        run={() => bank.createSchedule({ fundingAccountId: funding, name: name.trim(), frequency: freq, timezone: tz, localTime: time, ...(freq === 'monthly' ? { dayOfMonth: domN } : { dayOfWeek: dow }), autoApprove: auto, items: items.map((i) => ({ payeeId: i.l.payeeId, amountMinor: i.m, ...(i.ewaN ? { ewaBps: i.ewaN } : {}) })) })}
+        run={(k) => bank.createSchedule({ fundingAccountId: funding, name: name.trim(), frequency: freq, timezone: tz, localTime: time, ...(freq === 'monthly' ? { dayOfMonth: domN } : { dayOfWeek: dow }), autoApprove: auto, items: items.map((i) => ({ payeeId: i.l.payeeId, amountMinor: i.m, ...(i.ewaN ? { ewaBps: i.ewaN } : {}) })) }, k)}
         onClose={onClose}
       />
     )
@@ -81,15 +81,14 @@ export function MyPayouts() {
   const assets = useBankAssets()
   const q = useQuery({ queryKey: ['bank', 'my-payouts'], queryFn: async () => (await bank.myPayouts()).payouts, retry: 1 })
   const [pairKey, setPairKey] = useState('')
-  const [asset, setAsset] = useState('')
   const [amt, setAmt] = useState('')
   const pairs = Array.from(new Map((q.data ?? []).filter((r) => r.scheduleId && r.payeeId).map((r) => [`${r.scheduleId}|${r.payeeId}`, { sid: r.scheduleId as string, pid: r.payeeId as string, name: r.payee }] as const)).values())
   const check = pairs.find((p) => `${p.sid}|${p.pid}` === pairKey) ?? pairs[0] ?? null
   const [review, setReview] = useState(false)
   const avail = useQuery({ queryKey: ['bank', 'ewa', check?.sid, check?.pid], queryFn: () => bank.scheduleAdvanceAvailable(check!.sid, check!.pid), enabled: !!check, retry: 0 })
-  const [pair, chainSel] = asset.split('|')
-  const ad = assets.data?.find((x) => x.symbol === pair && x.chain === chainSel)
+  const ad = avail.data && typeof avail.data.decimals === 'number' && Number.isInteger(avail.data.decimals) && avail.data.asset ? { symbol: avail.data.asset, decimals: avail.data.decimals } : null
   const m = ad ? parseToMinor(amt, ad.decimals) : null
+  const cap = avail.data && isMinor(avail.data.availableMinor) ? BigInt(avail.data.availableMinor) : null
   return (
     <div className="space-y-3">
       <SectionTitle>Paid to me</SectionTitle>
@@ -107,12 +106,12 @@ export function MyPayouts() {
         {check && avail.isLoading && <p className="text-sm animate-pulse">Checking what you can take…</p>}
         {avail.data && (
           <>
-            <Select aria-label="Asset" value={asset} onChange={(e) => setAsset(e.target.value)}><option value="">Pay-out asset and network</option>{(assets.data ?? []).map((x) => <option key={`${x.symbol}|${x.chain}`} value={`${x.symbol}|${x.chain}`}>{x.symbol} on {x.chain}</option>)}</Select>
+            {!ad && <p className="text-xs text-terminal-warn">Advances are unavailable right now because the schedule's pay-out asset could not be determined. Nothing was sent.</p>}
             {ad && (
               <>
                 <Row label="Accrued" value={`${formatMinor(avail.data.accruedMinor, ad.decimals)} ${ad.symbol}`} /><Row label="Already advanced" value={`${formatMinor(avail.data.advancedMinor, ad.decimals)} ${ad.symbol}`} /><Row label="Available" value={`${formatMinor(avail.data.availableMinor, ad.decimals)} ${ad.symbol}`} />
                 <AmountInput value={amt} onChange={setAmt} symbol={ad.symbol} decimals={ad.decimals} />
-                <Btn className="w-full" disabled={!m || BigInt(m) > BigInt(avail.data.availableMinor)} onClick={() => setReview(true)}>Review</Btn>
+                <Btn className="w-full" disabled={!m || cap === null || BigInt(m) > cap} onClick={() => setReview(true)}>Review</Btn>
               </>
             )}
           </>
@@ -121,7 +120,7 @@ export function MyPayouts() {
       {review && check && ad && m && (
         <MoneyAction
           title="Take earned wages early"
-          rows={[{ label: 'Advance', value: `${formatMinor(m, ad.decimals)} ${ad.symbol}` }, { label: 'Schedule', value: check.sid, mono: true }, { label: 'Fee', value: 'None shown by the API' }]}
+          rows={[{ label: 'Advance', value: `${formatMinor(m, ad.decimals)} ${ad.symbol}` }, ...(avail.data?.chain ? [{ label: 'Network', value: avail.data.chain }] : []), { label: 'Schedule', value: check.sid, mono: true }, { label: 'Fee', value: 'None shown by the API' }]}
           confirmLabel="Take advance"
           trackId={transferIdOf.ewa}
           run={(k) => bank.scheduleAdvance(check.sid, check.pid, m, k)}

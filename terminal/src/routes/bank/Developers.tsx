@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { bank } from '../../lib/bankApi'
 import { useBankAccounts } from '../../hooks/bank/useBankCore'
 import { useOrgs } from '../../hooks/bank/useBankDomains'
@@ -39,32 +39,15 @@ function PaymentAddress() {
 
 /** Partner config / customers / usage for an org the viewer owns or administers (?orgId=). */
 function Partner({ orgId }: { orgId: string }) {
-  const qc = useQueryClient()
   const cfg = useQuery({ queryKey: ['bank', 'platform-config', orgId], queryFn: async () => (await bank.platformConfig(orgId)).partner, retry: 0 })
   const cust = useQuery({ queryKey: ['bank', 'platform-customers', orgId], queryFn: async () => (await bank.platformCustomers(orgId)).customers, retry: 0 })
   const usage = useQuery({ queryKey: ['bank', 'platform-usage', orgId], queryFn: async () => (await bank.platformUsage(orgId)).usage, retry: 0 })
-  const [fT, setFT] = useState(''); const [fF, setFF] = useState(''); const [hook, setHook] = useState('')
-  const save = useMutation({ mutationFn: () => bank.setPlatformConfig({ ...(fT.trim() ? { feeBpsTransfer: Number(fT) } : {}), ...(fF.trim() ? { feeBpsFx: Number(fF) } : {}), ...(hook.trim() ? { webhookUrl: hook.trim() } : {}) }), onSuccess: () => void qc.invalidateQueries({ queryKey: ['bank', 'platform-config'] }) })
-  const [ref, setRef] = useState(''); const [nm, setNm] = useState('')
-  const add = useMutation({ mutationFn: () => bank.createPlatformCustomer({ externalRef: ref.trim(), ...(nm.trim() ? { displayName: nm.trim() } : {}) }), onSuccess: () => { void qc.invalidateQueries({ queryKey: ['bank', 'platform-customers'] }); setRef(''); setNm('') } })
-  const bps = (s: string) => s.trim() === '' || (/^\d+$/.test(s) && Number(s) <= 1000)
   return (
     <div className="space-y-3">
       <QueryState query={cfg} rows={1}>{(p) => <Card>{obj(p).map(([k, v]) => <Row key={k} label={k.replace(/([A-Z])/g, ' $1').toLowerCase()} value={v} mono={v.length > 24} />)}</Card>}</QueryState>
-      <Card className="space-y-2">
-        <div className="grid grid-cols-2 gap-2"><Field label="Transfer fee (bps, max 1000)"><Input inputMode="numeric" value={fT} onChange={(e) => setFT(e.target.value)} /></Field><Field label="FX fee (bps, max 1000)"><Input inputMode="numeric" value={fF} onChange={(e) => setFF(e.target.value)} /></Field></div>
-        <Field label="Webhook URL"><Input value={hook} onChange={(e) => setHook(e.target.value)} /></Field>
-        {save.isError && <ErrorBox error={save.error} />}
-        <Btn className="w-full" disabled={!bps(fT) || !bps(fF) || (!fT && !fF && !hook.trim()) || save.isPending} onClick={() => save.mutate()}>Save config</Btn>
-      </Card>
       <SectionTitle>Customers</SectionTitle>
       <QueryState query={cust} rows={1} isEmpty={(d) => d.length === 0} empty={<Empty title="No customers" />}>{(l) => <Card className="divide-y divide-terminal-border !py-1">{l.map((c, i) => <p key={i} className="py-2 text-sm break-all">{String((c as Record<string, unknown>).displayName ?? (c as Record<string, unknown>).externalRef ?? (c as Record<string, unknown>).id)}</p>)}</Card>}</QueryState>
-      <Card className="space-y-2">
-        <Field label="External reference"><Input value={ref} maxLength={128} onChange={(e) => setRef(e.target.value)} /></Field>
-        <Field label="Display name (optional)"><Input value={nm} maxLength={200} onChange={(e) => setNm(e.target.value)} /></Field>
-        {add.isError && <ErrorBox error={add.error} />}
-        <Btn className="w-full" disabled={!ref.trim() || add.isPending} onClick={() => add.mutate()}>Add customer</Btn>
-      </Card>
+      <Card><p className="text-sm text-terminal-text-secondary">Fee settings, webhooks and adding customers need your organization API key, so they cannot be changed from the Telegram app. Use the API key with the agent API; see the documentation.</p></Card>
       <SectionTitle>Usage (last 30 days)</SectionTitle>
       <QueryState query={usage} rows={1}>{(u) => <Card>{obj(u).map(([k, v]) => <Row key={k} label={k.replace(/([A-Z])/g, ' $1').toLowerCase()} value={v} />)}</Card>}</QueryState>
     </div>

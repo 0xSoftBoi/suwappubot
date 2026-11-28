@@ -8,6 +8,7 @@ import { BankShell } from '../../components/bank/BankShell'
 import { useBankAccounts } from '../../hooks/bank/useBankCore'
 import { Btn, Card, Chip, ErrorBox, Loading, Row } from '../../components/bank/BankUI'
 import { AccountSelect } from '../../components/bank/AccountSelect'
+import { clearIntentKey, intentKey } from '../../hooks/bank/intentKey'
 import { MoneyAction } from '../../components/bank/MoneyAction'
 import { a11yToast } from '@/lib/a11yToast'
 
@@ -19,12 +20,13 @@ const solanaDecimalAmount = (uri: string): string | null => {
   return m ? m[1]! : null
 }
 
-function PayFromAccount({ inv, due, decimals }: { inv: PublicInvoice; due: string; decimals: number | null }) {
+function PayFromAccount({ inv, due, decimals, onPaid }: { inv: PublicInvoice; due: string; decimals: number | null; onPaid: () => void }) {
   const accounts = useBankAccounts()
   const [from, setFrom] = useState('')
   const [open, setOpen] = useState(false)
   const eligible = (accounts.data ?? []).filter((a) => a.asset === inv.asset && a.chain === inv.chain && a.status === 'active')
   const acct = eligible.find((a) => a.id === from)
+  const fp = `payinv:${inv.slug}:${acct?.id ?? ''}:${due}`
   if (accounts.isLoading) return <Loading rows={1} />
   if (accounts.isError) return <ErrorBox error={accounts.error} onRetry={() => void accounts.refetch()} />
   if (eligible.length === 0) return <p className="text-sm text-terminal-text-secondary">You have no active {inv.asset} account on {inv.chain}. Pay with the address below instead.</p>
@@ -43,8 +45,8 @@ function PayFromAccount({ inv, due, decimals }: { inv: PublicInvoice; due: strin
           ]}
           confirmLabel="Pay"
           trackId={transferIdOf.invoicePay}
-          run={(k) => bank.payInvoice({ slug: inv.slug, fromAccountId: acct.id, amountMinor: due }, k)}
-          onClose={() => setOpen(false)}
+          run={async () => { const r = await bank.payInvoice({ slug: inv.slug, fromAccountId: acct.id, amountMinor: due }, intentKey(fp)); clearIntentKey(fp); return r }}
+          onClose={() => { setOpen(false); onPaid() }}
         />
       )}
     </div>
@@ -89,6 +91,8 @@ export function PayInvoice() {
   const req = inv?.paymentRequest
   const sol = req?.family === 'solana' ? solanaDecimalAmount(req.uri) : null
   const amountText = (minor: string) => (decimals !== null ? `${formatMinor(minor, decimals)} ${sym}` : '')
+  // The server builds the wallet request from the FULL amount + tag. After a partial payment only offer it if the server says it covers the remaining balance.
+  const walletOk = !!inv && !!req && (BigInt(isMinor(inv.paidMinor) ? inv.paidMinor : '0') === 0n || req.remainingMinor === due)
   const payable = !!inv && !['paid', 'void', 'draft', 'cancelled'].includes(inv.status) && due !== '0'
   return (
     <BankShell bare>
@@ -124,8 +128,9 @@ export function PayInvoice() {
               <>
                 <Card className="space-y-2">
                   <h2 className="font-display font-bold text-sm text-terminal-text">Pay from your bank account</h2>
-                  {isAuthenticated ? <PayFromAccount inv={inv} due={due} decimals={decimals} /> : <p className="text-sm text-terminal-text-secondary">Open this page inside Suwappu on Telegram to pay from your bank account, or pay from any wallet below.</p>}
+                  {isAuthenticated ? <PayFromAccount inv={inv} due={due} decimals={decimals} onPaid={() => void q.refetch()} /> : <p className="text-sm text-terminal-text-secondary">Open this page inside Suwappu on Telegram to pay from your bank account, or pay from any wallet below.</p>}
                 </Card>
+                {walletOk ? (
                 <Card className="space-y-2 text-center">
                   <h2 className="font-display font-bold text-sm text-terminal-text text-left">Pay from any wallet</h2>
                   <div className="mx-auto w-48 h-48 p-2 bg-terminal-panel rounded-terminal-control"><QRCodeSVG value={req.qrPayload} size={176} /></div>
@@ -140,6 +145,9 @@ export function PayInvoice() {
                   <Btn variant="ghost" className="w-full" onClick={() => void copy(req.uri)}>Copy payment link</Btn>
                   <Btn variant="ghost" className="w-full" onClick={() => void copy(req.payTo)}>Copy address</Btn>
                 </Card>
+                ) : (
+                  <Card><p className="text-sm text-terminal-text-secondary">This invoice was partly paid. Paying from a wallet is unavailable for the remaining balance, because the wallet code would ask for the full amount. Pay from your bank account instead, or ask the issuer for a new link.</p></Card>
+                )}
               </>
             ) : (
               <Card><p className="text-sm">{inv.status === 'paid' ? 'This invoice has been paid.' : `This invoice is ${inv.status} and cannot be paid.`}</p></Card>

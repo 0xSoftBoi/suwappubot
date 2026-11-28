@@ -9,8 +9,8 @@ import { AccountSelect } from '../../components/bank/AccountSelect'
 import { MoneyAction } from '../../components/bank/MoneyAction'
 import { a11yToast } from '@/lib/a11yToast'
 
-const ROLES = ['owner', 'admin', 'approver', 'accountant', 'member', 'viewer'] as const
 const RULES: Array<ApprovalPolicy['ruleType']> = ['transfer_over', 'new_payee', 'payroll_run']
+const APPROVER_ROLES = ['owner', 'admin', 'approver'] as const
 const label = (s: string) => s.replace(/_/g, ' ')
 const copy = (t: string) => navigator.clipboard.writeText(t).then(() => a11yToast.success('Copied'), () => a11yToast.error('Could not copy'))
 
@@ -51,7 +51,7 @@ export function PoliciesEditor({ orgId, currency }: { orgId: string; currency: s
           <Field label="Approvals needed"><Input inputMode="numeric" value={needed} onChange={(e) => setNeeded(e.target.value)} /></Field>
           <Field label="Expires after (hours)"><Input inputMode="numeric" value={hours} onChange={(e) => setHours(e.target.value)} /></Field>
         </div>
-        <div className="flex flex-wrap gap-2">{ROLES.map((r) => <label key={r} className="flex items-center gap-1 text-xs min-h-[36px]"><input type="checkbox" checked={roles.includes(r)} onChange={(e) => setRoles(e.target.checked ? [...roles, r] : roles.filter((x) => x !== r))} />{r}</label>)}</div>
+        <div className="flex flex-wrap gap-2">{APPROVER_ROLES.map((r) => <label key={r} className="flex items-center gap-1 text-xs min-h-[36px]"><input type="checkbox" checked={roles.includes(r)} onChange={(e) => setRoles(e.target.checked ? [...roles, r] : roles.filter((x) => x !== r))} />{r}</label>)}</div>
         {add.isError && <ErrorBox error={add.error} />}
         <Btn className="w-full" disabled={!valid || add.isPending} onClick={() => add.mutate()}>Add policy</Btn>
       </Card>
@@ -148,7 +148,7 @@ export function BillsPanel({ orgId }: { orgId: string }) {
             <Row label="Due" value={new Date(b.dueDate).toLocaleDateString()} />
             {b.scheduledFor && <Row label="Scheduled" value={new Date(b.scheduledFor).toLocaleDateString()} />}
             {b.lastError && <p className="text-xs text-bear break-words">{b.lastError}</p>}
-            {['unpaid', 'failed'].includes(b.status) && <div className="grid grid-cols-2 gap-2 pt-1"><Btn onClick={() => { setSched(b); setFrom(''); setWhen('') }}>Schedule</Btn><Btn variant="danger" disabled={cancel.isPending} onClick={() => cancel.mutate(b.id)}>Cancel</Btn></div>}
+            {['unpaid', 'failed', 'scheduled', 'pending_approval'].includes(b.status) && <div className="grid grid-cols-2 gap-2 pt-1">{['unpaid', 'failed'].includes(b.status) ? <Btn onClick={() => { setSched(b); setFrom(''); setWhen('') }}>Schedule</Btn> : <span />}<Btn variant="danger" disabled={cancel.isPending} onClick={() => cancel.mutate(b.id)}>Cancel</Btn></div>}
           </Card>
         ))}</>}
       </QueryState>
@@ -213,12 +213,16 @@ export function CardBudgets({ orgId, currency }: { orgId: string; currency: stri
   const dec = fiatDecimals(currency)
   const [scope, setScope] = useState<'member' | 'team'>('member')
   const [scopeId, setScopeId] = useState('')
-  const [monthly, setMonthly] = useState('')
-  const [perTx, setPerTx] = useState('')
-  const mM = dec !== null && monthly.trim() ? parseToMinor(monthly, dec) : null
-  const pM = dec !== null && perTx.trim() ? parseToMinor(perTx, dec) : null
-  const ok = !!scopeId.trim() && (mM || pM) && (!monthly.trim() || !!mM) && (!perTx.trim() || !!pM)
-  const save = useMutation({ mutationFn: () => bank.setCardBudget(orgId, { scope, scopeId: scopeId.trim(), monthlyCapMinor: mM, perTxCapMinor: pM }), onSuccess: () => { void qc.invalidateQueries({ queryKey: ['bank', 'org', orgId] }); a11yToast.success('Budget saved') } })
+  // null = untouched (keep the saved value); a string = what the user typed (empty clears that cap).
+  const [monthly, setMonthly] = useState<string | null>(null)
+  const [perTx, setPerTx] = useState<string | null>(null)
+  const existing = (q.data?.budgets ?? []).find((b) => b.scope === scope && b.scopeId === scopeId.trim())
+  const keep = (v: string | null | undefined) => (typeof v === 'string' && /^\d+$/.test(v) && v !== '0' ? v : null)
+  const resolve = (typed: string | null, saved: string | null | undefined) => (typed === null ? { ok: true, v: keep(saved) } : typed.trim() === '' ? { ok: true, v: null } : dec !== null && parseToMinor(typed, dec) ? { ok: true, v: parseToMinor(typed, dec) } : { ok: false, v: null })
+  const mR = resolve(monthly, existing?.monthlyCapMinor), pR = resolve(perTx, existing?.perTxCapMinor)
+  const mM = mR.v, pM = pR.v
+  const ok = !!scopeId.trim() && !!q.data && dec !== null && mR.ok && pR.ok && !!(mM || pM)
+  const save = useMutation({ mutationFn: () => bank.setCardBudget(orgId, { scope, scopeId: scopeId.trim(), monthlyCapMinor: mM, perTxCapMinor: pM, ...(existing?.categoryBudgets && Object.keys(existing.categoryBudgets).length ? { categoryBudgets: existing.categoryBudgets } : {}) }), onSuccess: () => { void qc.invalidateQueries({ queryKey: ['bank', 'org', orgId] }); setMonthly(null); setPerTx(null); a11yToast.success('Budget saved') } })
   return (
     <div className="space-y-2">
       <SectionTitle>Card budgets</SectionTitle>
@@ -232,9 +236,10 @@ export function CardBudgets({ orgId, currency }: { orgId: string; currency: stri
         ))}</>}
       </QueryState>
       <Card className="space-y-2">
-        <Select aria-label="Scope" value={scope} onChange={(e) => setScope(e.target.value as 'member' | 'team')}><option value="member">Member (user id)</option><option value="team">Team</option></Select>
-        <Field label={scope === 'member' ? 'Member user id' : 'Team name'}><Input value={scopeId} maxLength={64} onChange={(e) => setScopeId(e.target.value)} /></Field>
-        <div className="grid grid-cols-2 gap-2"><Field label={`Monthly (${currency})`}><Input inputMode="decimal" value={monthly} onChange={(e) => setMonthly(e.target.value)} /></Field><Field label={`Per purchase (${currency})`}><Input inputMode="decimal" value={perTx} onChange={(e) => setPerTx(e.target.value)} /></Field></div>
+        <Select aria-label="Scope" value={scope} onChange={(e) => { setScope(e.target.value as 'member' | 'team'); setMonthly(null); setPerTx(null) }}><option value="member">Member (user id)</option><option value="team">Team</option></Select>
+        <Field label={scope === 'member' ? 'Member user id' : 'Team name'}><Input value={scopeId} maxLength={64} onChange={(e) => { setScopeId(e.target.value); setMonthly(null); setPerTx(null) }} /></Field>
+        <div className="grid grid-cols-2 gap-2"><Field label={`Monthly (${currency})`}><Input inputMode="decimal" value={monthly ?? ''} placeholder={existing?.monthlyCapMinor ? `Current ${formatMinor(existing.monthlyCapMinor, dec)}` : ''} onChange={(e) => setMonthly(e.target.value)} /></Field><Field label={`Per purchase (${currency})`}><Input inputMode="decimal" value={perTx ?? ''} placeholder={existing?.perTxCapMinor ? `Current ${formatMinor(existing.perTxCapMinor, dec)}` : ''} onChange={(e) => setPerTx(e.target.value)} /></Field></div>
+        {existing && <p className="text-[11px] text-terminal-text-secondary">This member or team already has a budget. Leave a box untouched to keep its current cap; clear a box to remove that cap. Category budgets are kept.</p>}
         {save.isError && <ErrorBox error={save.error} />}
         <Btn className="w-full" disabled={!ok || save.isPending} onClick={() => save.mutate()}>Save budget</Btn>
       </Card>
@@ -255,7 +260,8 @@ export function OrgTransfer({ orgId, currency }: { orgId: string; currency: stri
   const [review, setReview] = useState(false)
   const list = accts.data ?? []
   const a = list.find((x) => x.id === from)
-  const minor = a && a.decimals !== null ? parseToMinor(amt, a.decimals) : null
+  const aDec = typeof a?.decimals === 'number' && Number.isInteger(a.decimals) ? a.decimals : null
+  const minor = aDec !== null ? parseToMinor(amt, aDec) : null
   const destOk = mode === 'account' ? !!toAcct && toAcct !== from : addr.trim().length >= 20
   const toAccount = list.find((x) => x.id === toAcct)
   return (
@@ -264,20 +270,21 @@ export function OrgTransfer({ orgId, currency }: { orgId: string; currency: stri
         <p className="text-sm font-semibold">Send from a business account</p>
         <p className="text-xs text-terminal-text-secondary">Transfers over your approval policy threshold (set in {currency}) are held for approval. Request it, get it approved, then paste the approval token below and send again.</p>
         {accts.isError && <ErrorBox error={accts.error} onRetry={() => void accts.refetch()} />}
-        <Field label="From"><AccountSelect accounts={list} value={from} onChange={setFrom} /></Field>
+        <Field label="From"><AccountSelect accounts={list} value={from} onChange={(v) => { setFrom(v); setToAcct('') }} /></Field>
+        {a && aDec === null && <p className="text-xs text-terminal-warn">This account's precision is not available, so amounts cannot be entered safely. Nothing was sent.</p>}
         <Select aria-label="Destination type" value={mode} onChange={(e) => setMode(e.target.value as typeof mode)}><option value="account">Another business account</option><option value="external">External address</option></Select>
         {mode === 'account' ? <AccountSelect accounts={list.filter((x) => !a || (x.asset === a.asset && x.chain === a.chain))} value={toAcct} onChange={setToAcct} exclude={from} /> : <Field label="Address"><Input value={addr} maxLength={128} onChange={(e) => setAddr(e.target.value.trim())} /></Field>}
-        <Field label="Amount">{a ? <AmountInput value={amt} onChange={setAmt} symbol={a.asset} decimals={a.decimals} /> : <p className="text-xs text-terminal-text-secondary">Pick an account first.</p>}</Field>
+        <Field label="Amount">{a ? <AmountInput value={amt} onChange={setAmt} symbol={a.asset} decimals={aDec} /> : <p className="text-xs text-terminal-text-secondary">Pick an account first.</p>}</Field>
         <Field label="Memo (optional)"><Input value={memo} maxLength={140} onChange={(e) => setMemo(e.target.value)} /></Field>
         <Field label="Approval token (only if this transfer was approved)"><Input value={tok} autoComplete="off" onChange={(e) => setTok(e.target.value.trim())} /></Field>
         <Btn className="w-full" disabled={!a || !minor || minor === '0' || !destOk} onClick={() => setReview(true)}>Review</Btn>
       </Card>
-      {review && a && minor && (
+      {review && a && aDec !== null && minor && (
         <MoneyAction
           key={tok}
           title="Confirm business transfer"
           rows={[
-            { label: 'Send', value: `${formatMinor(minor, a.decimals)} ${a.asset}` },
+            { label: 'Send', value: `${formatMinor(minor, aDec)} ${a.asset}` },
             { label: 'Network', value: a.chain },
             { label: 'From', value: a.label || a.kind },
             { label: 'To', value: mode === 'account' ? (toAccount ? `${toAccount.label || toAccount.kind} (${toAcct})` : toAcct) : addr, mono: mode === 'external' },

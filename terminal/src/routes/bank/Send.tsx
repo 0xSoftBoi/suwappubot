@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { QRCodeSVG } from '../../lib/QRCodeSVG'
 import { bank, formatMinor, parseToMinor, str, type Remittance } from '../../lib/bankApi'
-import { useBankAccounts } from '../../hooks/bank/useBankCore'
-import { useClaimPreview, useRemittance, useRemittances } from '../../hooks/bank/useBankDomains'
-import { useIdempotencyKey } from '../../hooks/bank/useIdempotencyKey'
-import { BankPage, Btn, Card, Chip, Empty, ErrorBox, Field, Input, QueryState, Row, SectionTitle, Tabs } from '../../components/bank/BankUI'
+import { useBankAccounts, useBankAssets } from '../../hooks/bank/useBankCore'
+import { useClaimPreview, useExternalAccounts, useRemittance, useRemittances } from '../../hooks/bank/useBankDomains'
+import { clearIntentKey, intentKey } from '../../hooks/bank/intentKey'
+import { BankPage, Btn, Card, Chip, Empty, ErrorBox, Field, Input, QueryState, Row, SectionTitle, Select, Tabs } from '../../components/bank/BankUI'
 import { AccountSelect } from '../../components/bank/AccountSelect'
 import { CheapestChainHint } from '../../components/bank/CheapestChainHint'
 import { AmountInput } from '../../components/bank/Amount'
@@ -40,22 +40,22 @@ export function Send() {
   const [address, setAddress] = useState('')
   const [memo, setMemo] = useState('')
   const [confirm, setConfirm] = useState(false)
-  const key = useIdempotencyKey()
   const acct = accounts.data?.find((a) => a.id === from)
   const amountMinor = acct?.decimals != null ? parseToMinor(amount, acct.decimals) : null
   const recipient = kind === 'user' ? { kind, username: username.replace(/^@/, '').trim() } : kind === 'address' ? { kind, address: address.trim() } : { kind }
   const recipientOk = kind === 'user' ? username.trim().length > 0 : kind === 'address' ? address.trim().length >= 20 : true
   const sig = JSON.stringify([kind, from, amountMinor, username, address, memo])
-  useEffect(() => { key.reset() }, [sig]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Same intent (even after closing/reopening the confirm sheet) => same key; any input change => new key.
+  const fp = `send:${sig}`
 
   const quote = useMutation({ mutationFn: () => bank.remitQuote({ fromAccountId: from, amountMinor: amountMinor as string }) })
   const send = useMutation({
-    mutationFn: () => bank.remitSend({ fromAccountId: from, amountMinor, memo: memo.trim() || undefined, recipient }, key.current()),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['bank'] }),
+    mutationFn: () => bank.remitSend({ fromAccountId: from, amountMinor, memo: memo.trim() || undefined, recipient }, intentKey(fp)),
+    onSuccess: () => { clearIntentKey(fp); void qc.invalidateQueries({ queryKey: ['bank'] }) },
   })
   const q = quote.data as Record<string, unknown> | undefined
-  const done = () => { key.reset(); setConfirm(false); send.reset(); quote.reset(); setAmount(''); nav('/bank') }
-  const claimLink = send.data?.claimLink ?? (send.data?.claimPath ? `${window.location.origin}${send.data.claimPath}` : undefined)
+  const done = () => { setConfirm(false); send.reset(); quote.reset(); setAmount(''); nav('/bank') }
+  const claimLink = send.data?.claimLink ?? (send.data?.claimToken ? `${window.location.origin}/bank/claim/${encodeURIComponent(send.data.claimToken)}` : undefined)
 
   const rows = useMemo(() => {
     if (!acct) return []
@@ -135,9 +135,13 @@ export function Claim() {
   const preview = useClaimPreview(token)
   const [choice, setChoice] = useState<'keep' | 'cashout'>('keep')
   const [to, setTo] = useState('')
-  const claim = useMutation({ mutationFn: () => bank.claim(token as string, { choice, accountId: to || undefined }) })
+  const [ext, setExt] = useState('')
+  const assets = useBankAssets()
+  const externals = useExternalAccounts()
+  const claim = useMutation({ mutationFn: () => bank.claim(token as string, choice === 'cashout' ? { choice, externalAccountId: ext } : { choice, accountId: to || undefined }) })
   const p = preview.data as Record<string, unknown> | undefined
-  const dec = accounts.data?.find((a) => a.asset === str(p?.asset) && a.chain === str(p?.chain))?.decimals ?? null
+  const dec = assets.data?.find((a) => a.symbol === str(p?.asset) && a.chain === str(p?.chain))?.decimals ?? null
+  const extList = externals.data ?? []
   const matching = (accounts.data ?? []).filter((a) => a.asset === str(p?.asset) && a.chain === str(p?.chain))
   return (
     <BankPage title="Claim money">
@@ -149,14 +153,22 @@ export function Claim() {
             <Row label="Status" value={<Chip status={str(p?.status) ?? 'unknown'} />} />
             {str(p?.memo) && <Row label="Note" value={str(p?.memo)} />}
             {str(p?.expiresAt) && <Row label="Expires" value={new Date(str(p?.expiresAt) as string).toLocaleString()} />}
-            {dec === null && <p className="text-[11px] text-terminal-text-secondary">Open an account in this currency to see the amount formatted.</p>}
+            {dec === null && !assets.isLoading && <p className="text-[11px] text-terminal-text-secondary">Amount shown in raw units because this currency could not be looked up.</p>}
             {str(p?.status) === 'awaiting_claim' && !claim.data && (
               <>
-                <Tabs<'keep' | 'cashout'> value={choice} onChange={setChoice} tabs={[{ id: 'keep', label: 'Keep in Bank' }, { id: 'cashout', label: 'Cash out' }]} />
+                <Tabs<'keep' | 'cashout'> value={choice} onChange={setChoice} tabs={extList.length > 0 ? [{ id: 'keep', label: 'Keep in Bank' }, { id: 'cashout', label: 'Cash out' }] : [{ id: 'keep', label: 'Keep in Bank' }]} />
+                {extList.length === 0 && !externals.isLoading && <p className="text-[11px] text-terminal-text-secondary">To cash out to a bank, first save a bank account under Add money, then open this link again.</p>}
                 {choice === 'keep' && <Field label="Deposit into"><AccountSelect accounts={matching} value={to} onChange={setTo} /></Field>}
-                {choice === 'cashout' && <p className="text-xs text-terminal-text-secondary">Cash out uses your saved bank account. Set one up under Add money, then claim.</p>}
+                {choice === 'cashout' && (
+                  <Field label="Send to bank account">
+                    <Select value={ext} onChange={(e) => setExt(e.target.value)}>
+                      <option value="">Choose an account</option>
+                      {extList.map((x) => <option key={x.id} value={x.id}>{x.label || x.provider} · {x.rail} · {x.currency}</option>)}
+                    </Select>
+                  </Field>
+                )}
                 {claim.isError && <ErrorBox error={claim.error} />}
-                <Btn className="w-full" disabled={claim.isPending || (choice === 'keep' && matching.length > 0 && !to)} onClick={() => claim.mutate()}>{claim.isPending ? 'Claiming…' : 'Claim'}</Btn>
+                <Btn className="w-full" disabled={claim.isPending || (choice === 'keep' && matching.length > 0 && !to) || (choice === 'cashout' && !ext)} onClick={() => claim.mutate()}>{claim.isPending ? 'Claiming…' : 'Claim'}</Btn>
               </>
             )}
             {claim.data && (

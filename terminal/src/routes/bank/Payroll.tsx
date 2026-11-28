@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { bank, formatMinor, parseToMinor, str } from '../../lib/bankApi'
-import { useBankAccounts } from '../../hooks/bank/useBankCore'
+import { bank, formatMinor, isMinor, parseToMinor, type PayrollPreview } from '../../lib/bankApi'
+import { useBankAccounts, useBankAssets } from '../../hooks/bank/useBankCore'
 import { usePayees, usePayrollRun, usePayrollRuns, usePayrollSchedules } from '../../hooks/bank/useBankDomains'
 import { BankPage, Btn, Card, Chip, Empty, ErrorBox, Field, Input, QueryState, Row, Select, Sheet, Tabs } from '../../components/bank/BankUI'
 import { AccountSelect } from '../../components/bank/AccountSelect'
@@ -49,16 +49,25 @@ function Payees() {
 
 function RunDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const q = usePayrollRun(id)
-  const payees = usePayees()
-  const accounts = useBankAccounts()
+  const assets = useBankAssets()
   const [step, setStep] = useState<'approve' | 'execute' | 'retry' | null>(null)
   const [tok, setTok] = useState('')
-  const raw = (q.data ?? {}) as Record<string, any>
-  const run = raw.run as { status: string; fundingAccountId: string; asset: string; chain: string; label?: string } | undefined
-  const items: Array<Record<string, any>> = raw.items ?? []
-  const d = accounts.data?.find((a) => a.id === run?.fundingAccountId)?.decimals ?? null
-  const total = items.reduce((s, i) => (typeof i.amountMinor === 'string' && /^\d+$/.test(i.amountMinor) ? s + BigInt(i.amountMinor) : s), 0n).toString()
-  const rows = [{ label: 'Total', value: `${formatMinor(total, d)} ${run?.asset ?? ''}` }, { label: 'Payees', value: String(items.length) }, { label: 'Fee', value: str(raw.feeMinor) ? `${formatMinor(str(raw.feeMinor), d)} ${run?.asset}` : 'None shown by the API' }]
+  const pv = q.data as PayrollPreview | undefined
+  const run = pv?.run
+  const items = Array.isArray(pv?.items) ? pv.items : []
+  const dRaw = run ? assets.data?.find((a) => a.symbol === run.asset && a.chain === run.chain)?.decimals : undefined
+  const d = typeof dRaw === 'number' && Number.isInteger(dRaw) ? dRaw : null
+  const sum = (xs: typeof items) => xs.reduce((s, x) => (isMinor(x.item.amountMinor) ? s + BigInt(x.item.amountMinor) : s), 0n).toString()
+  const failed = items.filter((x) => x.item.status === 'failed')
+  const total = isMinor(pv?.totalMinor) ? pv.totalMinor : sum(items)
+  const stepItems = step === 'retry' ? failed : items
+  const stepTotal = step === 'retry' ? sum(failed) : total
+  const rows = [
+    { label: step === 'retry' ? 'Retry total' : 'Total', value: `${formatMinor(stepTotal, d)} ${run?.asset ?? ''}` },
+    { label: 'Payees', value: String(stepItems.length) },
+    ...stepItems.map((x) => ({ label: x.payee.name, value: `${formatMinor(x.item.amountMinor, d)} ${run?.asset ?? ''}` })),
+    { label: 'Fee', value: 'None shown by the API' },
+  ]
   return (
     <Sheet title={run?.label || 'Payroll run'} onClose={onClose}>
       {q.isLoading && <p className="text-sm animate-pulse">Loading…</p>}
@@ -67,24 +76,25 @@ function RunDetail({ id, onClose }: { id: string; onClose: () => void }) {
         <div className="space-y-2">
           <Row label="Status" value={<Chip status={run.status} />} />
           <Row label="Total" value={`${formatMinor(total, d)} ${run.asset}`} />
-          {raw.warnings && Array.isArray(raw.warnings) && raw.warnings.map((w: unknown, i: number) => <p key={i} className="text-xs text-terminal-warn break-words">{String(w)}</p>)}
+          {pv && !pv.sufficientFunds && <p className="text-xs text-terminal-warn">The funding account may not cover the outstanding payouts.</p>}
+          {assets.isSuccess && d === null && <p className="text-xs text-terminal-warn">Amounts cannot be shown because this asset's precision is unknown, so actions are disabled.</p>}
           <div className="divide-y divide-terminal-border">
-            {items.map((i) => (
-              <div key={String(i.id)} className="py-2 flex items-center justify-between gap-2">
-                <div className="min-w-0"><p className="text-sm truncate">{payees.data?.find((p) => p.id === i.payeeId)?.name ?? i.payeeId}</p>{i.error && <p className="text-[11px] text-bear break-words">{String(i.error)}</p>}</div>
-                <div className="text-right shrink-0"><p className="text-sm tabular-nums">{formatMinor(str(i.amountMinor), d)}</p><Chip status={String(i.status)} /></div>
+            {items.map((x) => (
+              <div key={x.item.id} className="py-2 flex items-center justify-between gap-2">
+                <div className="min-w-0"><p className="text-sm truncate">{x.payee.name}</p>{x.item.error && <p className="text-[11px] text-bear break-words">{String(x.item.error)}</p>}{x.issue && <p className="text-[11px] text-terminal-warn break-words">{x.issue}</p>}</div>
+                <div className="text-right shrink-0"><p className="text-sm tabular-nums">{formatMinor(x.item.amountMinor, d)}</p><Chip status={String(x.item.status)} /></div>
               </div>
             ))}
           </div>
-          {run.status === 'draft' && raw.approvalRequired === true && <Field label="Approval token" hint="This run needs sign-off. Request approval under Business > Approvals, then paste the token you receive."><Input value={tok} onChange={(e) => setTok(e.target.value.trim())} autoComplete="off" /></Field>}
+          {run.status === 'draft' && pv?.approvalRequired === true && <Field label="Approval token" hint="This run needs sign-off. Request approval under Business > Approvals, then paste the token you receive."><Input value={tok} onChange={(e) => setTok(e.target.value.trim())} autoComplete="off" /></Field>}
           <div className="grid grid-cols-2 gap-2 pt-1">
-            {run.status === 'draft' && <Btn disabled={raw.approvalRequired === true && !tok} onClick={() => setStep('approve')}>Approve</Btn>}
-            {run.status === 'approved' && <Btn onClick={() => setStep('execute')}>Execute payroll</Btn>}
-            {['partial', 'failed'].includes(run.status) && <Btn onClick={() => setStep('retry')}>Retry failed</Btn>}
+            {run.status === 'draft' && <Btn disabled={d === null || (pv?.approvalRequired === true && !tok)} onClick={() => setStep('approve')}>Approve</Btn>}
+            {run.status === 'approved' && <Btn disabled={d === null} onClick={() => setStep('execute')}>Execute payroll</Btn>}
+            {['partial', 'failed'].includes(run.status) && <Btn disabled={d === null || failed.length === 0} onClick={() => setStep('retry')}>Retry failed</Btn>}
           </div>
         </div>
       )}
-      {step && run && (
+      {step && run && d !== null && (
         <MoneyAction
           title={step === 'approve' ? 'Approve payroll' : step === 'execute' ? 'Execute payroll' : 'Retry failed payouts'}
           rows={rows} confirmLabel={step === 'approve' ? 'Approve' : step === 'execute' ? 'Pay everyone' : 'Retry'}

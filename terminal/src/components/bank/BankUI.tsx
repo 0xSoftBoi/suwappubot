@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes } from 'react'
+import { useEffect, useRef, type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { BankShell } from './BankShell'
 import { bankErrorText, isNotAvailable } from '../../lib/bankApi'
@@ -156,16 +156,22 @@ export function Tabs<T extends string>({ tabs, value, onChange }: { tabs: Array<
   )
 }
 
-/** Bottom sheet. Locks Esc-to-close and focus-trap basics; no layout shift (fixed overlay). */
+/** Bottom sheet. Escape closes it; focus moves into the dialog on open and returns to the opener on close. Scrolls inside (dvh + safe-area) so the last control is always reachable. */
 export function Sheet({ title, onClose, children, dismissible = true }: { title: string; onClose: () => void; children: ReactNode; dismissible?: boolean }) {
+  const dialogRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && dismissible && onClose()
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose, dismissible])
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null
+    dialogRef.current?.focus()
+    return () => { if (opener && typeof opener.focus === 'function' && document.contains(opener)) opener.focus() }
+  }, [])
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/60" onClick={() => dismissible && onClose()}>
-      <div role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()} className="w-full max-w-xl bg-terminal-panel border-t border-terminal-border-active shadow-terminal-overlay rounded-t-terminal-card p-4 pb-6 max-h-[85vh] overflow-y-auto">
+      <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()} style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))', WebkitOverflowScrolling: 'touch' }} className="w-full max-w-xl bg-terminal-panel border-t border-terminal-border-active shadow-terminal-overlay rounded-t-terminal-card p-4 max-h-[85dvh] overflow-y-auto overscroll-contain outline-none">
         <div className="flex items-center justify-between mb-2">
           <h3 className="font-display font-bold text-base text-terminal-text">{title}</h3>
           <button type="button" aria-label="Close" onClick={onClose} disabled={!dismissible} className="min-w-[44px] min-h-[44px] -mr-2 text-terminal-text-secondary disabled:opacity-40">✕</button>

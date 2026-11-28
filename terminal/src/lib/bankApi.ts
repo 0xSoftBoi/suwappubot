@@ -1,12 +1,12 @@
 /**
  * Typed client for Suwappu Bank (`/bank/app/*`, Telegram-authed).
  *
- * - Reuses the app's auth headers via `api.rawRequest` (no second auth path).
+ * - Local transport (`api.rawRequest` below) sends the signed Telegram initData header; there is no second auth path.
  * - Amounts are integer minor-unit strings. Use formatMinor/parseToMinor (bigint math) — never parseFloat.
  * - Every money-moving POST takes an idempotency key that the caller generates once per user
  *   intent (see hooks/bank/useIdempotencyKey) and reuses on retry.
  */
-import { telegramInitData } from './bankAuth'
+import { isLocalHost, telegramInitData } from './bankAuth'
 
 /**
  * Terminal transport. `/webapp/bank/*` sits behind api-ts `telegramAuth()` (middleware/telegram.ts),
@@ -23,7 +23,7 @@ const api = {
     }
     const initData = telegramInitData()
     if (initData) headers['X-Telegram-Init-Data'] = initData
-    else if (typeof window !== 'undefined' && window.location.hostname === 'localhost') headers['X-Dev-User-Id'] = '12345'
+    else if (isLocalHost()) headers['X-Dev-User-Id'] = '12345'
     return fetch(`${API_BASE}${endpoint}`, { ...options, headers, signal: options.signal ?? AbortSignal.timeout(20000) })
   },
 }
@@ -38,13 +38,16 @@ export class BankApiError extends Error {
   readonly code: string
   readonly missing?: string
   readonly fields?: Record<string, string>
-  constructor(message: string, status: number, code: string, extra?: { missing?: string; fields?: Record<string, string> }) {
+  /** Stable machine-readable refusal reason from the server (e.g. EXPOSURE_CAP, NOT_ACCEPTED). */
+  readonly reason?: string
+  constructor(message: string, status: number, code: string, extra?: { missing?: string; fields?: Record<string, string>; reason?: string }) {
     super(message)
     this.name = 'BankApiError'
     this.status = status
     this.code = code
     this.missing = extra?.missing
     this.fields = extra?.fields
+    this.reason = extra?.reason
   }
 }
 
@@ -99,9 +102,25 @@ export function isNotAvailable(e: unknown): boolean {
   return e instanceof BankApiError && (NOT_AVAILABLE_CODES.has(e.code) || e.status === 503)
 }
 
+/** Plain-language text for the server's stable credit/receivables refusal reasons (api-ts BankCreditService). */
+const CREDIT_REASON_TEXT: Record<string, string> = {
+  ALREADY_FINANCED: 'This invoice is already financed.',
+  DELINQUENT_LINE: 'Your credit line is delinquent, so new credit is paused until it is brought current. Repay what is overdue first.',
+  EXPOSURE_CAP: 'This would go over your credit exposure cap or financing limit. Try a smaller amount or repay something first.',
+  INVOICE_STATE: 'This invoice cannot be financed in its current state.',
+  LENDER_POOL_UNFUNDED: 'The lending pool has no funds available right now, so credit cannot be drawn. Try again later.',
+  NOT_ACCEPTED: 'The payer has not accepted this invoice, so it cannot be financed yet.',
+  NO_PRICE: 'A price is unavailable right now, so the credit limit could not be checked. Try again shortly.',
+  RELATED_PARTIES: 'Financing is not offered on invoices between related parties, such as your own accounts or members of the same business.',
+  SETTLEMENT_ACCOUNT_MISMATCH: 'This invoice pays out into a different account. Choose the invoice\'s own account for the advance.',
+}
+
 /** Plain-language line for every typed bank error code (api-ts services/bank/errors.ts). Falls back to the API's own message. */
-export function describeBankError(code: string, message?: string): string {
+export function describeBankError(code: string, message?: string, reason?: string): string {
   const m = message ?? ''
+  // The server's stable refusal reason wins over message sniffing (clients must match on `reason`, not `message`).
+  const byReason = reason ? CREDIT_REASON_TEXT[reason] : undefined
+  if (byReason) return m ? `${byReason} (${m})` : byReason
   // Receivables financing refusals: explain in plain language, keep the server's reason after it.
   if (/related[- ]part|related owner|same owner|self[- ]deal/i.test(m)) return `Financing is not offered on invoices between related parties, such as your own accounts or members of the same business. (${m})`
   if (/delinquen|past due|overdue line/i.test(m)) return `Your credit line is delinquent, so new financing is paused until it is brought current. Repay what is overdue first. (${m})`
@@ -138,7 +157,7 @@ export function describeBankError(code: string, message?: string): string {
 export function bankErrorText(e: unknown): string {
   if (e instanceof BankApiError) {
     if (e.fields && Object.keys(e.fields).length) return Object.entries(e.fields).map(([k, v]) => `${k}: ${v}`).join('; ')
-    const t = describeBankError(e.code, e.message)
+    const t = describeBankError(e.code, e.message, e.reason)
     return e.missing && !t.includes(e.missing) ? `${t} (needs ${e.missing})` : t
   }
   if (e instanceof DOMException && e.name === 'TimeoutError') return 'The request timed out. Check your connection and try again.'
@@ -183,7 +202,7 @@ function toError(res: Response, body: unknown): BankApiError {
     (typeof b.detail === 'string' && b.detail) ||
     (typeof b.error === 'string' && b.error) ||
     (res.status === 401 ? 'You are signed out. Reopen the app from Telegram.' : `Request failed (${res.status})`)
-  return new BankApiError(message, res.status, code, { missing: typeof b.missing === 'string' ? b.missing : undefined, fields })
+  return new BankApiError(message, res.status, code, { missing: typeof b.missing === 'string' ? b.missing : undefined, fields, reason: typeof b.reason === 'string' ? b.reason : undefined })
 }
 
 function isTransient(res: Response, body: unknown): boolean {
@@ -253,7 +272,7 @@ export function isMinor(v: unknown): v is string {
 
 /** Integer minor-unit string -> grouped decimal string, bigint math only. */
 export function formatMinor(minor: string | null | undefined, decimals: number | null | undefined, opts: { maxFrac?: number; minFrac?: number } = {}): string {
-  if (!isMinor(minor) || decimals === null || decimals === undefined) return '—'
+  if (!isMinor(minor) || !isKnownDecimals(decimals)) return '—'
   const neg = false
   const v = BigInt(minor)
   const base = 10n ** BigInt(decimals)
@@ -273,9 +292,21 @@ export function formatSignedMinor(minor: string | null | undefined, decimals: nu
   return minor.startsWith('-') ? `-${formatMinor(minor.slice(1), decimals)}` : formatMinor(minor, decimals)
 }
 
-/** Decimal text typed by a user -> minor units. Returns null when invalid or too precise. */
-export function parseToMinor(input: string, decimals: number): string | null {
-  const t = input.trim()
+/** True only for a known non-negative integer decimals value (never undefined / null / NaN / fractional). */
+export function isKnownDecimals(d: unknown): d is number {
+  return typeof d === 'number' && Number.isInteger(d) && d >= 0 && d <= 36
+}
+
+/**
+ * Decimal text typed by a user -> minor units. Returns null when invalid, too precise, zero, or when
+ * `decimals` is not a known non-negative integer (fails closed: never guesses precision). A leading
+ * dot (".5") and a trailing dot ("5.") are normalised.
+ */
+export function parseToMinor(input: string, decimals: number | null | undefined): string | null {
+  if (!isKnownDecimals(decimals)) return null
+  let t = input.trim()
+  if (t.startsWith('.')) t = `0${t}`
+  if (t.endsWith('.')) t = t.slice(0, -1)
   if (!/^\d+(\.\d+)?$/.test(t)) return null
   const [w, f = ''] = t.split('.')
   if (f.length > decimals) return null
@@ -424,6 +455,8 @@ export interface Remittance {
 export interface Card {
   id: string; accountId: string; provider: string; type: string; status: string; currency: string; brand?: string | null
   expMonth?: number | null; expYear?: number | null; label?: string | null; rules?: CardRules | null; singleUse?: boolean
+  /** Present only while a card shortfall is open (BankCardService CardShortfallView). amountMinor is in the card currency. */
+  shortfall?: { amountMinor: string; asset: string; since: string; reason: string }
 }
 export interface CardRules {
   perTxCapMinor?: string; dailyCapMinor?: string; weeklyCapMinor?: string; monthlyCapMinor?: string
@@ -478,7 +511,7 @@ export interface InvoicePayment { id: string; invoiceId?: string; amountMinor?: 
 export interface InvoicePayResult { invoice: Invoice; payment: InvoicePayment; transferStatus: string; transferId?: string | null }
 export interface InvoiceLineItem { description: string; quantity: number; unitAmountMinor: string }
 /** payment request the API builds for an invoice (BankPaymentsService PaymentRequest). */
-export interface PaymentRequest { family: 'evm' | 'solana'; uri: string; qrPayload: string; payTo: string; payAmountMinor: string; asset: string; chain: string; reference: string | null }
+export interface PaymentRequest { family: 'evm' | 'solana'; uri: string; qrPayload: string; payTo: string; payAmountMinor: string; /** Set by the server only when this request was built for the remaining balance of a partly paid invoice. */ remainingMinor?: string; asset: string; chain: string; reference: string | null }
 /** GET /public/bank/invoices/:slug (PublicInvoiceView), unauthenticated. */
 export interface InvoiceAcceptance { required: boolean; acceptedAt: string | null }
 export interface PublicInvoice { slug: string; status: string; amountMinor: string; paidMinor: string; asset: string; symbol: string; decimals: number; chainName: string; chain: string; acceptance?: InvoiceAcceptance; lineItems: InvoiceLineItem[]; memo: string | null; dueAt: string | null; paymentRequest: PaymentRequest }
@@ -612,10 +645,10 @@ export const bank = {
   executeRun: (id: string) => post<Ok<PayrollRunResult>>(`/payroll/runs/${id}/execute`),
   retryRun: (id: string) => post<Ok<PayrollRunResult>>(`/payroll/runs/${id}/retry`),
   schedules: () => get<Ok<{ schedules: PayrollSchedule[] }>>('/payroll/schedules'),
-  createSchedule: (b: Json) => post<Ok<Json>>('/payroll/schedules', b),
+  createSchedule: (b: Json, key?: string) => post<Ok<Json>>('/payroll/schedules', b, key),
   setScheduleStatus: (id: string, status: string) => post<Ok<Json>>(`/payroll/schedules/${id}/status`, { status }),
   myPayouts: () => get<Ok<{ payouts: PayoutReceipt[] }>>('/payroll/my-payouts'),
-  scheduleAdvanceAvailable: (id: string, payeeId: string) => get<Ok<{ accruedMinor: string; advancedMinor: string; availableMinor: string; ewaBps: number }>>(`/payroll/ewa/schedules/${id}/${payeeId}`),
+  scheduleAdvanceAvailable: (id: string, payeeId: string) => get<Ok<{ accruedMinor: string; advancedMinor: string; availableMinor: string; ewaBps: number; asset?: string; chain?: string; decimals?: number }>>(`/payroll/ewa/schedules/${id}/${payeeId}`),
   scheduleAdvance: (id: string, payeeId: string, amountMinor: string, key: string) => post<Ok<{ transferId: string | null } & Json>>(`/payroll/ewa/schedules/${id}/${payeeId}/advance`, { amountMinor }, key),
 
   // business
@@ -652,7 +685,7 @@ export const bank = {
   cancelApproval: (reqId: string) => post<Ok<Json>>(`/approval-requests/${reqId}/cancel`),
   orgTransfer: (orgId: string, b: { fromAccountId: string; toAccountId?: string; toExternal?: { address: string }; amountMinor: string; memo?: string; approvalToken?: string }, key: string) => post<Ok<OrgTransferResult>>(`/orgs/${orgId}/transfers`, b, key),
   cardBudgets: (id: string) => get<Ok<{ budgets: CardBudget[] }>>(`/orgs/${id}/card-budgets`),
-  setCardBudget: (id: string, b: { scope: 'member' | 'team'; scopeId: string; monthlyCapMinor?: string | null; perTxCapMinor?: string | null }) => put<Ok<Json>>(`/orgs/${id}/card-budgets`, b),
+  setCardBudget: (id: string, b: { scope: 'member' | 'team'; scopeId: string; monthlyCapMinor?: string | null; perTxCapMinor?: string | null; categoryBudgets?: Record<string, string> }) => put<Ok<Json>>(`/orgs/${id}/card-budgets`, b),
 
   // chains / privacy / network / platform
   feeModel: (b: { asset: string; amountMinor: string; chains: string[] }) => post<Ok<{ model: FeeModel }>>('/chains/fee-model', b),

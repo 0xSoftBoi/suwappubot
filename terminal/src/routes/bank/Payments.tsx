@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { QRCodeSVG } from '../../lib/QRCodeSVG'
-import { bank, invoicePayLink, transferIdOf, formatMinor, parseToMinor, type Escrow, type Invoice } from '../../lib/bankApi'
+import { bank, invoicePayLink, transferIdOf, formatMinor, isMinor, parseToMinor, type Escrow, type Invoice } from '../../lib/bankApi'
 import { useBankAccounts } from '../../hooks/bank/useBankCore'
 import { useEscrows, useInvoices } from '../../hooks/bank/useBankDomains'
+import { clearIntentKey, intentKey } from '../../hooks/bank/intentKey'
 import { BankPage, Btn, Card, Chip, Empty, ErrorBox, Field, Input, QueryState, Row, SectionTitle, Sheet, Tabs } from '../../components/bank/BankUI'
 import { AccountSelect } from '../../components/bank/AccountSelect'
 import { AmountInput } from '../../components/bank/Amount'
@@ -24,9 +25,10 @@ function CreateInvoice({ onClose }: { onClose: () => void }) {
   const [memo, setMemo] = useState('')
   const a = accounts.data?.find((x) => x.id === acct)
   const minor = a?.decimals != null ? parseToMinor(amount, a.decimals) : null
+  const fp = `newinv:${acct}:${minor}:${memo.trim()}`
   const m = useMutation({
-    mutationFn: () => bank.createInvoice({ payeeAccountId: acct, amountMinor: minor, memo: memo.trim() || undefined, publish: true }, `ui_inv_${crypto.randomUUID()}`),
-    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['bank', 'invoices'] }); a11yToast.success('Payment link created'); onClose() },
+    mutationFn: () => bank.createInvoice({ payeeAccountId: acct, amountMinor: minor, memo: memo.trim() || undefined, publish: true }, intentKey(fp)),
+    onSuccess: () => { clearIntentKey(fp); void qc.invalidateQueries({ queryKey: ['bank', 'invoices'] }); a11yToast.success('Payment link created'); onClose() },
   })
   return (
     <Sheet title="New payment link" onClose={onClose} dismissible={!m.isPending}>
@@ -71,6 +73,13 @@ function Invoices() {
   const [from, setFrom] = useState('')
   const act = useMutation({ mutationFn: ({ id, a }: { id: string; a: 'publish' | 'void' }) => (a === 'publish' ? bank.publishInvoice(id) : bank.voidInvoice(id)), onSuccess: () => void qc.invalidateQueries({ queryKey: ['bank', 'invoices'] }) })
   const fromAcct = accounts.data?.find((x) => x.id === from)
+  // A partly paid invoice only accepts up to the outstanding balance (server: amount - paid).
+  const owed = (i: Invoice): string | null => {
+    if (!isMinor(i.amountMinor)) return null
+    const left = BigInt(i.amountMinor) - BigInt(isMinor(i.paidMinor) ? i.paidMinor : '0')
+    return left > 0n ? left.toString() : null
+  }
+  const payDue = paying ? owed(paying) : null
   return (
     <div className="space-y-3">
       <Tabs value={role} onChange={setRole} tabs={[{ id: 'payee', label: 'I am owed' }, { id: 'payer', label: 'I owe' }]} />
@@ -114,14 +123,20 @@ function Invoices() {
         <MoneyAction
           title="Confirm payment"
           rows={[
-            { label: 'Pay', value: `${formatMinor(paying.amountMinor, fromAcct.decimals)} ${paying.asset}` },
+            { label: 'Pay', value: payDue ? `${formatMinor(payDue, fromAcct.decimals)} ${paying.asset}` : 'Nothing is due' },
             { label: 'For', value: paying.memo || paying.reference || paying.id },
             { label: 'From', value: fromAcct.label || `${fromAcct.asset} on ${fromAcct.chain}` },
             { label: 'Fee', value: 'None shown by the API' },
           ]}
           confirmLabel="Pay"
           trackId={transferIdOf.invoicePay}
-          run={(k) => bank.payInvoice({ invoiceId: paying.id, fromAccountId: from, amountMinor: paying.amountMinor }, k)}
+          run={async () => {
+            if (!payDue) throw new Error('This invoice has no outstanding balance.')
+            const fp = `payinv:${paying.id}:${from}:${payDue}`
+            const r = await bank.payInvoice({ invoiceId: paying.id, fromAccountId: from, amountMinor: payDue }, intentKey(fp))
+            clearIntentKey(fp)
+            return r
+          }}
           onClose={() => { setPaying(null); setFrom('') }}
         />
       )}
