@@ -71,56 +71,6 @@ function Partner({ orgId }: { orgId: string }) {
   )
 }
 
-const SCOPES = ['read', 'swap', 'orders', 'portfolio', 'alerts', 'trade:read', 'swap:execute', 'admin', 'bank:platform:read', 'bank:platform:write']
-
-/** API keys for the org. The secret is returned once by the server; it is held only in this component's state. */
-function ApiKeys({ orgId }: { orgId: string }) {
-  const qc = useQueryClient()
-  const keys = useQuery({ queryKey: ['bank', 'api-keys', orgId], queryFn: async () => (await bank.apiKeys(orgId)).keys, retry: 0 })
-  const [name, setName] = useState('')
-  const [picked, setPicked] = useState<string[]>(['bank:platform:read'])
-  const [secret, setSecret] = useState<string | null>(null)
-  const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null)
-  const create = useMutation({ mutationFn: () => bank.createApiKey(orgId, { name: name.trim(), scopes: picked }), onSuccess: (r) => { setSecret(r.rawKey); setName(''); void qc.invalidateQueries({ queryKey: ['bank', 'api-keys', orgId] }) } })
-  const revoke = useMutation({ mutationFn: (id: string) => bank.revokeApiKey(orgId, id), onSuccess: () => { setConfirmRevoke(null); void qc.invalidateQueries({ queryKey: ['bank', 'api-keys', orgId] }) } })
-  return (
-    <div className="space-y-3">
-      {secret && (
-        <Card className="space-y-2 border-terminal-warn/50">
-          <p className="text-sm font-semibold">Your new API key</p>
-          <p className="font-mono text-xs break-all bg-terminal-bg-tertiary rounded-terminal-control p-2">{secret}</p>
-          <p className="text-xs text-bear font-semibold">Copy it now. You will not see this again.</p>
-          <div className="grid grid-cols-2 gap-2">
-            <Btn onClick={() => void navigator.clipboard.writeText(secret).then(() => a11yToast.success('Copied'), () => a11yToast.error('Could not copy'))}>Copy key</Btn>
-            <Btn variant="ghost" onClick={() => setSecret(null)}>I saved it</Btn>
-          </div>
-        </Card>
-      )}
-      <QueryState query={keys} rows={1} isEmpty={(d) => d.length === 0} empty={<Empty title="No API keys" />}>
-        {(l) => <Card className="divide-y divide-terminal-border !py-1">{l.map((k) => (
-          <div key={k.id} className="py-2.5 space-y-1">
-            <div className="flex justify-between gap-2"><p className="text-sm font-semibold truncate min-w-0">{k.name}</p>{k.revokedAt ? <span className="text-xs text-bear shrink-0">Revoked</span> : null}</div>
-            <p className="font-mono text-[11px] break-all">{k.keyPrefix}…</p>
-            <p className="text-[11px] text-terminal-text-secondary break-words">{k.scopes.length ? k.scopes.join(', ') : 'no scopes'}{k.lastUsedAt ? ` · last used ${new Date(k.lastUsedAt).toLocaleDateString()}` : ' · never used'}</p>
-            {!k.revokedAt && (confirmRevoke === k.id
-              ? <div className="grid grid-cols-2 gap-2"><Btn variant="danger" disabled={revoke.isPending} onClick={() => revoke.mutate(k.id)}>Yes, revoke</Btn><Btn variant="ghost" onClick={() => setConfirmRevoke(null)}>Keep</Btn></div>
-              : <Btn variant="ghost" onClick={() => setConfirmRevoke(k.id)}>Revoke</Btn>)}
-          </div>
-        ))}</Card>}
-      </QueryState>
-      {revoke.isError && <ErrorBox error={revoke.error} />}
-      <Card className="space-y-2">
-        <p className="text-sm font-semibold">Create a key</p>
-        <Field label="Name"><Input value={name} maxLength={100} onChange={(e) => setName(e.target.value)} /></Field>
-        <p className="text-xs font-semibold text-terminal-text">Scopes</p>
-        {SCOPES.map((sc) => <label key={sc} className="flex items-center gap-2 text-sm min-h-[40px]"><input type="checkbox" checked={picked.includes(sc)} onChange={(e) => setPicked(e.target.checked ? [...picked, sc] : picked.filter((x) => x !== sc))} /><span className="font-mono text-xs break-all">{sc}</span></label>)}
-        {create.isError && <ErrorBox error={create.error} />}
-        <Btn className="w-full" disabled={!name.trim() || create.isPending} onClick={() => create.mutate()}>{create.isPending ? 'Creating…' : 'Create key'}</Btn>
-      </Card>
-    </div>
-  )
-}
-
 export function Developers() {
   const orgs = useOrgs()
   const admin = (orgs.data?.orgs ?? []).filter((o) => o.role === 'owner' || o.role === 'admin')
@@ -136,7 +86,10 @@ export function Developers() {
         <>
           {admin.length > 1 && <Select aria-label="Organization" value={orgId} onChange={(e) => setSel(e.target.value)}>{admin.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}</Select>}
           <SectionTitle>API keys</SectionTitle>
-          <ApiKeys orgId={orgId} />
+          <Card>
+            <p className="text-sm text-terminal-text-secondary">API keys are not managed in the terminal app. They are managed via the agent API; see the documentation for how to create and revoke them.</p>
+            <a href="https://api.suwappu.bot/docs" target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex min-h-[44px] items-center text-sm font-semibold text-terminal-accent underline">Open API docs</a>
+          </Card>
           <SectionTitle>Platform</SectionTitle>
           <Partner orgId={orgId} />
         </>

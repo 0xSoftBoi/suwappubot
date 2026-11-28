@@ -5,7 +5,7 @@ import { QRCodeSVG } from '../../lib/QRCodeSVG'
 import { bank, fetchPublicInvoice, formatMinor, isMinor, transferIdOf, type PublicInvoice } from '../../lib/bankApi'
 import { telegramInitData } from '../../lib/bankAuth'
 import { BankShell } from '../../components/bank/BankShell'
-import { bankKeys, useBankAccounts } from '../../hooks/bank/useBankCore'
+import { useBankAccounts } from '../../hooks/bank/useBankCore'
 import { Btn, Card, Chip, ErrorBox, Loading, Row } from '../../components/bank/BankUI'
 import { AccountSelect } from '../../components/bank/AccountSelect'
 import { MoneyAction } from '../../components/bank/MoneyAction'
@@ -81,15 +81,14 @@ export function PayInvoice() {
   // Bank APIs only accept Telegram initData (see lib/bankApi.ts), so "signed in" means opened inside Telegram.
   const isAuthenticated = telegramInitData().length > 0
   const q = useQuery({ queryKey: ['public-invoice', slug], queryFn: () => fetchPublicInvoice(slug), retry: 1, refetchInterval: (s) => (s.state.data && ['paid', 'void'].includes(s.state.data.status) ? false : 15_000) })
-  // /assets needs a session; unauthenticated visitors get the amount in the units the API carries on the wire.
-  const assets = useQuery({ queryKey: bankKeys.assets, queryFn: async () => (await bank.assets()).assets, enabled: isAuthenticated, staleTime: 10 * 60_000, retry: 1 })
   const inv = q.data
-  const decimals = inv ? inv.decimals ?? assets.data?.find((a) => a.symbol === inv.asset && a.chain === inv.chain)?.decimals ?? null : null
-  const sym = inv?.symbol ?? inv?.asset ?? ''
+  // The public endpoint carries symbol/decimals/chainName (api-ts PublicInvoiceView), so signed-out payers always see human amounts.
+  const decimals = inv ? inv.decimals : null
+  const sym = inv?.symbol ?? ''
   const due = inv && isMinor(inv.amountMinor) && isMinor(inv.paidMinor) && BigInt(inv.amountMinor) > BigInt(inv.paidMinor) ? (BigInt(inv.amountMinor) - BigInt(inv.paidMinor)).toString() : '0'
   const req = inv?.paymentRequest
   const sol = req?.family === 'solana' ? solanaDecimalAmount(req.uri) : null
-  const amountText = (minor: string) => (decimals !== null ? `${formatMinor(minor, decimals)} ${sym}` : `${minor} ${sym} (smallest units)`)
+  const amountText = (minor: string) => (decimals !== null ? `${formatMinor(minor, decimals)} ${sym}` : '')
   const payable = !!inv && !['paid', 'void', 'draft', 'cancelled'].includes(inv.status) && due !== '0'
   return (
     <BankShell bare>

@@ -481,7 +481,7 @@ export interface InvoiceLineItem { description: string; quantity: number; unitAm
 export interface PaymentRequest { family: 'evm' | 'solana'; uri: string; qrPayload: string; payTo: string; payAmountMinor: string; asset: string; chain: string; reference: string | null }
 /** GET /public/bank/invoices/:slug (PublicInvoiceView), unauthenticated. */
 export interface InvoiceAcceptance { required: boolean; acceptedAt: string | null }
-export interface PublicInvoice { slug: string; status: string; amountMinor: string; paidMinor: string; asset: string; symbol?: string; decimals?: number; chainName?: string; chain: string; acceptance?: InvoiceAcceptance; lineItems: InvoiceLineItem[]; memo: string | null; dueAt: string | null; paymentRequest: PaymentRequest }
+export interface PublicInvoice { slug: string; status: string; amountMinor: string; paidMinor: string; asset: string; symbol: string; decimals: number; chainName: string; chain: string; acceptance?: InvoiceAcceptance; lineItems: InvoiceLineItem[]; memo: string | null; dueAt: string | null; paymentRequest: PaymentRequest }
 export interface InvoiceView { invoice: Invoice; paymentRequest: PaymentRequest; payments: InvoicePayment[] }
 export interface Vendor { id: string; orgId?: string; name: string; email?: string | null; payAddress?: string | null; payChain?: string | null }
 /** bank_org_bills. Bills carry their own asset/chain, so decimals come from /assets, not the org reporting currency. */

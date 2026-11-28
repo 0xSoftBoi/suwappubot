@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { TerminalThemeScope } from '../../theme/TerminalThemeScope'
 import { hasBankCredential } from '../../lib/bankAuth'
+import { TELEGRAM_BOT_URL } from '../../lib/botLink'
 
 /**
  * Standalone mobile shell for Suwappu Bank (no trading header / market strip). Bank calls authenticate with
@@ -28,7 +29,7 @@ export function BankShell({ title, onBack, children, bare = false }: { title?: s
   )
 }
 
-const BOT_URL = 'https://t.me/suwappubot'
+const BOT_URL = TELEGRAM_BOT_URL
 
 function NeedsTelegram() {
   return (
