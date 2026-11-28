@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { bank, transferIdOf, formatMinor, parseToMinor } from '../../lib/bankApi'
@@ -18,16 +18,16 @@ export function Convert() {
   const [to, setTo] = useState('')
   const [amount, setAmount] = useState('')
   const [open, setOpen] = useState(false)
-  const key = useIdempotencyKey()
   const a = accounts.data?.find((x) => x.id === from)
   const b = accounts.data?.find((x) => x.id === to)
   const amountMinor = a?.decimals != null ? parseToMinor(amount, a.decimals) : null
-  useEffect(() => { key.reset() }, [from, to, amountMinor]) // eslint-disable-line react-hooks/exhaustive-deps
+  const key = useIdempotencyKey(JSON.stringify(['fx', from, to, a?.asset, b?.asset, amountMinor]))
 
   const quote = useMutation({ mutationFn: () => bank.fxQuote({ fromAccountId: from, toAccountId: to, amountMinor: amountMinor as string }) })
   const exec = useMutation({
     mutationFn: () => bank.fxExecute({ fromAccountId: from, toAccountId: to, amountMinor: amountMinor as string, minToMinor: quote.data?.quote.minToMinor }, key.current()),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['bank'] }),
+    onSuccess: () => { key.reset(); void qc.invalidateQueries({ queryKey: ['bank'] }) },
+    onError: (e) => key.settle(e),
   })
   const qd = quote.data?.quote
   const done = () => { key.reset(); setOpen(false); exec.reset(); quote.reset(); setAmount(''); nav('/bank') }

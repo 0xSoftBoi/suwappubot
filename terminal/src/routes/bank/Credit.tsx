@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Receivables, UnsecuredLine } from '../../components/bank/CreditExtra'
 import { bank, transferIdOf, formatMinor, parseToMinor, str, type CreditLineView, type CreditMarket } from '../../lib/bankApi'
@@ -52,9 +52,8 @@ function LineAction({ v, mode, onClose }: { v: CreditLineView; mode: 'draw' | 'r
   const [amount, setAmount] = useState('')
   const [all, setAll] = useState(false)
   const [review, setReview] = useState(false)
-  const key = useIdempotencyKey()
   const minor = dec !== null ? parseToMinor(amount, dec) : null
-  useEffect(() => { key.reset() }, [amount, all]) // eslint-disable-line react-hooks/exhaustive-deps
+  const key = useIdempotencyKey(JSON.stringify(['credit', mode, v.line.id, v.line.loanAsset, v.line.chain, all ? 'all' : minor]))
   const sym = mode === 'withdraw' ? v.line.collateralToken ?? 'collateral' : v.line.loanAsset
   const m = useMutation({
     mutationFn: (): Promise<unknown> => {
@@ -62,7 +61,8 @@ function LineAction({ v, mode, onClose }: { v: CreditLineView; mode: 'draw' | 'r
       if (mode === 'draw') return bank.draw({ lineId: v.line.id, amountMinor: minor as string }, key.current())
       return mode === 'repay' ? bank.repay(b, key.current()) : bank.withdrawCollateral(b, key.current())
     },
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['bank'] }),
+    onSuccess: () => { key.reset(); void qc.invalidateQueries({ queryKey: ['bank'] }) },
+    onError: (e) => key.settle(e),
   })
   const title = mode === 'draw' ? 'Borrow' : mode === 'repay' ? 'Repay' : 'Withdraw collateral'
   if (!review) {
@@ -106,13 +106,13 @@ function OpenLine({ markets, onClose }: { markets: CreditMarket[]; onClose: () =
   const [marketId, setMarketId] = useState('')
   const [amount, setAmount] = useState('')
   const [review, setReview] = useState(false)
-  const key = useIdempotencyKey()
   const mk = markets.find((x) => x.marketId === marketId)
   const minor = mk ? parseToMinor(amount, mk.collateralAsset.decimals) : null
-  useEffect(() => { key.reset() }, [accountId, marketId, amount]) // eslint-disable-line react-hooks/exhaustive-deps
+  const key = useIdempotencyKey(JSON.stringify(['credit-open', accountId, marketId, mk?.collateralAsset.symbol, minor]))
   const m = useMutation({
     mutationFn: () => bank.openLine({ accountId, marketId, collateral: { source: 'wallet', amountMinor: minor as string } }, key.current()),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['bank'] }),
+    onSuccess: () => { key.reset(); void qc.invalidateQueries({ queryKey: ['bank'] }) },
+    onError: (e) => key.settle(e),
   })
   if (review && mk) {
     return (

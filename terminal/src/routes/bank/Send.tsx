@@ -2,10 +2,12 @@ import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { QRCodeSVG } from '../../lib/QRCodeSVG'
-import { bank, formatMinor, parseToMinor, str, type Remittance } from '../../lib/bankApi'
+import { BankApiError, bank, formatMinor, parseToMinor, str, type Remittance } from '../../lib/bankApi'
 import { useBankAccounts, useBankAssets } from '../../hooks/bank/useBankCore'
 import { useClaimPreview, useExternalAccounts, useRemittance, useRemittances } from '../../hooks/bank/useBankDomains'
 import { clearIntentKey, intentKey } from '../../hooks/bank/intentKey'
+import { isDefinitiveFailure } from '../../hooks/bank/useIdempotencyKey'
+import { isTelegramId, isTelegramUsername } from '../../lib/bankValidate'
 import { BankPage, Btn, Card, Chip, Empty, ErrorBox, Field, Input, QueryState, Row, SectionTitle, Select, Tabs } from '../../components/bank/BankUI'
 import { AccountSelect } from '../../components/bank/AccountSelect'
 import { CheapestChainHint } from '../../components/bank/CheapestChainHint'
@@ -38,13 +40,21 @@ export function Send() {
   const [amount, setAmount] = useState('')
   const [username, setUsername] = useState('')
   const [address, setAddress] = useState('')
+  const [claimTo, setClaimTo] = useState('')
+  const [openLink, setOpenLink] = useState(false)
   const [memo, setMemo] = useState('')
   const [confirm, setConfirm] = useState(false)
   const acct = accounts.data?.find((a) => a.id === from)
   const amountMinor = acct?.decimals != null ? parseToMinor(amount, acct.decimals) : null
-  const recipient = kind === 'user' ? { kind, username: username.replace(/^@/, '').trim() } : kind === 'address' ? { kind, address: address.trim() } : { kind }
-  const recipientOk = kind === 'user' ? username.trim().length > 0 : kind === 'address' ? address.trim().length >= 20 : true
-  const sig = JSON.stringify([kind, from, amountMinor, username, address, memo])
+  // Claim links: default to a named claimant (server binds the link to that Telegram identity); an open bearer link is an explicit opt-in.
+  const claimRaw = claimTo.trim().replace(/^@/, '')
+  const claimIsId = isTelegramId(claimRaw)
+  const claimValid = claimIsId || isTelegramUsername(claimRaw)
+  const claimBound = kind === 'claim' && !openLink
+  const claimRecipient = claimIsId ? { kind: 'claim' as const, telegramId: Number(claimRaw) } : { kind: 'claim' as const, username: claimRaw }
+  const recipient = kind === 'user' ? { kind, username: username.replace(/^@/, '').trim() } : kind === 'address' ? { kind, address: address.trim() } : claimBound ? claimRecipient : { kind }
+  const recipientOk = kind === 'user' ? username.trim().length > 0 : kind === 'address' ? address.trim().length >= 20 : openLink || claimValid
+  const sig = JSON.stringify([kind, from, acct?.asset, amountMinor, username, address, memo, claimBound ? claimRaw.toLowerCase() : 'open'])
   // Same intent (even after closing/reopening the confirm sheet) => same key; any input change => new key.
   const fp = `send:${sig}`
 
@@ -52,6 +62,7 @@ export function Send() {
   const send = useMutation({
     mutationFn: () => bank.remitSend({ fromAccountId: from, amountMinor, memo: memo.trim() || undefined, recipient }, intentKey(fp)),
     onSuccess: () => { clearIntentKey(fp); void qc.invalidateQueries({ queryKey: ['bank'] }) },
+    onError: (e) => { if (isDefinitiveFailure(e)) clearIntentKey(fp) },
   })
   const q = quote.data as Record<string, unknown> | undefined
   const done = () => { setConfirm(false); send.reset(); quote.reset(); setAmount(''); nav('/bank') }
@@ -62,13 +73,13 @@ export function Send() {
     const dec = acct.decimals
     return [
       { label: 'Send', value: `${formatMinor(amountMinor ?? undefined, dec)} ${acct.asset}` },
-      { label: 'Recipient', value: kind === 'user' ? `@${username.replace(/^@/, '')}` : kind === 'address' ? address : 'Anyone with the claim link', mono: kind === 'address' },
+      { label: 'Recipient', value: kind === 'user' ? `@${username.replace(/^@/, '')}` : kind === 'address' ? address : claimBound ? `Claim link, only ${claimIsId ? `Telegram id ${claimRaw}` : `@${claimRaw}`} can claim` : 'Claim link, OPEN: anyone with the link can claim', mono: kind === 'address' },
       { label: 'Fee', value: q && str(q.feeMinor) !== undefined ? `${formatMinor(str(q.feeMinor), dec)} ${acct.asset}` : '—' },
       { label: 'Recipient gets', value: q && str(q.receiveAmountMinor) ? `${formatMinor(str(q.receiveAmountMinor), dec)} ${acct.asset}` : '—' },
       { label: 'Arrives', value: str(q?.eta) ?? '—' },
       ...(memo.trim() ? [{ label: 'Note', value: memo.trim() }] : []),
     ]
-  }, [acct, amountMinor, kind, username, address, q, memo])
+  }, [acct, amountMinor, kind, username, address, q, memo, claimBound, claimRaw, claimIsId])
 
   return (
     <BankPage title="Send money">
@@ -76,7 +87,21 @@ export function Send() {
         <Tabs<Kind> value={kind} onChange={setKind} tabs={[{ id: 'user', label: 'Username' }, { id: 'address', label: 'Address' }, { id: 'claim', label: 'Claim link' }]} />
         {kind === 'user' && <Field label="Telegram username"><Input value={username} placeholder="@name" autoCapitalize="none" onChange={(e) => setUsername(e.target.value)} /></Field>}
         {kind === 'address' && <Field label="Wallet address"><Input value={address} className="font-mono text-xs" onChange={(e) => setAddress(e.target.value)} /></Field>}
-        {kind === 'claim' && <p className="text-xs text-terminal-text-secondary">You get a link to share. The money is held until someone claims it, and is returned to you if it expires.</p>}
+        {kind === 'claim' && (
+          <div className="space-y-2">
+            <p className="text-xs text-terminal-text-secondary">You get a link to share. The money is held until it is claimed, and is returned to you if it expires.</p>
+            {!openLink && (
+              <Field label="Only this person can claim">
+                <Input value={claimTo} placeholder="@username or Telegram id" autoCapitalize="none" onChange={(e) => setClaimTo(e.target.value)} />
+                {claimTo.trim() !== '' && !claimValid && <p className="text-[11px] text-bear mt-1">Enter a Telegram username (5 to 32 letters, digits or underscores) or a numeric Telegram id.</p>}
+              </Field>
+            )}
+            <label className="flex items-start gap-2 text-xs min-h-[36px]">
+              <input type="checkbox" className="mt-0.5" checked={openLink} onChange={(e) => setOpenLink(e.target.checked)} />
+              <span><span className="font-semibold">Anyone with the link can claim</span><br /><span className="text-terminal-text-secondary">Whoever opens the link first gets the money, so a forwarded or leaked link can be claimed by someone else.</span></span>
+            </label>
+          </div>
+        )}
         <Field label="From">{accounts.isLoading ? <p className="text-xs animate-pulse">Loading accounts…</p> : <AccountSelect accounts={accounts.data ?? []} value={from} onChange={setFrom} />}</Field>
         {accounts.isError && <ErrorBox error={accounts.error} onRetry={() => void accounts.refetch()} />}
         <Field label="Amount"><AmountInput value={amount} onChange={setAmount} symbol={acct?.asset} decimals={acct?.decimals ?? null} /></Field>
@@ -114,6 +139,7 @@ export function Send() {
             <div className="space-y-3">
               {claimLink && (
                 <div className="text-center space-y-2">
+                  <p className="text-xs font-semibold">{claimBound ? `Bound link: only ${claimIsId ? `Telegram id ${claimRaw}` : `@${claimRaw}`} can claim it.` : 'Open link: anyone who has it can claim the money.'}</p>
                   <div className="mx-auto w-40 h-40 p-2 bg-terminal-panel rounded-terminal-control"><QRCodeSVG value={claimLink} size={144} /></div>
                   <p className="font-mono text-[11px] break-all">{claimLink}</p>
                   <Btn variant="ghost" className="w-full" onClick={() => void navigator.clipboard.writeText(claimLink).then(() => a11yToast.success('Link copied'), () => a11yToast.error('Could not copy the link'))}>Copy claim link</Btn>
@@ -167,7 +193,9 @@ export function Claim() {
                     </Select>
                   </Field>
                 )}
-                {claim.isError && <ErrorBox error={claim.error} />}
+                {claim.isError && (claim.error instanceof BankApiError && claim.error.code === 'FORBIDDEN'
+                  ? <ErrorBox error={new Error('This claim link was issued to a different person. Sign in with the Telegram account it was sent to. Nothing was claimed.')} />
+                  : <ErrorBox error={claim.error} />)}
                 <Btn className="w-full" disabled={claim.isPending || (choice === 'keep' && matching.length > 0 && !to) || (choice === 'cashout' && !ext)} onClick={() => claim.mutate()}>{claim.isPending ? 'Claiming…' : 'Claim'}</Btn>
               </>
             )}

@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef } from 'react'
-import { BankApiError, newIdempotencyKey } from '../../lib/bankApi'
+import { BankApiError } from '../../lib/bankApi'
 import { clearIntentKey, intentKey } from './intentKey'
 
 /** cyrb53: short stable hash so the fingerprint (which may contain names / amounts) is not stored as a storage key verbatim. */
@@ -26,24 +26,15 @@ export function isDefinitiveFailure(err: unknown): boolean {
  * user edits the inputs) or `settle(err)` (a definitive server rejection), so a retry of the same intent
  * re-sends the same key and cannot double-send.
  *
- * Without `fingerprint` the key lives in the component (survives while the page stays mounted).
- * With a `fingerprint` of the intent (action + accounts + amount + recipient) the key is also kept in
+ * The required `fingerprint` of the intent (action + accounts + amount + recipient) the key is also kept in
  * sessionStorage for 30 minutes, so closing and reopening a confirm sheet after an ambiguous failure
  * (timeout) re-sends the SAME key; changing any input changes the fingerprint and therefore the key.
  */
-export function useIdempotencyKey(fingerprint?: string) {
-  const ref = useRef<string | null>(null)
-  const fp = useRef<string | undefined>(fingerprint)
-  fp.current = fingerprint === undefined ? undefined : hash(fingerprint)
-  const current = useCallback(() => {
-    if (fp.current !== undefined) return intentKey(fp.current)
-    if (!ref.current) ref.current = newIdempotencyKey()
-    return ref.current
-  }, [])
-  const reset = useCallback(() => {
-    ref.current = null
-    if (fp.current !== undefined) clearIntentKey(fp.current)
-  }, [])
+export function useIdempotencyKey(fingerprint: string) {
+  const fp = useRef(hash(fingerprint))
+  fp.current = hash(fingerprint)
+  const current = useCallback(() => intentKey(fp.current), [])
+  const reset = useCallback(() => { clearIntentKey(fp.current) }, [])
   const settle = useCallback((err: unknown) => { if (isDefinitiveFailure(err)) reset() }, [reset])
   return useMemo(() => ({ current, reset, settle }), [current, reset, settle])
 }

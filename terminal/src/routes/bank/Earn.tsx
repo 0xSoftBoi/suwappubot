@@ -20,14 +20,15 @@ function MoveSheet({ mode, vault, accountId, position, onClose }: { mode: 'depos
   const [amount, setAmount] = useState('')
   const [all, setAll] = useState(false)
   const [review, setReview] = useState(false)
-  const key = useIdempotencyKey()
   const minor = parseToMinor(amount, vault.decimals)
-  useEffect(() => { key.reset() }, [amount, all, accountId]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Intent = action + source account + vault + amount (or 'all') + asset: same intent keeps its key across sheet close/reopen or a timeout.
+  const key = useIdempotencyKey(JSON.stringify(['earn', mode, accountId, vault.address, vault.chain, vault.asset, all ? 'all' : minor]))
   const m = useMutation({
     mutationFn: () => mode === 'deposit'
       ? bank.earnDeposit({ accountId, vault: vault.address, amountMinor: minor as string }, key.current())
       : bank.earnWithdraw({ accountId, vault: vault.address, ...(all ? { all: true } : { amountMinor: minor as string }) }, key.current()),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['bank'] }),
+    onSuccess: () => { key.reset(); void qc.invalidateQueries({ queryKey: ['bank'] }) },
+    onError: (e) => key.settle(e),
   })
   const op = m.data?.operation
   const tid = m.data ? transferIdOf.earn(m.data) : null

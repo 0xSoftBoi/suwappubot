@@ -217,8 +217,11 @@ export function CardBudgets({ orgId, currency }: { orgId: string; currency: stri
   const [monthly, setMonthly] = useState<string | null>(null)
   const [perTx, setPerTx] = useState<string | null>(null)
   const existing = (q.data?.budgets ?? []).find((b) => b.scope === scope && b.scopeId === scopeId.trim())
-  const keep = (v: string | null | undefined) => (typeof v === 'string' && /^\d+$/.test(v) && v !== '0' ? v : null)
-  const resolve = (typed: string | null, saved: string | null | undefined) => (typed === null ? { ok: true, v: keep(saved) } : typed.trim() === '' ? { ok: true, v: null } : dec !== null && parseToMinor(typed, dec) ? { ok: true, v: parseToMinor(typed, dec) } : { ok: false, v: null })
+  // Stored values round-trip exactly, including "0" (a zero cap blocks all spending; it is NOT "no cap"). Only an explicitly cleared box sends null.
+  const keep = (v: string | null | undefined) => (typeof v === 'string' && /^\d+$/.test(v) ? v : null)
+  const isZeroTyped = (t: string) => { const x = t.trim(); let dots = 0; let zeros = 0; for (const c of x) { if (c === '.') dots++; else if (c === '0') zeros++; else return false } return zeros > 0 && dots <= 1 }
+  const typedMinor = (t: string) => (dec === null ? null : parseToMinor(t, dec) ?? (isZeroTyped(t) ? '0' : null))
+  const resolve = (typed: string | null, saved: string | null | undefined) => (typed === null ? { ok: true, v: keep(saved) } : typed.trim() === '' ? { ok: true, v: null } : typedMinor(typed) !== null ? { ok: true, v: typedMinor(typed) } : { ok: false, v: null })
   const mR = resolve(monthly, existing?.monthlyCapMinor), pR = resolve(perTx, existing?.perTxCapMinor)
   const mM = mR.v, pM = pR.v
   const ok = !!scopeId.trim() && !!q.data && dec !== null && mR.ok && pR.ok && !!(mM || pM)
@@ -230,16 +233,16 @@ export function CardBudgets({ orgId, currency }: { orgId: string; currency: stri
         {(d) => <>{d.budgets.map((b: CardBudget, i) => (
           <Card key={b.id ?? i} className="!p-3">
             <p className="text-sm font-semibold capitalize">{b.scope} {b.scopeId}</p>
-            <Row label="Monthly cap" value={b.monthlyCapMinor ? `${formatMinor(b.monthlyCapMinor, dec)} ${currency}` : 'None'} />
-            <Row label="Per purchase" value={b.perTxCapMinor ? `${formatMinor(b.perTxCapMinor, dec)} ${currency}` : 'None'} />
+            <Row label="Monthly cap" value={b.monthlyCapMinor === '0' ? '0 (no spending allowed)' : b.monthlyCapMinor ? `${formatMinor(b.monthlyCapMinor, dec)} ${currency}` : 'None (no cap)'} />
+            <Row label="Per purchase" value={b.perTxCapMinor === '0' ? '0 (no spending allowed)' : b.perTxCapMinor ? `${formatMinor(b.perTxCapMinor, dec)} ${currency}` : 'None (no cap)'} />
           </Card>
         ))}</>}
       </QueryState>
       <Card className="space-y-2">
         <Select aria-label="Scope" value={scope} onChange={(e) => { setScope(e.target.value as 'member' | 'team'); setMonthly(null); setPerTx(null) }}><option value="member">Member (user id)</option><option value="team">Team</option></Select>
         <Field label={scope === 'member' ? 'Member user id' : 'Team name'}><Input value={scopeId} maxLength={64} onChange={(e) => { setScopeId(e.target.value); setMonthly(null); setPerTx(null) }} /></Field>
-        <div className="grid grid-cols-2 gap-2"><Field label={`Monthly (${currency})`}><Input inputMode="decimal" value={monthly ?? ''} placeholder={existing?.monthlyCapMinor ? `Current ${formatMinor(existing.monthlyCapMinor, dec)}` : ''} onChange={(e) => setMonthly(e.target.value)} /></Field><Field label={`Per purchase (${currency})`}><Input inputMode="decimal" value={perTx ?? ''} placeholder={existing?.perTxCapMinor ? `Current ${formatMinor(existing.perTxCapMinor, dec)}` : ''} onChange={(e) => setPerTx(e.target.value)} /></Field></div>
-        {existing && <p className="text-[11px] text-terminal-text-secondary">This member or team already has a budget. Leave a box untouched to keep its current cap; clear a box to remove that cap. Category budgets are kept.</p>}
+        <div className="grid grid-cols-2 gap-2"><Field label={`Monthly (${currency})`}><Input inputMode="decimal" value={monthly ?? ''} placeholder={existing?.monthlyCapMinor ? `Current ${formatMinor(existing.monthlyCapMinor, dec)}${existing.monthlyCapMinor === '0' ? ' (blocks all spending)' : ''}` : ''} onChange={(e) => setMonthly(e.target.value)} /></Field><Field label={`Per purchase (${currency})`}><Input inputMode="decimal" value={perTx ?? ''} placeholder={existing?.perTxCapMinor ? `Current ${formatMinor(existing.perTxCapMinor, dec)}${existing.perTxCapMinor === '0' ? ' (blocks all spending)' : ''}` : ''} onChange={(e) => setPerTx(e.target.value)} /></Field></div>
+        {existing && <p className="text-[11px] text-terminal-text-secondary">This member or team already has a budget. Leave a box untouched to keep its current cap. Clear a box to remove that cap (no limit). A cap of 0 means no spending is allowed. Category budgets are kept.</p>}
         {save.isError && <ErrorBox error={save.error} />}
         <Btn className="w-full" disabled={!ok || save.isPending} onClick={() => save.mutate()}>Save budget</Btn>
       </Card>

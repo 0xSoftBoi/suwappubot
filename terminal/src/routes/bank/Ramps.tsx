@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { QRCodeSVG } from '../../lib/QRCodeSVG'
@@ -140,15 +140,15 @@ function CashOut() {
   const [dest, setDest] = useState('')
   const [amount, setAmount] = useState('')
   const [open, setOpen] = useState(false)
-  const key = useIdempotencyKey()
   const a = accounts.data?.find((x) => x.id === from)
   const e = ext.data?.find((x) => x.id === dest)
   const minor = a?.decimals != null ? parseToMinor(amount, a.decimals) : null
-  useEffect(() => { key.reset() }, [from, dest, minor]) // eslint-disable-line react-hooks/exhaustive-deps
+  const key = useIdempotencyKey(JSON.stringify(['offramp', from, dest, a?.asset, minor]))
   const quote = useMutation({ mutationFn: () => bank.rampQuote({ direction: 'offramp', rail: (e as NonNullable<typeof e>).rail, asset: (a as NonNullable<typeof a>).asset, amountMinor: minor as string, externalAccountId: dest }) })
   const go = useMutation({
     mutationFn: () => bank.offramp({ provider: e?.provider, fromAccountId: from, externalAccountId: dest, amountMinor: minor as string, minReceiveMinor: best?.receiveAmountMinor }, key.current()),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['bank'] }),
+    onSuccess: () => { key.reset(); void qc.invalidateQueries({ queryKey: ['bank'] }) },
+    onError: (e) => key.settle(e),
   })
   const routed: RoutedQuotes | undefined = quote.data?.routed
   // The quote shown must be the one the executing provider (the destination's) gave; otherwise block rather than show another provider's terms.

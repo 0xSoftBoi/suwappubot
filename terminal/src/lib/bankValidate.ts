@@ -40,3 +40,14 @@ export function isTelegramId(v: string): boolean {
   for (let i = 0; i < v.length; i++) if (!isDigit(v.charCodeAt(i))) return false
   return true
 }
+
+/** Telegram username (without "@"): 5-32 chars, starts with a letter, then letters, digits or underscore. Single linear pass. */
+export function isTelegramUsername(v: string): boolean {
+  if (v.length < 5 || v.length > 32) return false
+  for (let i = 0; i < v.length; i++) {
+    const c = v.charCodeAt(i)
+    const letter = (c >= 65 && c <= 90) || (c >= 97 && c <= 122)
+    if (i === 0 ? !letter : !(letter || c === 95 || isDigit(c))) return false
+  }
+  return true
+}
