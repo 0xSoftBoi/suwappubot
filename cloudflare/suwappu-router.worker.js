@@ -47,8 +47,8 @@ const PYTHON_PREFIXES = ["/auth", "/telegram", "/webhook", "/users", "/tools", "
 //   /webapp/tokens  → public token search/lookup/prices (tokens.ts; superset of python's)
 //   /webapp/p2p     → P2P marketplace (p2p.ts)
 //   /webapp/rewards → fee-cashback rewards read API (rewards.ts)
-//   /webapp/bank    → Suwappu Bank (routes/bank.ts; api-ts only, Telegram-authed). MONEY-PATH,
-//                      reviewed in #1150. Also reachable as /bank/app/* without this rule.
+//   /webapp/bank    → Suwappu Bank (routes/bank.ts; api-ts only, Telegram-authed). MONEY-PATH.
+//                      Added in #1151 (not covered by an earlier review of this worker file). Also reachable as /bank/app/* without this rule.
 const API_TS_WEBAPP_PREFIXES = ["/webapp/data", "/webapp/tokens", "/webapp/p2p", "/webapp/rewards", "/webapp/bank"];
 
 function pickOrigin(hostname, pathname) {

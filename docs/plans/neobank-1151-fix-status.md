@@ -59,3 +59,15 @@ item 8 (cloudflare worker comment), 9 (escrow decimals) -> NOT STARTED
 - [C2] row 23 → FIXED (routes/bank/Privacy.tsx cancel on unmount)
 - [C2] row 38 → FIXED (routes/bank/Agents.tsx invalidates ['bank','directory'])
 - [C2] row 34 + row 19 → FIXED (hooks/bank/useIdempotencyKey.ts: optional fingerprint persists key in sessionStorage via intentKey, reset on success, settle(err) clears on definitive 4xx; MoneyAction.tsx + IssueCard.tsx use it). Hook now also returns stable object + settle().
+
+## Batch A (Send / claim / PayInvoice / Payments)
+- row 3 -> FIXED (terminal/src/routes/bank/PayInvoice.tsx `walletOk`): wallet QR hidden once paidMinor > 0 unless `paymentRequest.remainingMinor === due`; explanation card shown. NOTE for batch D: to re-enable, set `paymentRequest.remainingMinor` (remaining balance string) on the public/authed invoice view when the request is built for the remaining balance (field added optionally to `PaymentRequest` in terminal/src/lib/bankApi.ts).
+- row 6 -> FIXED (Send.tsx, fallback `${origin}/bank/claim/<claimToken>`; `claimLink` preferred when present).
+- row 7 -> FIXED (Send.tsx Claim): Cash out tab shows a saved-external-account picker and sends `externalAccountId`; tab hidden with an explanation when the user has none.
+- row 14 -> FIXED (Payments.tsx): Pay row and request use outstanding = amount - paid; blocked when nothing due.
+- row 40 -> FIXED (PayInvoice.tsx): `q.refetch()` after the pay sheet closes.
+- row 41 -> FIXED (Payments.tsx CreateInvoice): key from `intentKey(fingerprint)`.
+- Claim decimals (same-class, Send.tsx:140) -> FIXED: from `useBankAssets()` by preview asset+chain.
+- Claim "Open in Telegram" token carry -> FIXED (components/bank/BankShell.tsx NeedsTelegram -> `?start=claim_<token>`). NOTE batch C (owns BankShell): minimal additive edit made there (useLocation import + href); keep it when editing row 1.
+- Idempotency across sheet close/reopen -> FIXED for my screens via new terminal/src/hooks/bank/intentKey.ts (sessionStorage, fingerprint + 30 min TTL, cleared on success) used by Send, PayInvoice, Payments invoice create/pay. NOTE batch C (row 19): MoneyAction/useIdempotencyKey is unchanged; other MoneyAction callers can use `intentKey` too.
+- Claim has no idempotency key (server CAS single-use), nothing to persist.

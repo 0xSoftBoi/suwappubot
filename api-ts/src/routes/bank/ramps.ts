@@ -74,7 +74,8 @@ export function register(app: BankRouteApp, deps: BankRouteDeps): void {
 			const fiat = (b.currency ?? RAIL_INFO[b.rail].currency).toUpperCase()
 				const routed = yield* (yield* BankRampService).quote({ direction: b.direction, rail: b.rail, asset: b.asset, amountMinor, currency: b.currency, ...(b.externalAccountId ? { externalAccountId: b.externalAccountId, owner: quoteOwner } : {}) })
 				// provider/quoteId/expiresAt: the quote offramp would execute against (best of the executing provider when externalAccountId is given). Pass receiveAmountMinor back as minReceiveMinor to refuse worse terms.
-				return { routed, fiatCurrency: fiat, decimals: FIAT_DECIMALS[fiat] ?? 2, provider: routed.best.provider, quoteId: routed.best.quoteId, expiresAt: routed.best.expiresAt, receiveAmountMinor: routed.best.receiveAmountMinor }
+				const fiatOut = b.externalAccountId && b.direction === 'offramp' ? routed.best.destCurrency.toUpperCase() : fiat
+				return { routed, fiatCurrency: fiatOut, decimals: FIAT_DECIMALS[fiatOut] ?? 2, provider: routed.best.provider, quoteId: routed.best.quoteId, expiresAt: routed.best.expiresAt, receiveAmountMinor: routed.best.receiveAmountMinor }
 		}))
 	})
 
