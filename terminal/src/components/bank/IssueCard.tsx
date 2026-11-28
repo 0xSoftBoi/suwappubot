@@ -43,9 +43,8 @@ export function IssueCard({ onClose }: { onClose: () => void }) {
   const [shipName, setShipName] = useState('')
   const [speed, setSpeed] = useState<'standard' | 'express' | 'priority'>('standard')
   const [terms, setTerms] = useState(false)
-  const key = useIdempotencyKey()
-  // New payload = new intent: never replay an old key with different inputs.
-  useEffect(() => { key.reset() }, [key, type, accountId, label, name, email, phone, first, last, dob, billing, ship, shipName, speed, terms])
+  // Key follows the exact payload: any edit is a new intent, reopening the sheet with the same inputs re-sends the same key.
+  const key = useIdempotencyKey(JSON.stringify([type, accountId, label, name, email, phone, first, last, dob, billing, ship, shipName, speed, terms]))
   const dobParts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dob)
   const dobObj = dobParts ? { year: Number(dobParts[1]), month: Number(dobParts[2]), day: Number(dobParts[3]) } : null
   const individualGiven = !!(first.trim() || last.trim() || dob)
@@ -60,7 +59,8 @@ export function IssueCard({ onClose }: { onClose: () => void }) {
       },
       ...(type === 'physical' ? { shipping: { ...addrBody(ship), name: shipName.trim(), speed } } : {}),
     }, key.current()),
-    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['bank', 'cards'] }); a11yToast.success('Card requested'); onClose() },
+    onSuccess: () => { key.reset(); void qc.invalidateQueries({ queryKey: ['bank', 'cards'] }); a11yToast.success('Card requested'); onClose() },
+    onError: (e) => key.settle(e),
   })
   return (
     <Sheet title="Issue a card" onClose={onClose} dismissible={!m.isPending}>

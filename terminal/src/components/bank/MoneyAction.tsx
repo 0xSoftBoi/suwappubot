@@ -8,8 +8,8 @@ import { ConfirmSheet, type ConfirmRow } from './ConfirmSheet'
 import { TransferTracker } from './TransferTracker'
 
 /**
- * Generic confirm-then-submit sheet for money-moving actions. The idempotency key is created on
- * mount of the intent and reused if the user retries after an error; a new intent = a new mount.
+ * Generic confirm-then-submit sheet for money-moving actions. The idempotency key is keyed on the intent shown in the sheet and
+ * survives closing/reopening it; it is replaced only after success or a definitive server rejection.
  */
 export function MoneyAction({ title, rows, confirmLabel, note, run, onClose, trackId, renderResult }: {
   title: string
@@ -24,9 +24,10 @@ export function MoneyAction({ title, rows, confirmLabel, note, run, onClose, tra
   renderResult?: (res: any) => ReactNode // eslint-disable-line @typescript-eslint/no-explicit-any
 }) {
   const qc = useQueryClient()
-  const key = useIdempotencyKey()
+  // Fingerprint of what the sheet shows = what is submitted; reopening the same sheet re-sends the same key.
+  const key = useIdempotencyKey(JSON.stringify([title, confirmLabel, rows.map((r) => [r.label, typeof r.value === 'string' || typeof r.value === 'number' ? r.value : null])]))
   const [done, setDone] = useState(false)
-  const m = useMutation({ mutationFn: () => run(key.current()), onSuccess: () => { setDone(true); void qc.invalidateQueries({ queryKey: ['bank'] }) } })
+  const m = useMutation({ mutationFn: () => run(key.current()), onSuccess: () => { key.reset(); setDone(true); void qc.invalidateQueries({ queryKey: ['bank'] }) }, onError: (e) => key.settle(e) })
   const tid = m.data && trackId ? trackId(m.data) : null
   const rec = (m.data ?? {}) as Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
   const status = m.data ? str(rec.status) ?? str(rec.transferStatus) ?? str((rec.run ?? rec.escrow ?? rec.stream ?? rec.invoice ?? rec.operation ?? {}).status) : undefined

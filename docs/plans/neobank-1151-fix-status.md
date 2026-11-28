@@ -37,3 +37,5 @@ row 9 (server) -> FIXED (BankRemittanceService.send: recipient kind 'claim' now 
 - Earn APY / credit LTV/health units → VERIFIED correct vs server (apy/netApy/borrowApy/utilizationPct percent; ltvBps/lltvBps bps/100; healthFactorBps /10000; aprBps/100); no change.
 - Credit refusal `reason` → FIXED (bankApi.ts BankApiError.reason, describeBankError(code,msg,reason), CREDIT_REASON_TEXT).
 - row 34 (IssueCard) → not in C1 ownership; left to C2.
+row 10 (server) -> FIXED (BankPayrollService.scheduleAvail + advanceScheduleWages result: added asset, symbol, chain, decimals of the schedule funding account)
+row 16 (server) -> FIXED (BankOrgService.setCardBudget: merge-patch, omitted monthlyCapMinor/perTxCapMinor/categoryBudgets keep stored values, explicit null clears)

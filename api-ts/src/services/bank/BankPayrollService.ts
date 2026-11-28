@@ -129,8 +129,8 @@ export interface BankPayrollServiceInterface {
 	readonly listSchedules: (owner: BankOwner) => PayFx<BankPayrollSchedule[]>
 	readonly setScheduleStatus: (owner: BankOwner, id: string, status: 'active' | 'paused' | 'cancelled') => PayFx<BankPayrollSchedule>
 	/** Earned-wage access against a payroll schedule's current-period accrual. */
-	readonly advanceScheduleWages: (worker: BankOwner, scheduleId: string, payeeId: string, amountMinor: string, idempotencyKey: string) => PayFx<{ advanceId: string; transferId: string | null; availableAfterMinor: string }>
-	readonly scheduleAdvanceAvailable: (worker: BankOwner, scheduleId: string, payeeId: string) => PayFx<{ accruedMinor: string; advancedMinor: string; availableMinor: string; ewaBps: number }>
+	readonly advanceScheduleWages: (worker: BankOwner, scheduleId: string, payeeId: string, amountMinor: string, idempotencyKey: string) => PayFx<{ advanceId: string; transferId: string | null; availableAfterMinor: string; asset: string; symbol: string; chain: string; decimals: number | null }>
+	readonly scheduleAdvanceAvailable: (worker: BankOwner, scheduleId: string, payeeId: string) => PayFx<{ accruedMinor: string; advancedMinor: string; availableMinor: string; ewaBps: number; asset: string; symbol: string; chain: string; decimals: number | null }>
 	readonly runJob: () => PayFx<{ schedulesRun: number; itemsDriven: number }>
 }
 
@@ -445,7 +445,7 @@ const specOf = (s: BankPayrollSchedule): ScheduleSpec => ({ frequency: s.frequen
 
 // ------------------------------------------------------------------ service
 
-const scheduleAvail = (worker: BankOwner, scheduleId: string, payeeId: string): PayFx<{ accruedMinor: string; advancedMinor: string; availableMinor: string; ewaBps: number }> =>
+const scheduleAvail = (worker: BankOwner, scheduleId: string, payeeId: string): PayFx<{ accruedMinor: string; advancedMinor: string; availableMinor: string; ewaBps: number; asset: string; symbol: string; chain: string; decimals: number | null }> =>
 	Effect.gen(function* () {
 		const [sch] = yield* bankDb((db) => db.select().from(bankPayrollSchedules).where(eq(bankPayrollSchedules.id, scheduleId)).limit(1))
 		const payee = yield* loadPayee(payeeId)
@@ -456,7 +456,10 @@ const scheduleAvail = (worker: BankOwner, scheduleId: string, payeeId: string): 
 		const { periodKey, accrued } = accrualFor(sch, item, new Date())
 		const advanced = yield* advancedIn(sch.id, payeeId, periodKey)
 		const cap = (accrued * BigInt(bps)) / 10_000n - advanced
-		return { accruedMinor: accrued.toString(), advancedMinor: advanced.toString(), availableMinor: (cap > 0n ? cap : 0n).toString(), ewaBps: bps }
+		// The advance is always paid from the schedule's funding account: state its asset so clients never display another unit.
+		const fund = yield* (yield* BankLedgerService).getAccountById(sch.fundingAccountId)
+		const fa = findAsset(fund.asset, fund.chain)
+		return { accruedMinor: accrued.toString(), advancedMinor: advanced.toString(), availableMinor: (cap > 0n ? cap : 0n).toString(), ewaBps: bps, asset: fund.asset, symbol: fund.asset, chain: fund.chain, decimals: fa?.decimals ?? null }
 	})
 
 export const BankPayrollServiceLive = Layer.succeed(BankPayrollService, {
@@ -701,7 +704,7 @@ export const BankPayrollServiceLive = Layer.succeed(BankPayrollService, {
 				yield* bankDb((db) => db.update(bankWageAdvances).set({ transferId: t.id }).where(eq(bankWageAdvances.id, adv.id)))
 			}
 			const after = yield* scheduleAvail(worker, scheduleId, payeeId)
-			return { advanceId: adv.id, transferId, availableAfterMinor: after.availableMinor }
+			return { advanceId: adv.id, transferId, availableAfterMinor: after.availableMinor, asset: after.asset, symbol: after.symbol, chain: after.chain, decimals: after.decimals }
 		}),
 
 	runJob: () =>
