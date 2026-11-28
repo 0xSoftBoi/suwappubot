@@ -37,6 +37,8 @@ const Battle = lazy(() => import('./pages/Battle').then(m => ({ default: m.Battl
 const Stocks = lazy(() => import('./pages/Stocks').then(m => ({ default: m.Stocks })))
 const Rewards = lazy(() => import('./pages/Rewards').then(m => ({ default: m.Rewards })))
 const MarketData = lazy(() => import('./pages/MarketData'))
+const PayInvoice = lazy(() => import('./pages/bank/PayInvoice').then(m => ({ default: m.PayInvoice })))
+const BankRoutes = lazy(() => import('./pages/bank').then(m => ({ default: m.BankRoutes })))
 import { DesktopLayout } from './components/layout'
 import { HotkeyOverlay } from './components/desktop/HotkeyOverlay'
 import './theme/suwappu.css'
@@ -115,6 +117,8 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (!isAuthenticated) {
+    // Remember the deep link (e.g. /bank/claim/<token>) so it survives a reload or onboarding and we can return to it.
+    try { sessionStorage.setItem('suwappu_return_to', location.pathname + location.search) } catch { /* storage unavailable */ }
     return <Navigate to="/" state={{ from: location }} replace />
   }
 
@@ -136,7 +140,10 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
 
   if (isAuthenticated) {
     // Redirect to the page they were trying to visit, or home
-    const from = (location.state as { from?: { pathname: string } })?.from?.pathname || '/home'
+    let stored: string | null = null
+    try { stored = sessionStorage.getItem('suwappu_return_to'); sessionStorage.removeItem('suwappu_return_to') } catch { /* storage unavailable */ }
+    const st = (location.state as { from?: { pathname: string; search?: string } })?.from
+    const from = (st ? st.pathname + (st.search ?? '') : null) || (stored && stored.startsWith('/') && !stored.startsWith('//') ? stored : null) || '/home'
     return <Navigate to={from} replace />
   }
 
@@ -197,6 +204,8 @@ function AppContent() {
             </PublicRoute>
           }
         />
+        {/* Public invoice page: unauthenticated payers (pay from bank account when signed in, else URI + QR) */}
+        <Route path="/pay/:slug" element={<PayInvoice />} />
         <Route
           path="/discover"
           element={
@@ -466,6 +475,15 @@ function AppContent() {
               <PageTransition>
                 <MarketData />
               </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/bank/*"
+          element={
+            <ProtectedRoute>
+              <BankRoutes />
             </ProtectedRoute>
           }
         />

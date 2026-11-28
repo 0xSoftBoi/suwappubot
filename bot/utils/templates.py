@@ -111,6 +111,7 @@ HELP_MESSAGE = r"""
 
 ━━ 🏦 *EARN* ━━
 • /save \- Yield on idle USDC \(Aave V3\)
+• /bank \- Suwappu Bank \(send, earn, cards\)
 • /borrow \- Borrow USDC against collateral
 • /stake \- Stake HYPE   • /token \- SUWP staking
 • /traders \- Copy top traders

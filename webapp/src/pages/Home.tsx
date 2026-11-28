@@ -1,3 +1,4 @@
+import { BankEntryCard } from '../components/bank/BankEntryCard'
 import { useNavigate } from 'react-router-dom'
 import { AppLayout, UserHeader } from '../components/layout'
 import { BalanceCard, TokenItem } from '../components/cards'
@@ -67,6 +68,8 @@ export function Home() {
         <BalanceCard balance={balance} />
 
         <QuickActions />
+
+        <BankEntryCard />
 
         <button
           type="button"

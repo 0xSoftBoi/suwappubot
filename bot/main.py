@@ -309,6 +309,7 @@ from bot.handlers.hl_ecosystem import (
     hl_ecosystem_conversation,
 )
 from bot.handlers.dashboard import dashboard_handler, dashboard_menu_callback
+from bot.handlers.bank import bank_handler, bank_menu_handler
 from bot.handlers.token import (
     token_conv_handler,
     token_menu_callback_handler,
@@ -433,6 +434,8 @@ def add_handlers(application: Application) -> None:
     application.add_handler(org_handler)  # /org (enterprise org management)
     application.add_handler(vip_handler)  # /vip (cross-line VIP status)
     application.add_handler(dashboard_handler)  # /dashboard (Mini App)
+    application.add_handler(bank_handler)  # /bank (Mini App entry)
+    application.add_handler(bank_menu_handler)  # home-menu Bank button
     application.add_handler(digest_handler)  # /digest
 
     # Perps Trading
@@ -849,6 +852,7 @@ async def post_init(application) -> None:
             BotCommand("w", "👛 Wallets"),
             BotCommand("save", "🏦 Earn yield on idle USDC"),
             BotCommand("earn", "🌾 Cross-protocol yield (Ethena, Sky, Morpho...)"),
+            BotCommand("bank", "🏛️ Suwappu Bank"),
             BotCommand("a", "🔔 Price alerts"),
             BotCommand("check", "🛡️ Token safety check"),
             BotCommand("chart", "📈 Candlestick chart"),

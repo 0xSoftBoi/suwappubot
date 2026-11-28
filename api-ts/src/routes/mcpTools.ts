@@ -148,6 +148,153 @@ const LIST_WALLET_POLICIES_INPUT = mcpInputSchema(McpListWalletPoliciesSchema, {
 	"wallet_address": "Wallet address (optional — defaults to the authenticated agent's managed wallet).",
 })
 
+// ---------------------------------------------------------------
+// Suwappu Bank tools (bank_*)
+// ---------------------------------------------------------------
+//
+// Each tool is a thin, declarative binding to ONE `/v1/agent/bank` route. The
+// handler in mcp.ts dispatches the call IN-PROCESS through the same Hono app
+// (`bankAgentRoutes`) with the caller's own credentials, so owner resolution
+// (agent id from the API key), zod validation, idempotency, policy/mandate/limit
+// checks and BankError -> code mapping are exactly the HTTP route's — there is no
+// second, less-guarded path. Arguments are snake_case (MCP convention here) and
+// are mapped to the route's camelCase body; nested objects keep the API's
+// camelCase field names. Money is minor-unit integer strings.
+
+export interface BankToolSpec {
+	name: string
+	title: string
+	description: string
+	method: 'GET' | 'POST'
+	/** Route path under /v1/agent/bank; `{x}` is replaced by the `x` argument. */
+	path: string
+	/** Arguments consumed by the path template. */
+	pathParams?: string[]
+	/** Arguments sent as query string (GET). Everything else is the JSON body. */
+	query?: string[]
+	/** Money-moving: `idempotency_key` is REQUIRED and sent as body field + Idempotency-Key header. */
+	keyed?: boolean
+	/** The route has no server-side idempotency key; mcp.ts dedupes by (agent, key, args) in-process. */
+	localDedupe?: boolean
+	readOnly: boolean
+	properties: Record<string, unknown>
+	required: string[]
+}
+
+const IDEM_PROP = {
+	type: 'string',
+	pattern: '^[A-Za-z0-9_.:-]{8,128}$',
+	description: 'REQUIRED. Unique intent key, 8-128 chars of A-Za-z0-9_.:- . Retrying the same call with the SAME key never double-spends; reusing a key with different terms is rejected. On LOCK_BUSY (retryable) retry with the same key.',
+}
+const MINOR_PROP = { type: 'string', pattern: '^[1-9][0-9]{0,77}$', description: 'Amount in minor units (integer string, e.g. "1500000" = 1.50 USDC).' }
+const HUMAN_PROP = { type: 'string', pattern: '^\\d+(\\.\\d+)?$', description: 'Amount as a human decimal string (e.g. "1.5"). Provide exactly one of amount_minor or amount.' }
+const ACCT = (d: string) => ({ type: 'string', description: d })
+
+export const BANK_TOOL_SPECS: BankToolSpec[] = [
+	{ name: 'bank_list_accounts', title: 'List Bank Accounts', method: 'GET', path: '/accounts', readOnly: true, properties: {}, required: [],
+		description: "List this agent's Suwappu Bank accounts with ledger balances (balance_minor in minor units, plus human balance). Read-only." },
+	{ name: 'bank_open_account', title: 'Open Bank Account', method: 'POST', path: '/accounts', readOnly: false,
+		description: 'Open a bank account for an asset on a chain (e.g. USDC on base). Does not move funds. kind: checking (default), savings, credit or treasury.',
+		properties: {
+			kind: { type: 'string', enum: ['checking', 'savings', 'credit', 'treasury'], description: 'Account kind. Default checking.' },
+			asset: { type: 'string', description: 'Asset symbol, e.g. USDC.' },
+			chain: { type: 'string', description: 'Chain key, e.g. base.' },
+			label: { type: 'string', description: 'Optional label (max 80 chars).' },
+			segment_profile: { type: 'string', description: 'Optional segment profile.' },
+		}, required: ['asset', 'chain'] },
+	{ name: 'bank_get_statement', title: 'Get Account Statement', method: 'GET', path: '/accounts/{account_id}/statement', pathParams: ['account_id'], query: ['limit', 'cursor'], readOnly: true,
+		description: 'Paged ledger statement for one account. Use next_cursor from the result as cursor for the next page. Read-only.',
+		properties: { account_id: ACCT('Bank account id.'), limit: { type: 'integer', description: 'Page size.' }, cursor: { type: 'string', description: 'Cursor from a previous page.' } }, required: ['account_id'] },
+	{ name: 'bank_transfer', title: 'Bank Transfer', method: 'POST', path: '/transfers', keyed: true, readOnly: false,
+		description: 'MONEY-MOVING. Transfer from one of your bank accounts to another account (to_account_id) or an external on-chain address (to_external). Subject to policy, mandate and limit checks; may fail with POLICY_BLOCKED / LIMIT_EXCEEDED / INSUFFICIENT_FUNDS. Provide exactly one of amount_minor or amount, and exactly one of to_account_id or to_external. Confirm with the user before calling.',
+		properties: {
+			idempotency_key: IDEM_PROP, from_account_id: ACCT('Source bank account id.'), to_account_id: ACCT('Destination bank account id.'),
+			to_external: { type: 'object', properties: { address: { type: 'string', description: 'Destination address (20-128 chars).' } }, required: ['address'], description: 'External on-chain destination.' },
+			amount_minor: MINOR_PROP, amount: HUMAN_PROP, memo: { type: 'string', description: 'Optional memo (max 280).' },
+		}, required: ['idempotency_key', 'from_account_id'] },
+	{ name: 'bank_get_transfer', title: 'Get Bank Transfer', method: 'GET', path: '/transfers/{transfer_id}', pathParams: ['transfer_id'], readOnly: true,
+		description: 'Fetch a transfer and its status (pending, submitted, confirmed, failed, reversed). Read-only.',
+		properties: { transfer_id: ACCT('Transfer id.') }, required: ['transfer_id'] },
+	{ name: 'bank_fx_quote', title: 'Bank FX Quote', method: 'POST', path: '/fx/quote', readOnly: true,
+		description: 'Quote a conversion between two of your bank accounts (different assets). Moves nothing. Provide exactly one of amount_minor or amount.',
+		properties: { from_account_id: ACCT('Source account id.'), to_account_id: ACCT('Destination account id.'), amount_minor: MINOR_PROP, amount: HUMAN_PROP,
+			slippage: { type: 'number', minimum: 0.0001, maximum: 0.05, description: 'Slippage fraction (0.01 = 1%).' }, require_direct: { type: 'boolean', description: 'Only direct routes.' } },
+		required: ['from_account_id', 'to_account_id'] },
+	{ name: 'bank_fx_execute', title: 'Bank FX Execute', method: 'POST', path: '/fx/execute', keyed: true, readOnly: false,
+		description: 'MONEY-MOVING. Execute a conversion between two of your bank accounts. Provide exactly one of amount_minor or amount; min_to_minor protects against slippage. Confirm with the user before calling.',
+		properties: { idempotency_key: IDEM_PROP, from_account_id: ACCT('Source account id.'), to_account_id: ACCT('Destination account id.'), amount_minor: MINOR_PROP, amount: HUMAN_PROP,
+			slippage: { type: 'number', minimum: 0.0001, maximum: 0.05, description: 'Slippage fraction.' }, require_direct: { type: 'boolean', description: 'Only direct routes.' }, min_to_minor: MINOR_PROP },
+		required: ['idempotency_key', 'from_account_id', 'to_account_id'] },
+	{ name: 'bank_earn_vaults', title: 'List Earn Vaults', method: 'GET', path: '/earn/vaults', query: ['asset', 'chain'], readOnly: true,
+		description: 'List yield vaults available for an asset on a chain. Read-only.',
+		properties: { asset: ACCT('Asset symbol, e.g. USDC.'), chain: ACCT('Chain key, e.g. base.') }, required: ['asset', 'chain'] },
+	{ name: 'bank_earn_deposit', title: 'Earn Deposit', method: 'POST', path: '/earn/deposit', keyed: true, readOnly: false,
+		description: 'MONEY-MOVING. Deposit from a bank account into a yield vault (EVM address). Provide exactly one of amount_minor or amount. Confirm with the user before calling.',
+		properties: { idempotency_key: IDEM_PROP, account_id: ACCT('Bank account id to deposit from.'), vault: ACCT('Vault EVM address (0x + 40 hex) from bank_earn_vaults.'), amount_minor: MINOR_PROP, amount: HUMAN_PROP },
+		required: ['idempotency_key', 'account_id', 'vault'] },
+	{ name: 'bank_earn_withdraw', title: 'Earn Withdraw', method: 'POST', path: '/earn/withdraw', keyed: true, readOnly: false,
+		description: 'MONEY-MOVING. Withdraw from a yield vault back to the bank account. Provide exactly one of amount_minor, amount or all=true. Confirm with the user before calling.',
+		properties: { idempotency_key: IDEM_PROP, account_id: ACCT('Bank account id.'), vault: ACCT('Vault EVM address.'), amount_minor: MINOR_PROP, amount: HUMAN_PROP, all: { type: 'boolean', description: 'Withdraw the whole position.' } },
+		required: ['idempotency_key', 'account_id', 'vault'] },
+	{ name: 'bank_credit_lines', title: 'List Credit Lines', method: 'GET', path: '/credit/lines', readOnly: true,
+		description: "List this agent's credit lines (collateralised borrowing) with health. Read-only.", properties: {}, required: [] },
+	{ name: 'bank_credit_draw', title: 'Credit Draw', method: 'POST', path: '/credit/draw', keyed: true, readOnly: false,
+		description: 'MONEY-MOVING (creates debt). Borrow against a credit line. Provide exactly one of amount_minor, amount or all=true. Confirm with the user before calling.',
+		properties: { idempotency_key: IDEM_PROP, line_id: ACCT('Credit line id from bank_credit_lines.'), amount_minor: MINOR_PROP, amount: HUMAN_PROP, all: { type: 'boolean', description: 'Draw the maximum available.' } },
+		required: ['idempotency_key', 'line_id'] },
+	{ name: 'bank_credit_repay', title: 'Credit Repay', method: 'POST', path: '/credit/repay', keyed: true, readOnly: false,
+		description: 'MONEY-MOVING. Repay debt on a credit line. Provide exactly one of amount_minor, amount or all=true. Confirm with the user before calling.',
+		properties: { idempotency_key: IDEM_PROP, line_id: ACCT('Credit line id.'), amount_minor: MINOR_PROP, amount: HUMAN_PROP, all: { type: 'boolean', description: 'Repay the full debt.' } },
+		required: ['idempotency_key', 'line_id'] },
+	{ name: 'bank_create_invoice', title: 'Create Invoice', method: 'POST', path: '/payments/invoices', keyed: true, readOnly: false,
+		description: 'Create an invoice payable into one of your accounts (payee_account_id). Give amount_minor or line_items (camelCase: description, quantity, unitAmountMinor). publish=true makes it payable immediately. Moves no funds itself.',
+		properties: { idempotency_key: IDEM_PROP, payee_account_id: ACCT('Your account that receives payment.'), amount_minor: MINOR_PROP,
+			line_items: { type: 'array', maxItems: 100, items: { type: 'object', properties: { description: { type: 'string' }, quantity: { type: 'integer', minimum: 1 }, unitAmountMinor: { type: 'string' } }, required: ['description', 'quantity', 'unitAmountMinor'] }, description: 'Invoice lines.' },
+			due_at: { type: 'string', description: 'ISO date.' }, memo: { type: 'string', description: 'Max 280 chars.' }, publish: { type: 'boolean', description: 'Publish immediately.' } },
+		required: ['idempotency_key', 'payee_account_id'] },
+	{ name: 'bank_pay_invoice', title: 'Pay Invoice', method: 'POST', path: '/payments/invoices/pay', keyed: true, readOnly: false,
+		description: 'MONEY-MOVING. Pay an invoice from one of your accounts, by invoice_id or slug. Confirm with the user before calling.',
+		properties: { idempotency_key: IDEM_PROP, invoice_id: ACCT('Invoice id (or use slug).'), slug: ACCT('Invoice slug (8-32 chars).'), from_account_id: ACCT('Paying account id.'), amount_minor: MINOR_PROP },
+		required: ['idempotency_key', 'from_account_id'] },
+	{ name: 'bank_remit_send', title: 'Send Remittance', method: 'POST', path: '/remittance/send', keyed: true, readOnly: false,
+		description: 'MONEY-MOVING. Send money to a recipient. recipient (camelCase fields) is one of {kind:"user",telegramId|username}, {kind:"address",address}, {kind:"claim",label?} (returns a claim link), {kind:"payout",rail,externalAccountId}. Provide exactly one of amount_minor or amount. Confirm with the user before calling.',
+		properties: { idempotency_key: IDEM_PROP, from_account_id: ACCT('Source account id.'), amount_minor: MINOR_PROP, amount: HUMAN_PROP, memo: { type: 'string', description: 'Max 280.' }, auto_earn: { type: 'boolean', description: 'Park the received funds in earn.' },
+			recipient: { type: 'object', description: 'Recipient (see description).', properties: { kind: { type: 'string', enum: ['user', 'address', 'claim', 'payout'] } }, required: ['kind'], additionalProperties: true } },
+		required: ['idempotency_key', 'from_account_id', 'recipient'] },
+	{ name: 'bank_agent_pay', title: 'Agent Pay (x402)', method: 'POST', path: '/agents/pay', keyed: true, readOnly: false,
+		description: 'MONEY-MOVING. Pay for an x402 pay-per-call HTTP resource within the agent mandate (per-call max, daily cap, allowed hosts/payees/assets enforced server-side). Returns the resource response and the payment receipt. Confirm with the user before calling.',
+		properties: { idempotency_key: IDEM_PROP, mandate_id: ACCT('Mandate id from your agent account.'), url: ACCT('Resource URL (max 2048).'), method: { type: 'string', enum: ['GET', 'POST', 'PUT', 'DELETE'], description: 'Default GET.' },
+			body: { type: 'string', description: 'Request body (max 100000).' }, headers: { type: 'object', additionalProperties: { type: 'string' }, description: 'Extra request headers.' } },
+		required: ['idempotency_key', 'mandate_id', 'url'] },
+	{ name: 'bank_agent_register_resource', title: 'Register Paid Resource', method: 'POST', path: '/agents/resources', readOnly: false,
+		description: 'Register an upstream URL as an x402 paywalled resource you sell per call; revenue is credited to account_id. Moves no funds.',
+		properties: { account_id: ACCT('Account that receives revenue.'), title: ACCT('Title (max 120).'), description: ACCT('Optional description (max 2000).'), upstream_url: ACCT('Upstream URL to proxy.'), price_minor: MINOR_PROP, slug: ACCT('Optional slug (max 40).') },
+		required: ['account_id', 'title', 'upstream_url', 'price_minor'] },
+	{ name: 'bank_fee_model', title: 'Chain Fee Model', method: 'POST', path: '/chains/fee-model', readOnly: true,
+		description: 'Compare payment fees for an asset across chains. Read-only. Provide amount_minor or amount.',
+		properties: { asset: ACCT('Asset symbol.'), amount_minor: MINOR_PROP, amount: HUMAN_PROP, chains: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 12, description: 'Chain keys to compare.' } },
+		required: ['asset', 'chains'] },
+	{ name: 'bank_ops_alerts', title: 'Bank Ops Alerts', method: 'GET', path: '/ops/alerts', readOnly: true,
+		description: "Stuck or failed transfers/operations for this agent (read-only; never auto-resolves money).", properties: {}, required: [] },
+]
+
+const BANK_TOOLS = BANK_TOOL_SPECS.map((t) => ({
+	name: t.name,
+	description: t.description,
+	inputSchema: { type: 'object', properties: t.properties, required: t.required, additionalProperties: false },
+}))
+
+const BANK_ANNOTATIONS: Record<string, { title: string; readOnlyHint: boolean; destructiveHint?: boolean; idempotentHint?: boolean; openWorldHint: boolean }> = Object.fromEntries(
+	BANK_TOOL_SPECS.map((t) => [
+		t.name,
+		t.readOnly
+			? { title: t.title, readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+			: t.keyed && /MONEY-MOVING/.test(t.description)
+				? { title: t.title, readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true }
+				: { title: t.title, readOnlyHint: false, destructiveHint: false, idempotentHint: !!t.keyed, openWorldHint: false },
+	]),
+)
+
 const TOOLS = [
 	{
 		name: 'get_quote',
@@ -316,6 +463,7 @@ const TOOLS = [
 			additionalProperties: false,
 		},
 	},
+	...BANK_TOOLS,
 ]
 
 // ---------------------------------------------------------------
@@ -337,6 +485,7 @@ type ToolAnnotations = {
 }
 
 const TOOL_ANNOTATIONS: Record<string, ToolAnnotations> = {
+	...BANK_ANNOTATIONS,
 	get_quote: { title: 'Get Swap Quote', readOnlyHint: true, idempotentHint: false, openWorldHint: true },
 	get_portfolio: { title: 'Get Portfolio', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 	get_prices: { title: 'Get Token Prices', readOnlyHint: true, idempotentHint: true, openWorldHint: true },

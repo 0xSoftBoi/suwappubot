@@ -18,6 +18,12 @@ import { ipRateLimit } from './middleware/ipRateLimit'
 import { CHAINS } from './services/TokenService'
 import { adminGrowthRoutes } from './routes/adminGrowth'
 import { webEventRoutes } from './routes/webEvents'
+import { bankAgentRoutes, bankWebappRoutes } from './routes/bank'
+import { bankX402PublicRoutes } from './routes/bank/agents'
+import { bankCardWebhookRoutes } from './routes/bank/cardWebhooks'
+import { bankPublicRoutes } from './routes/bank/payments'
+import { bankNetworkPublicRoutes } from './routes/bank/platform'
+import { bankWebhookRoutes } from './routes/bank/webhooks'
 import { bodyLimit } from 'hono/body-limit'
 import {
 	a2aRoutes,
@@ -224,6 +230,28 @@ export function createApp(config: AppConfig) {
 	// Telegram init-data fall through to the existing api-ts implementation.
 	app.route('/', createTerminalSwapProxyRoutes({ baseUrl: config.internalApiUrl }))
 
+	// Suwappu Bank (webapp-authed). Must precede the general /webapp router.
+	// Bank request bodies are bounded: the largest legitimate payloads are an ISO 20022
+	// batch or a payroll run. Unbounded bodies let a single request pin the event loop.
+	app.use('/webapp/bank/*', bodyLimit({ maxSize: 2 * 1024 * 1024 }))
+	app.use('/v1/agent/bank/*', bodyLimit({ maxSize: 2 * 1024 * 1024 }))
+	app.use('/bank/webhooks/*', bodyLimit({ maxSize: 1024 * 1024 }))
+	app.use('/webhooks/bank/*', bodyLimit({ maxSize: 1024 * 1024 }))
+	app.use('/public/bank/*', bodyLimit({ maxSize: 64 * 1024 }))
+	app.use('/x402/bank/*', bodyLimit({ maxSize: 1024 * 1024 }))
+	app.route('/webapp/bank', bankWebappRoutes)
+	// Bank provider webhooks (raw-body signature verified, no user auth).
+	app.use('/bank/webhooks/*', ipRateLimit(600)) // signature-authenticated ramp provider callbacks
+	app.route('/bank/webhooks', bankWebhookRoutes)
+	// Bank public surfaces (no user auth). Each exposes ONLY the named handlers.
+	app.use('/webhooks/bank/*', ipRateLimit(600)) // signature-authenticated issuer callbacks
+	app.use('/public/bank/*', ipRateLimit(120))
+	app.use('/x402/bank/*', ipRateLimit(240))
+	app.route('/webhooks/bank/cards', bankCardWebhookRoutes) // signature-authenticated
+	app.route('/public/bank/network', bankNetworkPublicRoutes) // GET /.well-known/suwappu-pay/:handle
+	app.route('/public/bank', bankPublicRoutes) // GET /invoices/:slug
+	app.route('/x402/bank', bankX402PublicRoutes) // ALL /pay/:slug (x402 paywall)
+
 	// Native api-ts swap routes are still ahead of the general /webapp routers below.
 	app.route('/webapp/swap', swapRoutes)
 
@@ -278,6 +306,8 @@ export function createApp(config: AppConfig) {
 	app.route('/v1/agent/perps', perpsRoutes)
 	app.route('/v1/agent/predict', predictRoutes)
 	app.route('/v1/agent/lend', lendRoutes)
+	// Suwappu Bank (agent-authed)
+	app.route('/v1/agent/bank', bankAgentRoutes)
 
 	// Market data distribution layer (Databento-parity, Phase 3) — reference,
 	// historical OHLCV, and live WS price ticks. Auth mirrors /v1/agent (org API

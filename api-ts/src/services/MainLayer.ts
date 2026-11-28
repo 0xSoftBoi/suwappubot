@@ -7,6 +7,7 @@ import { AlertServiceLive } from './AlertService'
 import { ApprovalServiceLive } from './ApprovalService'
 import { AutopilotServiceLive } from './AutopilotService'
 import { BalanceServiceLive } from './BalanceService'
+import { BankLayer } from './bank'
 import { CopyTradingServiceLive } from './CopyTradingService'
 import { DCAServiceLive } from './DCAService'
 import { EventBusLive } from './EventBus'
@@ -102,6 +103,7 @@ export const MainLayer = Layer.mergeAll(
 	RedisLayer,
 	EventBusLayer,
 	ServicesLayer,
+	BankLayer,
 	PolymarketCredentialLayer,
 	StripeLayer,
 	SmartAccountLayer,

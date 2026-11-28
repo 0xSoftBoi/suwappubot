@@ -7,6 +7,7 @@
  */
 
 import type {
+  BankErrorCode,
   AgentProfile,
   AgentTopupArgs,
   AgentWallet,
@@ -90,6 +91,7 @@ import type {
   WebhookEventsResult,
   WebhookTestResult,
 } from "./types.js";
+import { BankNamespace } from "./bank.js";
 
 export const DEFAULT_BASE_URL = "https://api.suwappu.bot";
 
@@ -114,13 +116,40 @@ export class SuwappuError extends Error {
   readonly status: number;
   readonly body: string;
   readonly code?: string;
+  /** Parsed `Retry-After` response header in seconds, when the server sent one. */
+  readonly retryAfter?: number;
 
-  constructor(status: number, body: string, code?: string) {
+  constructor(status: number, body: string, code?: string, retryAfter?: number) {
     super(`Suwappu API error ${status}: ${body}`);
     this.name = "SuwappuError";
     this.status = status;
     this.body = body;
     this.code = code;
+    this.retryAfter = retryAfter;
+  }
+}
+
+/**
+ * Typed error for `client.bank.*` calls. `code` is the Bank API error code
+ * (see `BankErrorCode`, e.g. `INSUFFICIENT_FUNDS`, `POLICY_BLOCKED`, `LOCK_BUSY`).
+ * `missing` names the exact external input when `code === "NOT_CONFIGURED"`.
+ */
+export class SuwappuBankError extends SuwappuError {
+  declare readonly code: BankErrorCode | (string & {}) | undefined;
+  /** Human-readable `message` field from the API body (falls back to the raw body). */
+  readonly detail: string;
+  readonly missing?: string;
+
+  constructor(base: SuwappuError, detail: string, missing?: string) {
+    super(base.status, base.body, base.code, base.retryAfter);
+    this.name = "SuwappuBankError";
+    this.detail = detail;
+    this.missing = missing;
+  }
+
+  /** True for failures that are safe to retry with the SAME idempotency key (429, or 503 LOCK_BUSY). */
+  get retryable(): boolean {
+    return this.status === 429 || (this.status === 503 && this.code === "LOCK_BUSY");
   }
 }
 
@@ -153,6 +182,8 @@ export class Suwappu {
   readonly audit: AuditNamespace;
   /** Org-wide kill switch. Requires an org API key. */
   readonly killswitch: KillSwitchNamespace;
+  /** Suwappu Bank (`/v1/agent/bank/*`): accounts, transfers, fx, earn, credit, cards, payments, ... */
+  readonly bank: BankNamespace;
 
   constructor(config: SuwappuConfig = {}) {
     this.apiKey =
@@ -169,6 +200,7 @@ export class Suwappu {
     this.approvals = new ApprovalsNamespace(this);
     this.audit = new AuditNamespace(this);
     this.killswitch = new KillSwitchNamespace(this);
+    this.bank = new BankNamespace(this);
   }
 
   /** @internal Low-level request helper used by the client and namespaces. */
@@ -206,7 +238,8 @@ export class Suwappu {
       } catch {
         // body wasn't JSON (or had no error_code) — leave code undefined
       }
-      throw new SuwappuError(res.status, text, code);
+      const ra = Number(res.headers?.get?.("Retry-After"));
+      throw new SuwappuError(res.status, text, code, Number.isFinite(ra) && ra >= 0 ? ra : undefined);
     }
 
     return (await res.json()) as T;

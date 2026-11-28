@@ -70,7 +70,7 @@ export type PaymentRequirements = {
 
 export type SettleResult =
 	| { ok: true; txHash?: string; network?: string; payer?: string }
-	| { ok: false; error: string }
+	| { ok: false; error: string; definite?: boolean }
 
 type FacilitatorEnv = {
 	X402_FACILITATOR_ENABLED?: string
@@ -156,9 +156,18 @@ export function resolveFacilitatorConfig(env: FacilitatorEnv): FacilitatorConfig
  * Exported as a pure function so it is unit-testable without a live facilitator.
  */
 export function crossCheckSignedRequirements(
-	accepted: { payTo: string; asset: string; amount: string },
-	requirements: Pick<PaymentRequirements, 'payTo' | 'asset' | 'maxAmountRequired'>,
+	accepted: { payTo: string; asset: string; amount: string; network?: string; scheme?: string },
+	requirements: Pick<PaymentRequirements, 'payTo' | 'asset' | 'maxAmountRequired'> & Partial<Pick<PaymentRequirements, 'network' | 'scheme'>>,
 ): { ok: true } | { ok: false; error: string } {
+	// SECURITY: a token address can exist on several chains; the signed network and scheme must be the one we advertised
+	// (CAIP-2 eip155:<chainId>), else a payer settles elsewhere and the seller is never credited. Enforced whenever the
+	// caller supplies them (facilitatorVerifyAndSettle always does).
+	if (requirements.network !== undefined && String(accepted.network ?? '').toLowerCase() !== requirements.network.toLowerCase()) {
+		return { ok: false, error: 'network_mismatch' }
+	}
+	if (requirements.scheme !== undefined && String(accepted.scheme ?? '').toLowerCase() !== requirements.scheme.toLowerCase()) {
+		return { ok: false, error: 'scheme_mismatch' }
+	}
 	if (String(accepted.payTo).toLowerCase() !== requirements.payTo.toLowerCase()) {
 		return { ok: false, error: 'payTo_mismatch' }
 	}
@@ -253,16 +262,22 @@ export async function facilitatorVerifyAndSettle(
 
 	// SECURITY cross-check: the client-signed requirements must match what we
 	// advertised, or settling would send money somewhere we didn't intend.
-	const check = crossCheckSignedRequirements(accepted, requirements)
-	if (!check.ok) return check
+	const check = crossCheckSignedRequirements(accepted, requirements)  // includes network + scheme equality
+	if (!check.ok) return { ...check, definite: true }
 
 	try {
 		const client = new HTTPFacilitatorClient(resolveFacilitatorConfig(env))
 
-		const v = await client.verify(payload, accepted)
-		if (!v.isValid) return { ok: false, error: v.invalidReason || 'payment_invalid' }
+		// SECURITY: hand the facilitator OUR scheme/network/payTo/asset/extra, not the payer's copy. Amount stays the payer's
+		// signed value (cross-checked >= advertised above).
+		const serverReq = { ...accepted, scheme: requirements.scheme, network: requirements.network, payTo: requirements.payTo, asset: requirements.asset, extra: requirements.extra ?? accepted.extra } as typeof accepted
 
-		const s = await client.settle(payload, accepted)
+		const v = await client.verify(payload, serverReq)
+		// MONEY-PATH: a 'nonce/authorization already used' refusal means the authorization may have settled (e.g. a slow earlier submit):
+		// it is NOT definite; the caller keeps its claim and the reconcile job looks for the settlement tx.
+		if (!v.isValid) { const reason = v.invalidReason || 'payment_invalid'; return { ok: false, error: reason, definite: !/nonce|authori[sz]ation.*used|already.*(used|submitted)|used.*authori[sz]ation/i.test(reason) } } // verify refused: nothing was submitted (unless the nonce is already used)
+
+		const s = await client.settle(payload, serverReq)
 		if (!s.success) return { ok: false, error: s.errorReason || 'settle_failed' }
 
 		return { ok: true, txHash: s.transaction, network: String(s.network), payer: s.payer }

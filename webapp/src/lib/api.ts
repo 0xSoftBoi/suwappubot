@@ -89,6 +89,23 @@ class ApiClient {
     return headers
   }
 
+  /**
+   * Auth'd transport for modules that need typed error bodies (e.g. bankApi).
+   * Reuses the exact same auth headers/base URL as every other call.
+   */
+  async rawRequest(endpoint: string, options: RequestInit = {}): Promise<Response> {
+    const headers: Record<string, string> = {
+      ...(options.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      ...this.getAuthHeaders(),
+      ...(options.headers as Record<string, string>),
+    }
+    return fetch(`${this.baseUrl}${endpoint}`, {
+      ...options,
+      headers,
+      signal: options.signal ?? AbortSignal.timeout(20000),
+    })
+  }
+
   private async fetch<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',

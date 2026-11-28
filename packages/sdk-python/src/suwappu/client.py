@@ -4,7 +4,7 @@ import asyncio
 import inspect
 import json
 import os
-from typing import Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 from urllib.parse import quote
 
 import httpx
@@ -65,6 +65,9 @@ from suwappu.types import (
     WebhookPagination,
     WebhookTestResult,
 )
+
+if TYPE_CHECKING:
+    from suwappu.bank import BankNamespace
 
 DEFAULT_BASE_URL = "https://api.suwappu.bot"
 
@@ -853,6 +856,16 @@ class SuwappuClient:
     @property
     def agent(self) -> _AgentNamespace:
         return _AgentNamespace(self)
+
+    # --- Suwappu Bank (/v1/agent/bank/*) ---
+
+    @property
+    def bank(self) -> BankNamespace:
+        if getattr(self, "_bank", None) is None:
+            from suwappu.bank import BankNamespace
+
+            self._bank = BankNamespace(self)
+        return self._bank
 
     # --- Billing (Telegram Mini App auth, not agent API key) ---
 
