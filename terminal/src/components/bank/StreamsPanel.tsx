@@ -63,13 +63,13 @@ function CreateStream({ onClose }: { onClose: () => void }) {
   )
 }
 
-function Usage({ sv, onClose }: { sv: StreamView; onClose: () => void }) {
+function Usage({ sv, decimals, onClose }: { sv: StreamView; decimals: number | null; onClose: () => void }) {
   const qc = useQueryClient()
   const [units, setUnits] = useState('')
   const [review, setReview] = useState(false)
   const ok = /^[1-9]\d{0,17}$/.test(units)
   if (review) {
-    return <MoneyAction title="Report usage" rows={[{ label: 'Units used', value: units }, { label: 'Price per unit', value: sv.stream.unitPriceMinor ?? '—', mono: true }, { label: 'Stream', value: sv.stream.id, mono: true }]} confirmLabel="Report" note="Only the payee can report usage. The payer is charged for these units." run={(k) => bank.streamUsage(sv.stream.id, units, k)} onClose={() => { void qc.invalidateQueries({ queryKey: ['bank', 'streams'] }); onClose() }} />
+    return <MoneyAction title="Report usage" rows={[{ label: 'Units used', value: units }, { label: 'Price per unit', value: sv.stream.unitPriceMinor ? `${formatMinor(sv.stream.unitPriceMinor, decimals)} ${sv.stream.asset}` : '—' }, { label: 'Stream', value: sv.stream.id, mono: true }]} confirmLabel="Report" note="Only the payee can report usage. The payer is charged for these units." run={(k) => bank.streamUsage(sv.stream.id, units, k)} onClose={() => { void qc.invalidateQueries({ queryKey: ['bank', 'streams'] }); onClose() }} />
   }
   return (
     <Sheet title="Report usage" onClose={onClose}>
@@ -101,6 +101,7 @@ export function StreamsPanel() {
   const [usage, setUsage] = useState<StreamView | null>(null)
   const [adv, setAdv] = useState<StreamView | null>(null)
   const [settling, setSettling] = useState<StreamView | null>(null)
+  const [stopping, setStopping] = useState<{ sv: StreamView; a: 'pause' | 'cancel' } | null>(null)
   const act = useMutation({ mutationFn: ({ id, a }: { id: string; a: 'pause' | 'resume' | 'cancel' }) => bank.streamAction(id, a), onSuccess: () => void qc.invalidateQueries({ queryKey: ['bank', 'streams'] }) })
   const dec = (s: { asset: string; chain: string }) => assets.data?.find((a) => a.symbol === s.asset && a.chain === s.chain)?.decimals ?? null
   return (
@@ -122,9 +123,9 @@ export function StreamsPanel() {
               <Row label="Cap" value={`${formatMinor(s.capMinor, d)} ${s.asset}`} />
             </div>
             <div className="grid grid-cols-3 gap-2 mt-2">
-              {s.status === 'paused' ? <Btn disabled={act.isPending} onClick={() => act.mutate({ id: s.id, a: 'resume' })}>Resume</Btn> : <Btn variant="ghost" disabled={act.isPending || s.status !== 'active'} onClick={() => act.mutate({ id: s.id, a: 'pause' })}>Pause</Btn>}
+              {s.status === 'paused' ? <Btn disabled={act.isPending} onClick={() => act.mutate({ id: s.id, a: 'resume' })}>Resume</Btn> : <Btn variant="ghost" disabled={act.isPending || s.status !== 'active'} onClick={() => setStopping({ sv, a: 'pause' })}>Pause</Btn>}
               <Btn variant="ghost" disabled={act.isPending} onClick={() => setSettling(sv)}>Settle</Btn>
-              <Btn variant="danger" disabled={act.isPending || s.status === 'cancelled'} onClick={() => act.mutate({ id: s.id, a: 'cancel' })}>Cancel</Btn>
+              <Btn variant="danger" disabled={act.isPending || s.status === 'cancelled'} onClick={() => setStopping({ sv, a: 'cancel' })}>Cancel</Btn>
             </div>
             {(s.kind === 'metered' || BigInt(sv.advanceAvailableMinor) > 0n) && (
               <div className="grid grid-cols-2 gap-2 mt-2">
@@ -137,7 +138,8 @@ export function StreamsPanel() {
       </QueryState>
       {creating && <CreateStream onClose={() => { setCreating(false); void qc.invalidateQueries({ queryKey: ['bank', 'streams'] }) }} />}
       {settling && <MoneyAction title="Settle stream now" rows={[{ label: 'Amount to settle', value: `${formatMinor(settling.unsettledMinor, dec(settling.stream))} ${settling.stream.asset}` }, { label: 'From payer account', value: settling.stream.payerAccountId, mono: true }, { label: 'To payee account', value: settling.stream.payeeAccountId, mono: true }, { label: 'Fee', value: 'None shown by the API' }]} confirmLabel="Settle" note="The amount actually settled is whatever has accrued when the request runs." trackId={transferIdOf.stream} run={() => bank.streamAction(settling.stream.id, 'settle')} onClose={() => { setSettling(null); void qc.invalidateQueries({ queryKey: ['bank', 'streams'] }) }} />}
-      {usage && <Usage sv={usage} onClose={() => setUsage(null)} />}
+      {stopping && <MoneyAction title={stopping.a === 'pause' ? 'Pause stream' : 'Cancel stream'} rows={[{ label: 'Paid out to the payee now', value: `${formatMinor(stopping.sv.unsettledMinor, dec(stopping.sv.stream))} ${stopping.sv.stream.asset}` }, { label: 'To payee account', value: stopping.sv.stream.payeeAccountId, mono: true }, { label: 'Fee', value: 'None shown by the API' }]} confirmLabel={stopping.a === 'pause' ? 'Pause stream' : 'Cancel stream'} note={`${stopping.a === 'pause' ? 'Pausing' : 'Cancelling'} first pays out what has accrued so far.`} trackId={transferIdOf.stream} run={() => bank.streamAction(stopping.sv.stream.id, stopping.a)} onClose={() => { setStopping(null); void qc.invalidateQueries({ queryKey: ['bank'] }) }} />}
+      {usage && <Usage sv={usage} decimals={dec(usage.stream)} onClose={() => setUsage(null)} />}
       {adv && <Advance sv={adv} decimals={dec(adv.stream)} onClose={() => { setAdv(null); void qc.invalidateQueries({ queryKey: ['bank', 'streams'] }) }} />}
     </div>
   )

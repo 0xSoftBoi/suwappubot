@@ -292,6 +292,7 @@ export function Header() {
         {menuOpen && (
           <div className="terminal-mobile-header-menu terminal-theme-overlay absolute left-0 right-0 top-[calc(100%+6px)] z-[80] flex flex-col gap-3 overflow-y-auto p-3">
             <ModeSwitch className="terminal-mobile-mode-switch w-full justify-between" />
+            <div className="min-h-[44px] [&>a]:h-11 [&>a]:w-full [&>a]:justify-center" onClick={() => setMenuOpen(false)}><BankLink /></div>
 
             <button
               type="button"

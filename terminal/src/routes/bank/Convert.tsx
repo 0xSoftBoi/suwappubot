@@ -37,7 +37,7 @@ export function Convert() {
     <BankPage title="Convert">
       <Card className="space-y-3">
         {accounts.isError && <ErrorBox error={accounts.error} onRetry={() => void accounts.refetch()} />}
-        <Field label="From">{accounts.isLoading ? <p className="text-xs animate-pulse">Loading accounts…</p> : <AccountSelect accounts={accounts.data ?? []} value={from} onChange={(v) => { setFrom(v); quote.reset() }} />}</Field>
+        <Field label="From">{accounts.isLoading ? <p className="text-xs animate-pulse">Loading accounts…</p> : <AccountSelect accounts={accounts.data ?? []} value={from} onChange={(v) => { setFrom(v); if (v === to) setTo(''); quote.reset() }} />}</Field>
         <Field label="To"><AccountSelect accounts={accounts.data ?? []} value={to} onChange={(v) => { setTo(v); quote.reset() }} exclude={from} /></Field>
         <Field label="Amount"><AmountInput value={amount} onChange={(v) => { setAmount(v); quote.reset() }} symbol={a?.asset} decimals={a?.decimals ?? null} /></Field>
         {quote.isError && <ErrorBox error={quote.error} />}

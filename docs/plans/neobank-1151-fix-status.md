@@ -77,3 +77,19 @@ item 8 -> FIXED (cloudflare/suwappu-router.worker.js comment no longer claims a 
 item 9 -> FIXED (EscrowView adds symbol + decimals); stream EWA advance availability not touched
 row 29, 56 (docs) -> NOT FIXED (no doc edits made in this pass)
 checks: bun run check 0, check:openapi 0, check:mcp 0, check_env_schema 0, black database/ clean; DDL proof: python ensure_bank_tables on bank_proof_a OK, drizzle-kit migrate on bank_proof_b OK, idem_key/idem_hash present in both
+- [C2] row 47 → FIXED (routes/bank/Ramps.tsx Kyc: TOS/KYC links render outside `kyc.data &&`)
+- [C2] row 9 → FIXED client+nginx (terminal/nginx.conf `map $bank_loggable` skips access log for /bank/claim/*, /bank/app/remittance/claim/*, and any request whose Referer is a claim page; routes/bank/index.tsx ClaimGate replaceState to /bank/claim; lib/posthog.ts before_send redacts the token). nginx binary absent: regex checked with a script. Recipient binding = batch D.
+- [C2] row 27 → FIXED (nginx.conf proxy regex now includes enterprise). Routing re-checked by script: /bank, /bank/send, /bank/claim/t, /pay/x stay SPA; /bank/app/*, /enterprise/* proxied.
+- [C2] row 13 (CSP) → FIXED (nginx.conf CSP: js.stripe.com in script-src/frame-src, hooks.stripe.com frame-src, api.stripe.com connect-src). RevealCard row 24 is C1's.
+- [C2] BankShell/Sheet scroll → code FIXED; browser verification pending.
+- [C2] row 20 → FIXED (routes/bank/Ramps.tsx: quote requested with externalAccountId; shown quote only if best.provider === destination provider else blocked with message; offramp sends minReceiveMinor = shown receive amount; bankApi.ts types updated)
+- [C2] row 31 → FIXED (Ramps.tsx per-tab titles)
+- [C2] row 46 → FIXED (routes/bank/Convert.tsx clears `to` when From equals it)
+- [C2] row 42 → FIXED (lib/plain-language.ts preserves leading capital)
+- [C2] row 25 → FIXED (lib/a11yToast.tsx honours options.severity)
+- [C2] row 49 → NOT FIXED (screen-reader dependent, unverified; per-toast role=alert/status left as is)
+- [C2] row 21 → FIXED (components/layout/Header.tsx BankLink added to mobile menu)
+- [C2] row 30 → FIXED (components/bank/StreamsPanel.tsx Pause/Cancel via MoneyAction showing unsettled amount; invalidates ['bank'])
+- [C2] row 51 → FIXED (StreamsPanel.tsx Usage shows formatted unit price)
+- [C2] rows 15/44/53 (components/bank/CreditExtra.tsx) → already fixed in tree by another fixer; not touched.
+- [C2] rows 26 (NOT-REAL), 29/52/56 (api-ts/docs) → not mine.

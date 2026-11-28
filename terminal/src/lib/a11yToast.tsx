@@ -134,7 +134,8 @@ function renderToast(t: Toast, severity: ToastSeverity, message: string) {
   )
 }
 
-function show(severity: ToastSeverity, message: string, options: A11yToastOptions = {}) {
+function show(inferred: ToastSeverity, message: string, options: A11yToastOptions = {}) {
+  const severity = options.severity ?? inferred
   const isError = severity === 'error'
   // Errors persist until dismissed; others auto-dismiss (and pause on hover).
   const duration = isError ? Infinity : options.duration ?? 4000

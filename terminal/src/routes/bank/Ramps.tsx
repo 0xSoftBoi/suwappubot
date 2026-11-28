@@ -145,13 +145,15 @@ function CashOut() {
   const e = ext.data?.find((x) => x.id === dest)
   const minor = a?.decimals != null ? parseToMinor(amount, a.decimals) : null
   useEffect(() => { key.reset() }, [from, dest, minor]) // eslint-disable-line react-hooks/exhaustive-deps
-  const quote = useMutation({ mutationFn: () => bank.rampQuote({ direction: 'offramp', rail: (e as NonNullable<typeof e>).rail, asset: (a as NonNullable<typeof a>).asset, amountMinor: minor as string }) })
+  const quote = useMutation({ mutationFn: () => bank.rampQuote({ direction: 'offramp', rail: (e as NonNullable<typeof e>).rail, asset: (a as NonNullable<typeof a>).asset, amountMinor: minor as string, externalAccountId: dest }) })
   const go = useMutation({
-    mutationFn: () => bank.offramp({ provider: e?.provider, fromAccountId: from, externalAccountId: dest, amountMinor: minor as string }, key.current()),
+    mutationFn: () => bank.offramp({ provider: e?.provider, fromAccountId: from, externalAccountId: dest, amountMinor: minor as string, minReceiveMinor: best?.receiveAmountMinor }, key.current()),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['bank'] }),
   })
   const routed: RoutedQuotes | undefined = quote.data?.routed
-  const best = routed?.best
+  // The quote shown must be the one the executing provider (the destination's) gave; otherwise block rather than show another provider's terms.
+  const best = routed?.best && e && routed.best.provider === e.provider ? routed.best : undefined
+  const mismatch = !!routed?.best && !!e && routed.best.provider !== e.provider
   const done = () => { key.reset(); setOpen(false); go.reset(); quote.reset(); setAmount('') }
   const tid = go.data ? transferIdOf.offramp(go.data) : null
   return (
@@ -165,6 +167,7 @@ function CashOut() {
         {ext.data?.length === 0 && <p className="text-xs text-terminal-text-secondary">Add a bank account in the Banks tab first.</p>}
         <Field label="Amount"><AmountInput value={amount} onChange={(v) => { setAmount(v); quote.reset() }} symbol={a?.asset} decimals={a?.decimals ?? null} /></Field>
         {quote.isError && <ErrorBox error={quote.error} />}
+        {mismatch && <p role="alert" className="text-xs text-bear">This bank account is served by {e?.provider}, which did not return a quote for this amount. Try a different amount or bank account.</p>}
         <Btn className="w-full" disabled={!a || !e || !minor || quote.isPending} onClick={() => quote.mutate()}>{quote.isPending ? 'Getting quote…' : 'Get quote'}</Btn>
       </Card>
       {best && a && (
@@ -259,7 +262,7 @@ export function Ramps() {
   const loc = useLocation()
   const [tab, setTab] = useState<Tab>(loc.pathname.endsWith('cashout') ? 'out' : 'add')
   return (
-    <BankPage title={tab === 'out' ? 'Cash out' : 'Add money'}>
+    <BankPage title={{ add: 'Add money', out: 'Cash out', kyc: 'Verification', banks: 'Bank accounts', rails: 'Rails', qr: 'Pay a QR code' }[tab]}>
       <Tabs<Tab> value={tab} onChange={setTab} tabs={[{ id: 'add', label: 'Add money' }, { id: 'out', label: 'Cash out' }, { id: 'kyc', label: 'Verification' }, { id: 'banks', label: 'Banks' }, { id: 'rails', label: 'Rails' }, { id: 'qr', label: 'QR' }]} />
       {tab === 'add' && <AddMoney />}
       {tab === 'out' && <CashOut />}

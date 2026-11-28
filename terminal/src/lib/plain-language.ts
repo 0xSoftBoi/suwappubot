@@ -92,7 +92,7 @@ export function toPlainLanguage(text: string): {
     // Whole-word, case-insensitive match.
     const re = new RegExp(`\\b${escapeRegExp(entry.term)}\\b`, 'gi')
     if (re.test(out)) {
-      out = out.replace(re, entry.plain)
+      out = out.replace(re, (m) => (/^[A-Z]/.test(m) && /^[a-z]/.test(entry.plain) ? entry.plain.charAt(0).toUpperCase() + entry.plain.slice(1) : entry.plain))
       matched.push(entry)
     }
   }
