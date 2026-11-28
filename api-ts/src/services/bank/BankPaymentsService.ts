@@ -7,7 +7,7 @@
  *    the Solana Pay `reference`. The recurring job credits the invoice ONLY from a Transfer log / finalized signature
  *    at the required confirmation depth; (invoiceId, refKey) is unique so rescans are idempotent.
  */
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, randomBytes, randomInt } from 'node:crypto'
 import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { Context, Effect, Layer, Option } from 'effect'
 import {
@@ -363,9 +363,12 @@ export const BankPaymentsServiceLive = Layer.succeed(BankPaymentsService, {
 						// MONEY-PATH: the tagged total (amount + tag) must be unique among the account's live invoices (same chain+asset), not just the tag.
 						const usedTags = new Set(used.map((u) => u.t))
 						const usedTotals = new Set(used.map((u) => (BigInt(u.a) + BigInt(u.t)).toString()))
-						const start = (randomBytes(2).readUInt16BE() % TAG_MAX) + 1
+						// Uniform start (randomInt rejects out-of-range draws, so no modulo bias), then a
+						// wrap-around scan of the tag space 1..TAG_MAX.
+						const start = randomInt(0, TAG_MAX)
 						for (let i = 0; i < TAG_MAX; i++) {
-							const cand = ((start + i - 1) % TAG_MAX) + 1
+							const offset = start + i
+							const cand = (offset >= TAG_MAX ? offset - TAG_MAX : offset) + 1
 							if (!usedTags.has(String(cand)) && !usedTotals.has((total + BigInt(cand)).toString())) {
 								tag = BigInt(cand)
 								break
