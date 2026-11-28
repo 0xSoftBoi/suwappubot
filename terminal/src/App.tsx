@@ -36,6 +36,15 @@ const BridgeRoute = lazy(() =>
   import('./routes/BridgeRoute').then((m) => ({ default: m.BridgeRoute })),
 )
 
+// Suwappu Bank. Bot buttons open these paths on this host (/bank, /bank/send, /bank/claim/<token>, /pay/<slug>),
+// so they are mounted ahead of the host gate and use their own mobile shell instead of the trading workspace.
+const BankRoutes = lazy(() =>
+  import('./routes/bank').then((m) => ({ default: m.BankRoutes })),
+)
+const PayInvoice = lazy(() =>
+  import('./routes/bank/PayInvoice').then((m) => ({ default: m.PayInvoice })),
+)
+
 function DeferredRoute({ children }: { children: ReactNode }) {
   return <Suspense fallback={null}>{children}</Suspense>
 }
@@ -153,6 +162,9 @@ export function App() {
             callback forwards to the backend regardless of which origin (terminal
             or root) the oauth_redirect_base allowlist points Google back to. */}
         <Route path="/auth/callback/:provider" element={<DeferredRoute><OAuthCallback /></DeferredRoute>} />
+        <Route path="/bank/*" element={<DeferredRoute><BankRoutes /></DeferredRoute>} />
+        {/* Public, unauthenticated invoice page (no session required to view or pay by URI/QR). */}
+        <Route path="/pay/:slug" element={<DeferredRoute><PayInvoice /></DeferredRoute>} />
         <Route
           path="*"
           element={isTerminalHost() ? (
