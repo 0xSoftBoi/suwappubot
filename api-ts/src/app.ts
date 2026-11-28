@@ -240,6 +240,12 @@ export function createApp(config: AppConfig) {
 	app.use('/public/bank/*', bodyLimit({ maxSize: 64 * 1024 }))
 	app.use('/x402/bank/*', bodyLimit({ maxSize: 1024 * 1024 }))
 	app.route('/webapp/bank', bankWebappRoutes)
+	// Same Telegram-authed bank app at a second path. The production edge worker sends every
+	// `/webapp/*` request on api.suwappu.bot to python-api (allowlisted exceptions aside), so
+	// `/webapp/bank` is unreachable through that domain until the worker is redeployed;
+	// `/bank/app/*` is not under a python prefix and reaches api-ts today.
+	app.use('/bank/app/*', bodyLimit({ maxSize: 2 * 1024 * 1024 }))
+	app.route('/bank/app', bankWebappRoutes)
 	// Bank provider webhooks (raw-body signature verified, no user auth).
 	app.use('/bank/webhooks/*', ipRateLimit(600)) // signature-authenticated ramp provider callbacks
 	app.route('/bank/webhooks', bankWebhookRoutes)
