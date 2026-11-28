@@ -71,3 +71,9 @@ item 8 (cloudflare worker comment), 9 (escrow decimals) -> NOT STARTED
 - Claim "Open in Telegram" token carry -> FIXED (components/bank/BankShell.tsx NeedsTelegram -> `?start=claim_<token>`). NOTE batch C (owns BankShell): minimal additive edit made there (useLocation import + href); keep it when editing row 1.
 - Idempotency across sheet close/reopen -> FIXED for my screens via new terminal/src/hooks/bank/intentKey.ts (sessionStorage, fingerprint + 30 min TTL, cleared on success) used by Send, PayInvoice, Payments invoice create/pay. NOTE batch C (row 19): MoneyAction/useIdempotencyKey is unchanged; other MoneyAction callers can use `intentKey` too.
 - Claim has no idempotency key (server CAS single-use), nothing to persist.
+## Batch D final
+item 7 -> FIXED (POST /ramps/quote optional externalAccountId: quotes only the executing provider/rail, response adds provider, quoteId, expiresAt, receiveAmountMinor; POST /ramps/offramp optional minReceiveMinor -> CONFLICT if fresh quote pays less, checked before any provider transfer/fund move; BankRampService.ts, routes/bank/ramps.ts)
+item 8 -> FIXED (cloudflare/suwappu-router.worker.js comment no longer claims a #1150 review)
+item 9 -> FIXED (EscrowView adds symbol + decimals); stream EWA advance availability not touched
+row 29, 56 (docs) -> NOT FIXED (no doc edits made in this pass)
+checks: bun run check 0, check:openapi 0, check:mcp 0, check_env_schema 0, black database/ clean; DDL proof: python ensure_bank_tables on bank_proof_a OK, drizzle-kit migrate on bank_proof_b OK, idem_key/idem_hash present in both
